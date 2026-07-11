@@ -1,0 +1,188 @@
+CREATE DATABASE ulov
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+USE ulov;
+
+CREATE TABLE users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+    name VARCHAR(100),
+    username VARCHAR(100) UNIQUE,
+
+    email VARCHAR(150) UNIQUE,
+    phone VARCHAR(20),
+
+    gender ENUM('male','female','other'),
+
+    age INT,
+
+    avatar VARCHAR(500),
+
+    country VARCHAR(100),
+    language VARCHAR(100),
+
+    verified BOOLEAN DEFAULT false,
+
+    online BOOLEAN DEFAULT false,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE wallets (
+
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+    user_id BIGINT NOT NULL,
+
+    balance INT DEFAULT 0,
+
+    updated_at TIMESTAMP
+    DEFAULT CURRENT_TIMESTAMP
+    ON UPDATE CURRENT_TIMESTAMP,
+
+
+    FOREIGN KEY(user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE
+);
+
+
+CREATE TABLE wallet_transactions (
+
+id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+user_id BIGINT,
+
+type ENUM(
+'recharge',
+'call',
+'refund'
+),
+
+title VARCHAR(255),
+
+coins INT,
+
+amount DECIMAL(10,2),
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+
+FOREIGN KEY(user_id)
+REFERENCES users(id)
+
+);
+
+
+
+CREATE TABLE call_history (
+
+id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+caller_id BIGINT,
+
+receiver_id BIGINT,
+
+
+call_type ENUM(
+'voice',
+'video'
+),
+
+
+duration_seconds INT,
+
+coins_spent INT,
+
+started_at DATETIME,
+
+ended_at DATETIME,
+
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+
+FOREIGN KEY(caller_id)
+REFERENCES users(id),
+
+FOREIGN KEY(receiver_id)
+REFERENCES users(id)
+
+);
+
+
+CREATE TABLE favorites (
+
+id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+user_id BIGINT,
+
+favorite_user_id BIGINT,
+
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+
+UNIQUE(
+user_id,
+favorite_user_id
+)
+
+);
+
+
+
+CREATE TABLE profiles (
+
+id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+user_id BIGINT,
+
+bio TEXT,
+
+height INT,
+
+city VARCHAR(100),
+
+interests JSON,
+
+photos JSON,
+
+voice_rate INT DEFAULT 10,
+
+video_rate INT DEFAULT 60,
+
+
+FOREIGN KEY(user_id)
+REFERENCES users(id)
+
+);
+
+
+CREATE TABLE call_sessions (
+
+id BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+channel VARCHAR(100),
+
+caller_id BIGINT,
+
+receiver_id BIGINT,
+
+token TEXT,
+
+status ENUM(
+'ringing',
+'connected',
+'ended'
+),
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+
+SHOW TABLES;
+
+
