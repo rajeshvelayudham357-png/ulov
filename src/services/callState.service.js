@@ -7,6 +7,9 @@ Earning
 import {
 normalizeCallTypeForDb
 } from "../constants/callTypes.js";
+import {
+calculateCallBilling
+} from "./callRate.service.js";
 
 export const ACTIVE_CALL_STATUSES = [
 "live",
@@ -97,7 +100,6 @@ callerId,
 receiverId,
 type,
 duration,
-coinsSpent,
 callHistoryId
 })=>{
 
@@ -110,11 +112,12 @@ Math.max(
 Number(duration ?? 0)
 );
 
-const normalizedCoins =
-Math.max(
-0,
-Number(coinsSpent ?? 0)
-);
+const billing =
+await calculateCallBilling({
+duration:normalizedDuration,
+type:normalizedType,
+receiverId
+});
 
 let history =
 null;
@@ -138,6 +141,7 @@ TERMINAL_CALL_STATUSES.includes(history.status)
  return {
   history,
   earning:existingEarning,
+  billing,
   alreadyCompleted:true
  };
 }
@@ -154,7 +158,7 @@ if(history){
  await history.update({
  type:normalizedType || history.type,
  duration:normalizedDuration,
- coinsSpent:normalizedCoins,
+ coinsSpent:billing.maleCost,
  status:"completed"
  });
 }else{
@@ -188,7 +192,7 @@ if(history){
   await history.update({
   type:normalizedType || history.type,
   duration:normalizedDuration,
-  coinsSpent:normalizedCoins
+  coinsSpent:billing.maleCost
   });
  }else{
   history =
@@ -197,16 +201,11 @@ if(history){
   receiverId,
   type:normalizedType,
   duration:normalizedDuration,
-  coinsSpent:normalizedCoins,
+  coinsSpent:billing.maleCost,
   status:"completed"
   });
  }
 }
-
-const femaleGold =
-Math.floor(
-normalizedCoins * 0.5
-);
 
 const [
 earning
@@ -219,14 +218,9 @@ where:{
 
 defaults:{
  userId:receiverId,
- coins:femaleGold,
- amount:femaleGold * 0.5,
- duration:Math.max(
- 1,
- Math.ceil(
- normalizedDuration / 60
- )
- ),
+ coins:billing.femaleEarn,
+ amount:billing.femaleAmount,
+ duration:billing.minutes,
  status:"pending"
 }
 
@@ -235,6 +229,7 @@ defaults:{
 return {
  history,
  earning,
+ billing,
  alreadyCompleted:false
 };
 

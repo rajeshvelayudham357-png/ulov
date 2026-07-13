@@ -272,6 +272,20 @@ if(blockedCallerIds.length > 0){
  };
 }
 
+const requestedType =
+String(req.query.type ?? "all").toLowerCase();
+
+if(
+requestedType === "audio" ||
+requestedType === "voice"
+){
+ whereClause.type = {
+  [Op.in]:["voice","audio"]
+ };
+}else if(requestedType === "video"){
+ whereClause.type = "video";
+}
+
 const [
  history,
  total,

@@ -1,10 +1,9 @@
 import express from "express";
 
 import {
-
 requestWithdraw,
+getWithdrawSummary,
 withdrawHistory
-
 }
 from "../controllers/withdraw.controller.js";
 
@@ -18,6 +17,10 @@ router.post(
 requestWithdraw
 );
 
+router.get(
+"/summary/:userId",
+getWithdrawSummary
+);
 
 router.get(
 "/:userId",

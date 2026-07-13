@@ -10,6 +10,9 @@ import Kyc from "./Kyc.js";
 import {
   SupportTicket
   } from "./SupportTicket.js";
+import {
+  SupportMessage
+  } from "./SupportMessage.js";
   
   
   import {
@@ -241,6 +244,22 @@ Earning.belongsTo(
         }
         );
 
+SupportTicket.hasMany(
+SupportMessage,
+{
+foreignKey:"ticketId",
+as:"messages"
+}
+);
+
+SupportMessage.belongsTo(
+SupportTicket,
+{
+foreignKey:"ticketId",
+as:"ticket"
+}
+);
+
 User.hasMany(
   DeviceToken,
   {
@@ -402,6 +421,7 @@ export {
   Withdraw,
   Kyc,
   SupportTicket,
+SupportMessage,
 Broadcast,
 DeviceToken,
 NotificationRecord,

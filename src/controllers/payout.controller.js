@@ -8,6 +8,10 @@ import {
 
 } from "../models/index.js";
 
+import {
+  getFemaleWithdrawSummary,
+} from "../services/withdraw.service.js";
+
 
 
 
@@ -304,6 +308,9 @@ status:"approved"
 
 });
 
+const summary =
+await getFemaleWithdrawSummary(withdraw.userId);
+
 
 
 
@@ -312,7 +319,9 @@ res.json({
 
 success:true,
 
-message:"Payout approved"
+message:"Payout approved",
+
+summary
 
 
 });
@@ -409,6 +418,9 @@ status:"rejected"
 
 });
 
+const summary =
+await getFemaleWithdrawSummary(withdraw.userId);
+
 
 
 
@@ -416,7 +428,9 @@ res.json({
 
 success:true,
 
-message:"Payout rejected"
+message:"Payout rejected",
+
+summary
 
 });
 

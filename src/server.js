@@ -23,6 +23,15 @@ import {
 initChatRealtime
 } from "./services/chatRealtime.service.js";
 import {
+initSupportRealtime
+} from "./services/supportRealtime.service.js";
+import {
+ensureSupportTables
+} from "./services/support.service.js";
+import {
+ensureUserSchema
+} from "./services/userSchema.service.js";
+import {
 purgeOldChatMessages
 } from "./controllers/chat.controller.js";
 import {
@@ -89,6 +98,11 @@ io,
 onlineUsers
 );
 
+initSupportRealtime(
+io,
+onlineUsers
+);
+
 const syncNotificationTables =
 async()=>{
 
@@ -126,6 +140,25 @@ console.log(
 
 console.log(
 "NOTIFICATION TABLE SYNC ERROR",
+error.message
+);
+
+}
+
+try{
+
+await ensureUserSchema();
+
+await ensureSupportTables();
+
+console.log(
+"Support tables ready"
+);
+
+}catch(error){
+
+console.log(
+"SUPPORT TABLE SYNC ERROR",
 error.message
 );
 
@@ -795,6 +828,49 @@ callerSocket
 
 
 
+
+// =====================
+// SUPPORT TICKET ROOMS
+// =====================
+
+socket.on(
+"join-support-ticket",
+(data)=>{
+const ticketId =
+Number(data?.ticketId);
+
+if(!ticketId){
+return;
+}
+
+socket.join(
+`support-ticket-${ticketId}`
+);
+}
+);
+
+socket.on(
+"join-support-admin",
+()=>{
+socket.join("support-admin");
+}
+);
+
+socket.on(
+"leave-support-ticket",
+(data)=>{
+const ticketId =
+Number(data?.ticketId);
+
+if(!ticketId){
+return;
+}
+
+socket.leave(
+`support-ticket-${ticketId}`
+);
+}
+);
 
 // =====================
 // DISCONNECT

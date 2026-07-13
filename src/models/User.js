@@ -15,6 +15,12 @@ export const User = sequelize.define(
       primaryKey: true,
     },
 
+    publicUserId: {
+      type: DataTypes.STRING(8),
+      unique: true,
+      allowNull: true,
+    },
+
 
     // BASIC DETAILS
 
@@ -96,6 +102,21 @@ export const User = sequelize.define(
       defaultValue: false,
     },
 
+    verificationAudioUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    verificationSentence: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+
+    verificationVideoUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
 
     videoVerified: {
       type: DataTypes.BOOLEAN,
@@ -106,6 +127,11 @@ export const User = sequelize.define(
     verified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
+    },
+
+    accountStatus: {
+      type: DataTypes.STRING(20),
+      defaultValue: "pending",
     },
 
 

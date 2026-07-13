@@ -10,14 +10,26 @@ notifyMalesWhenFemaleOnline
 } from "../services/notificationPush.service.js";
 
 import {
-getFemaleRatingStatsMap,
-sortUsersByRating
+getFemaleRatingStatsMap
 } from "../services/ratingStats.service.js";
 
 import {
 filterBlockedUsers,
 getBlockedPeerIds
 } from "../services/block.service.js";
+import {
+getPublicCallRates
+} from "../services/callRate.service.js";
+import {
+buildVerificationAudioUrl,
+buildVerificationVideoUrl
+} from "../services/verificationUpload.service.js";
+import {
+ensureUserSchema
+} from "../services/userSchema.service.js";
+
+const ensureVerificationAudioColumns =
+ensureUserSchema;
   
   
   export const getProfile = async (req, res) => {
@@ -119,7 +131,13 @@ getBlockedPeerIds
     
      audioVerified,
     
-     videoVerified
+     videoVerified,
+
+     verificationAudioUrl,
+
+     verificationSentence,
+
+     verificationVideoUrl
     
     }=req.body;
     
@@ -199,10 +217,28 @@ getBlockedPeerIds
      
      
       videoVerified,
+
+      verificationAudioUrl:
+      verificationAudioUrl ??
+      user.verificationAudioUrl,
+
+      verificationSentence:
+      verificationSentence ??
+      user.verificationSentence,
+
+      verificationVideoUrl:
+      verificationVideoUrl ??
+      user.verificationVideoUrl,
      
      
       verified:
       audioVerified || videoVerified,
+
+      accountStatus:
+      gender === "Female" &&
+      (audioVerified || videoVerified)
+        ? "pending"
+        : user.accountStatus,
      
      
       profileCompleted:true
@@ -257,8 +293,14 @@ getBlockedPeerIds
 
       const {
       gender,
-      userId
+      userId,
+      onlineOnly,
+      shuffle
       }=req.query;
+
+      const isFemaleQuery =
+      String(gender ?? "")
+      .toLowerCase() === "female";
 
       const where={
        verified:true
@@ -266,7 +308,7 @@ getBlockedPeerIds
 
       if(gender){
        where.gender=
-       String(gender).toLowerCase() === "female"
+       isFemaleQuery
        ?
        "Female"
        :
@@ -275,6 +317,17 @@ getBlockedPeerIds
        "Male"
        :
        gender;
+      }
+
+      if(isFemaleQuery){
+       where.accountStatus = "approved";
+
+       if(
+       onlineOnly === "1" ||
+       onlineOnly === "true"
+       ){
+        where.online = true;
+       }
       }
       
       
@@ -293,6 +346,7 @@ getBlockedPeerIds
         "interests",
         "verified",
         "online",
+        "accountStatus",
         "createdAt"
        ],
       
@@ -306,6 +360,9 @@ getBlockedPeerIds
 
       const ratingMap =
       await getFemaleRatingStatsMap();
+
+      const callRates =
+      await getPublicCallRates();
 
       let formattedUsers =
       users.map(
@@ -321,20 +378,43 @@ getBlockedPeerIds
        ratingCount:0
       };
 
+      const isFemale =
+      String(data.gender ?? "")
+      .toLowerCase() === "female";
+
       return {
        ...data,
-       ...stats
+       ...stats,
+       status:
+       data.online
+       ?
+       "online"
+       :
+       "offline",
+       voiceRatePerMinute:
+       isFemale
+       ?
+       callRates.voiceRatePerMinute
+       :
+       undefined,
+       videoRatePerMinute:
+       isFemale
+       ?
+       callRates.videoRatePerMinute
+       :
+       undefined
       };
       }
       );
 
-      const shouldSortByRating =
-      !gender ||
-      String(gender).toLowerCase() === "female";
-
-      if(shouldSortByRating){
+      if(
+      shuffle === "1" ||
+      shuffle === "true"
+      ){
        formattedUsers =
-       sortUsersByRating(formattedUsers);
+       [...formattedUsers].sort(
+       ()=>Math.random() - 0.5
+       );
       }
 
       if(userId){
@@ -387,7 +467,8 @@ getBlockedPeerIds
        page,
        limit,
        hasMore:
-       offset + paginatedUsers.length < total
+       offset + paginatedUsers.length < total,
+       callRates
       });
       }
       
@@ -395,7 +476,8 @@ getBlockedPeerIds
       
       return res.json({
       
-       users:formattedUsers
+       users:formattedUsers,
+       callRates
       
       });
       
@@ -435,6 +517,7 @@ async(req,res)=>{
 
 try{
 
+await ensureUserSchema();
 
 const {
  userId,
@@ -467,15 +550,43 @@ message:"User not found"
 
 
 
-const wasOnline =
-Boolean(user.online);
-
-const isOnline =
+const wantsOnline =
 typeof online === "boolean"
 ?
 online
 :
 status === "online";
+
+const accountStatus =
+user.accountStatus ||
+(
+user.gender === "Female"
+? "pending"
+: "active"
+);
+
+if(
+user.gender === "Female" &&
+wantsOnline &&
+accountStatus !== "approved"
+){
+return res.status(403).json({
+message:
+accountStatus === "rejected"
+? "Your account was rejected by admin"
+: "Your account is waiting for admin approval",
+accountStatus
+});
+}
+
+
+
+
+const wasOnline =
+Boolean(user.online);
+
+const isOnline =
+wantsOnline;
 
 
 
@@ -573,6 +684,8 @@ attributes:[
 
 "online",
 
+"accountStatus",
+
 "createdAt"
 
 ]
@@ -628,5 +741,151 @@ message:error.message
 
 }
 
+
+};
+
+
+export const uploadVerificationAudio =
+async(req,res)=>{
+
+try{
+
+await ensureVerificationAudioColumns();
+
+const {
+userId,
+sentence
+} = req.body;
+
+if(!userId){
+return res.status(400).json({
+message:"userId required"
+});
+}
+
+if(!req.file){
+return res.status(400).json({
+message:"Audio file required"
+});
+}
+
+const user =
+await User.findByPk(userId);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+const verificationAudioUrl =
+buildVerificationAudioUrl(
+req.file.filename
+);
+
+await user.update({
+verificationAudioUrl,
+verificationSentence:
+sentence?.trim() ||
+user.verificationSentence
+});
+
+const host =
+req.get("host");
+
+const protocol =
+req.protocol;
+
+return res.json({
+success:true,
+verificationAudioUrl,
+verificationAudioFullUrl:
+`${protocol}://${host}${verificationAudioUrl}`,
+user
+});
+
+}catch(error){
+
+console.log(
+"UPLOAD VERIFICATION AUDIO ERROR",
+error
+);
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const uploadVerificationVideo =
+async(req,res)=>{
+
+try{
+
+await ensureVerificationAudioColumns();
+
+const {
+userId
+} = req.body;
+
+if(!userId){
+return res.status(400).json({
+message:"userId required"
+});
+}
+
+if(!req.file){
+return res.status(400).json({
+message:"Video file required"
+});
+}
+
+const user =
+await User.findByPk(userId);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+const verificationVideoUrl =
+buildVerificationVideoUrl(
+req.file.filename
+);
+
+await user.update({
+verificationVideoUrl
+});
+
+const host =
+req.get("host");
+
+const protocol =
+req.protocol;
+
+return res.json({
+success:true,
+verificationVideoUrl,
+verificationVideoFullUrl:
+`${protocol}://${host}${verificationVideoUrl}`,
+user
+});
+
+}catch(error){
+
+console.log(
+"UPLOAD VERIFICATION VIDEO ERROR",
+error
+);
+
+return res.status(500).json({
+message:error.message
+});
+
+}
 
 };

@@ -5,8 +5,17 @@ import {
   getUsers,
   updateProfile,
   updateOnlineStatus,
-  getUserById
+  getUserById,
+  uploadVerificationAudio,
+  uploadVerificationVideo
 } from "../controllers/user.controller.js";
+
+import {
+verificationAudioUpload
+} from "../middleware/verificationAudioUpload.js";
+import {
+verificationVideoUpload
+} from "../middleware/verificationVideoUpload.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 
@@ -23,6 +32,18 @@ router.get(
 router.put(
   "/profile",
   updateProfile
+);
+
+router.post(
+  "/verification-audio",
+  verificationAudioUpload.single("audio"),
+  uploadVerificationAudio
+);
+
+router.post(
+  "/verification-video",
+  verificationVideoUpload.single("video"),
+  uploadVerificationVideo
 );
 
 router.get(

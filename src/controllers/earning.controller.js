@@ -8,6 +8,13 @@ import {
     col
    }
    from "sequelize";
+
+import {
+   getCreatorCallRateSummary
+   } from "../services/callRate.service.js";
+   import {
+   getFemaleWithdrawSummary
+   } from "../services/withdraw.service.js";
    
    
    
@@ -69,7 +76,12 @@ import {
    },
    0
    );
-   
+
+   const callRates =
+   await getCreatorCallRateSummary(userId);
+
+   const withdrawSummary =
+   await getFemaleWithdrawSummary(userId);
    
    
    
@@ -81,9 +93,13 @@ import {
    
    
    totalAmount,
+
+   withdrawSummary,
    
    
-   earnings
+   earnings,
+
+   callRates
    
    
    });

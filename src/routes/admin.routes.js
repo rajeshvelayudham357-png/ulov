@@ -9,6 +9,20 @@ import {
 
     adminMe,
 
+    getCallRateConfig,
+
+    updateCallRateConfig,
+
+    getCreatorCallRateConfig,
+
+    updateCreatorCallRateConfig,
+
+    getMasterTasks,
+
+    createMasterTask,
+
+    updateMasterTask,
+
     dashboard,
     
     users,
@@ -49,6 +63,13 @@ createBroadcast
 
 } from "../controllers/broadcast.controller.js";
 
+import {
+adminGetTicket,
+adminListTickets,
+adminSendMessage,
+adminUpdateStatus
+} from "../controllers/adminSupport.controller.js";
+
 
 
 const router =
@@ -69,6 +90,48 @@ requireAdmin
 router.get(
 "/me",
 adminMe
+);
+
+
+router.get(
+"/call-rates",
+getCallRateConfig
+);
+
+
+router.patch(
+"/call-rates",
+updateCallRateConfig
+);
+
+
+router.get(
+"/creator-call-rates",
+getCreatorCallRateConfig
+);
+
+
+router.patch(
+"/creator-call-rates/:id",
+updateCreatorCallRateConfig
+);
+
+
+router.get(
+"/master-tasks",
+getMasterTasks
+);
+
+
+router.post(
+"/master-tasks",
+createMasterTask
+);
+
+
+router.patch(
+"/master-tasks/:id",
+updateMasterTask
 );
 
 
@@ -208,6 +271,24 @@ createBroadcast
 
 );
 
+router.get(
+"/support",
+adminListTickets
+);
 
+router.get(
+"/support/:id",
+adminGetTicket
+);
+
+router.post(
+"/support/:id/messages",
+adminSendMessage
+);
+
+router.patch(
+"/support/:id/status",
+adminUpdateStatus
+);
 
 export default router;

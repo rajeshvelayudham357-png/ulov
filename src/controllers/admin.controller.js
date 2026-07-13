@@ -45,6 +45,20 @@ from "../config/database.js";
 
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import {
+getCallRateSettings,
+updateCallRateSettings,
+getCreatorCallRateSettings,
+updateCreatorEarningPercentage
+} from "../services/callRate.service.js";
+import {
+backfillPublicUserIds
+} from "../services/publicUserId.service.js";
+import {
+createMasterFemaleTask,
+getMasterFemaleTasks,
+updateMasterFemaleTask
+} from "../services/femaleTask.service.js";
 
 
 
@@ -251,6 +265,230 @@ admin:adminProfile
 };
 
 
+export const getCallRateConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getCallRateSettings();
+
+return res.json(
+settings
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateCallRateConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updateCallRateSettings({
+voiceRatePerMinute:req.body.voiceRatePerMinute,
+videoRatePerMinute:req.body.videoRatePerMinute,
+femaleEarningPercentage:req.body.femaleEarningPercentage
+});
+
+return res.json({
+message:"Call rate settings updated",
+settings
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getCreatorCallRateConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+await backfillPublicUserIds();
+
+const creators =
+await getCreatorCallRateSettings();
+
+return res.json(
+creators
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateCreatorCallRateConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const creatorId =
+req.params.id;
+
+const result =
+await updateCreatorEarningPercentage(
+creatorId,
+req.body.femaleEarningPercentage
+);
+
+return res.json({
+message:"Creator earning percentage updated",
+setting:result
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getMasterTasks =
+async(
+req,
+res
+)=>{
+
+try{
+
+const tasks =
+await getMasterFemaleTasks({
+includeInactive:true
+});
+
+return res.json(
+tasks
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const createMasterTask =
+async(
+req,
+res
+)=>{
+
+try{
+
+const task =
+await createMasterFemaleTask(
+req.body
+);
+
+return res
+.status(201)
+.json(
+task
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateMasterTask =
+async(
+req,
+res
+)=>{
+
+try{
+
+const task =
+await updateMasterFemaleTask(
+req.params.id,
+req.body
+);
+
+return res.json(
+task
+);
+
+}catch(error){
+
+const message =
+error?.message || "Unable to update task";
+
+return res
+.status(
+message.includes("not found") ? 404 : 500
+)
+.json({
+message
+});
+
+}
+
+};
+
+
 
 
 const ensureBlockedColumn =
@@ -418,6 +656,8 @@ return {
 
 id:data.id,
 
+publicUserId:data.publicUserId,
+
 name:data.name,
 
 username:data.username,
@@ -451,6 +691,12 @@ verificationType:data.verificationType,
 audioVerified:data.audioVerified,
 
 videoVerified:data.videoVerified,
+
+verificationAudioUrl:data.verificationAudioUrl,
+
+verificationVideoUrl:data.verificationVideoUrl,
+
+verificationSentence:data.verificationSentence,
 
 verified:data.verified,
 
@@ -901,6 +1147,9 @@ await ensureBlockedColumn();
 await ensureAccountStatusColumn();
 
 
+await backfillPublicUserIds();
+
+
 const search =
 String(
 req.query.search ||
@@ -919,6 +1168,8 @@ search
 { nickname:{ [Op.like]:`%${search}%` } },
 
 { username:{ [Op.like]:`%${search}%` } },
+
+{ publicUserId:{ [Op.like]:`%${search}%` } },
 
 { phone:{ [Op.like]:`%${search}%` } },
 
@@ -1290,6 +1541,9 @@ res
 try{
 
 
+await backfillPublicUserIds();
+
+
 const creators =
 await User.findAll({
 
@@ -1304,6 +1558,8 @@ gender:"Female"
 attributes:[
 
 "id",
+
+"publicUserId",
 
 "name",
 
@@ -1411,6 +1667,8 @@ return {
 
 id:data.id,
 
+publicUserId:data.publicUserId,
+
 nickname:
 data.nickname ||
 data.name ||
@@ -1506,6 +1764,9 @@ await ensureAccountStatusColumn();
 
 
 await ensureBlockedColumn();
+
+
+await backfillPublicUserIds();
 
 
 const user =

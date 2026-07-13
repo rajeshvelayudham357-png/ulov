@@ -1,6 +1,13 @@
 import {
     User
   } from "../models/index.js";
+import {
+assignPublicUserId,
+generateUniquePublicUserId
+} from "../services/publicUserId.service.js";
+import {
+ensureUserSchema
+} from "../services/userSchema.service.js";
   
   
   
@@ -79,6 +86,8 @@ import {
   try{
   
   
+  await ensureUserSchema();
+
   const {
    phone,
    otp
@@ -149,6 +158,10 @@ import {
   
   
   phone,
+
+
+  publicUserId:
+  await generateUniquePublicUserId(),
   
   
   username:
@@ -170,6 +183,14 @@ import {
   });
   
   
+  }else{
+
+
+  await assignPublicUserId(
+  user
+  );
+
+
   }
   
   
@@ -190,6 +211,10 @@ import {
   
   id:
   user.id,
+
+
+  publicUserId:
+  user.publicUserId,
   
   
   phone:
@@ -254,7 +279,15 @@ import {
   
   // IMPORTANT FIX
   profileCompleted:
-  user.profileCompleted
+  user.profileCompleted,
+
+  accountStatus:
+  user.accountStatus ??
+  (
+  user.gender === "Female"
+  ? "pending"
+  : "active"
+  )
   
   
   }
