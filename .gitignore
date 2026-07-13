@@ -8,3 +8,11 @@ dist
 build
 logs
 *.log
+
+# User-uploaded media (do not commit)
+uploads/**/*
+!uploads/**/.gitkeep
+
+# Override global ~/.gitignore_global `*.js` for this Node backend repo
+!*.js
+!**/*.js
