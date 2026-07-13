@@ -1,72 +1,90 @@
+import { QueryTypes } from "sequelize";
+
 import { sequelize } from "../config/database.js";
 
 let userSchemaReady = false;
 
-const columnExists =
-async(columnName)=>{
-try{
-await sequelize.query(
-`SELECT ${columnName} FROM users LIMIT 1`
-);
-return true;
-}catch(error){
-return false;
-}
+const columnExists = async (tableName, columnName) => {
+  const rows = await sequelize.query(
+    `SELECT COUNT(*) AS columnCount
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = :tableName
+AND COLUMN_NAME = :columnName`,
+    {
+      replacements: {
+        tableName,
+        columnName,
+      },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return Number(rows[0]?.columnCount ?? 0) > 0;
 };
 
-const ensureColumn =
-async(
-columnName,
-definition
-)=>{
-const exists =
-await columnExists(columnName);
+const ensureColumn = async (tableName, columnName, definition) => {
+  const exists = await columnExists(tableName, columnName);
 
-if(exists){
-return;
-}
+  if (exists) {
+    return;
+  }
 
-await sequelize.query(
-`ALTER TABLE users ADD COLUMN ${columnName} ${definition}`
-);
+  await sequelize.query(
+    `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
+  );
+
+  console.log(`Added column ${tableName}.${columnName}`);
 };
 
-export const ensureUserSchema =
-async()=>{
-if(userSchemaReady){
-return;
-}
+const backfillAccountStatus = async () => {
+  await sequelize.query(
+    `UPDATE users
+SET accountStatus = 'approved'
+WHERE gender = 'Female'
+AND verified = 1
+AND (accountStatus IS NULL OR accountStatus = '')`
+  );
 
-try{
-await ensureColumn(
-"verificationAudioUrl",
-"TEXT NULL"
-);
+  await sequelize.query(
+    `UPDATE users
+SET accountStatus = 'active'
+WHERE (gender IS NULL OR gender != 'Female')
+AND (accountStatus IS NULL OR accountStatus = '')`
+  );
+};
 
-await ensureColumn(
-"verificationSentence",
-"VARCHAR(255) NULL"
-);
+export const ensureUserSchema = async ({ force = false } = {}) => {
+  if (userSchemaReady && !force) {
+    return;
+  }
 
-await ensureColumn(
-"verificationVideoUrl",
-"TEXT NULL"
-);
+  await ensureColumn("users", "verificationAudioUrl", "TEXT NULL");
+  await ensureColumn("users", "verificationSentence", "VARCHAR(255) NULL");
+  await ensureColumn("users", "verificationVideoUrl", "TEXT NULL");
+  await ensureColumn(
+    "users",
+    "accountStatus",
+    "VARCHAR(20) NOT NULL DEFAULT 'pending'"
+  );
+  await ensureColumn(
+    "users",
+    "blocked",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await ensureColumn("users", "publicUserId", "VARCHAR(8) NULL");
 
-await ensureColumn(
-"accountStatus",
-"VARCHAR(20) NOT NULL DEFAULT 'pending'"
-);
+  try {
+    await sequelize.query(
+      "ALTER TABLE users ADD UNIQUE INDEX users_publicUserId_unique (publicUserId)"
+    );
+  } catch (error) {
+    // Index already exists.
+  }
 
-userSchemaReady = true;
+  await backfillAccountStatus();
 
-console.log(
-"User schema ready"
-);
-}catch(error){
-console.log(
-"USER SCHEMA SYNC ERROR",
-error.message
-);
-}
+  userSchemaReady = true;
+
+  console.log("User schema ready");
 };

@@ -4,17 +4,8 @@ import { Server } from "socket.io";
 
 import app from "./app.js";
 import {
-CallHistory,
-DeviceToken,
-NotificationRecord,
-ChatMessage,
-CallRating,
-Block,
-Earning
+CallHistory
 } from "./models/index.js";
-import {
-Op
-} from "sequelize";
 import {
 initNotificationPush,
 notifyMalesWhenFemaleOnline
@@ -26,11 +17,8 @@ import {
 initSupportRealtime
 } from "./services/supportRealtime.service.js";
 import {
-ensureSupportTables
-} from "./services/support.service.js";
-import {
-ensureUserSchema
-} from "./services/userSchema.service.js";
+runDatabaseMigrations
+} from "./services/databaseMigration.service.js";
 import {
 purgeOldChatMessages
 } from "./controllers/chat.controller.js";
@@ -103,69 +91,6 @@ io,
 onlineUsers
 );
 
-const syncNotificationTables =
-async()=>{
-
-try{
-
-await DeviceToken.sync({
-alter:true
-});
-
-await NotificationRecord.sync({
-alter:true
-});
-
-await ChatMessage.sync({
-alter:true
-});
-
-await CallRating.sync({
-alter:true
-});
-
-await Block.sync({
-alter:true
-});
-
-await Earning.sync({
-alter:true
-});
-
-console.log(
-"Notification tables ready"
-);
-
-}catch(error){
-
-console.log(
-"NOTIFICATION TABLE SYNC ERROR",
-error.message
-);
-
-}
-
-try{
-
-await ensureUserSchema();
-
-await ensureSupportTables();
-
-console.log(
-"Support tables ready"
-);
-
-}catch(error){
-
-console.log(
-"SUPPORT TABLE SYNC ERROR",
-error.message
-);
-
-}
-
-};
-
 const startChatRetention =
 async()=>{
 
@@ -196,8 +121,41 @@ error.message
 );
 };
 
-syncNotificationTables();
+const startServer =
+async()=>{
+
+try{
+
+await runDatabaseMigrations();
+
+}catch(error){
+
+console.error(
+"DATABASE MIGRATION FAILED",
+error
+);
+
+process.exit(1);
+
+}
+
+server.listen(
+3001,
+()=>{
+
+
+console.log(
+"Server running on port 3001"
+);
+
+
+});
+
 startChatRetention();
+
+};
+
+startServer();
 
 const upsertLiveCall =
 async (
@@ -974,21 +932,3 @@ onlineUsers
 
 
 
-
-// =====================
-// START SERVER
-// =====================
-
-
-server.listen(
-3001,
-()=>{
-
-
-console.log(
-"Server running on port 3001"
-);
-
-
-}
-);

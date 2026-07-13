@@ -134,6 +134,8 @@ const ensureTables = async () => {
   await ensureTotalOnlineTable();
 };
 
+export const ensureFemaleOnlineTimeTables = ensureTables;
+
 const getDailyRow = async (userId, activityDate) => {
   const rows = await sequelize.query(
     `SELECT loggedIn, onlineMinutes, onlineSeconds, lastHeartbeatAt, sessionStartedAt

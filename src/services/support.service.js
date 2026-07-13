@@ -65,7 +65,25 @@ return last;
 
 export const ensureSupportTables =
 async()=>{
+try{
+await SupportTicket.sync({alter:true});
+}catch(error){
+console.log(
+"SupportTicket alter sync skipped:",
+error.message
+);
+await SupportTicket.sync();
+}
+
+try{
 await SupportMessage.sync({alter:true});
+}catch(error){
+console.log(
+"SupportMessage alter sync skipped:",
+error.message
+);
+await SupportMessage.sync();
+}
 };
 
 export const createSupportTicket =
