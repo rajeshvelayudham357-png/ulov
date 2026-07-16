@@ -28,6 +28,10 @@ import {
 } from "../models/index.js";
 
 import {
+    PaymentOrder
+} from "../models/index.js";
+
+import {
     Kyc
 }
 from "../models/index.js";
@@ -51,6 +55,19 @@ updateCallRateSettings,
 getCreatorCallRateSettings,
 updateCreatorEarningPercentage
 } from "../services/callRate.service.js";
+import {
+getAppSettings,
+updateAppSettings
+} from "../services/appSettings.service.js";
+import {
+getGstSettings,
+updateGstSettings,
+splitInclusiveGst,
+} from "../services/gstSettings.service.js";
+import {
+getGiftSettings,
+updateGiftSettings,
+} from "../services/giftSettings.service.js";
 import {
 backfillPublicUserIds
 } from "../services/publicUserId.service.js";
@@ -317,6 +334,192 @@ settings
 
 return res
 .status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getAppSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getAppSettings();
+
+return res.json(
+settings
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateAppSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updateAppSettings({
+languageMatchingEnabled:
+req.body.languageMatchingEnabled,
+welcomeOfferEnabled:
+req.body.welcomeOfferEnabled,
+welcomeOfferCoins:
+req.body.welcomeOfferCoins,
+authVerificationMode:
+req.body.authVerificationMode,
+});
+
+return res.json({
+message:"App settings updated",
+settings
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getGiftSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getGiftSettings();
+
+return res.json(
+settings
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateGiftSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updateGiftSettings({
+femaleEarnPercent:
+req.body.femaleEarnPercent
+});
+
+return res.json({
+message:"Gift settings updated",
+settings
+});
+
+}catch(error){
+
+return res
+.status(400)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getGstSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getGstSettings();
+
+return res.json(
+settings
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateGstSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updateGstSettings({
+gstPercent:
+req.body.gstPercent
+});
+
+return res.json({
+message:"GST settings updated",
+settings
+});
+
+}catch(error){
+
+return res
+.status(400)
 .json({
 message:error.message
 });
@@ -1267,6 +1470,236 @@ message:error.message
 
 }
 
+
+};
+
+
+// ===================================
+// MALE USERS WITH RECHARGE SUMMARY
+// ===================================
+
+
+export const maleUsers =
+async(
+req,
+res
+)=>{
+
+try{
+
+await backfillPublicUserIds();
+
+const search =
+String(
+req.query.search || ""
+).trim();
+
+const where = {
+gender:{
+[Op.in]:[
+"Male",
+"male"
+]
+}
+};
+
+const usersList =
+await User.findAll({
+where,
+include:[
+{
+model:Wallet,
+as:"wallet",
+required:false,
+attributes:[
+"balance"
+]
+},
+{
+model:PaymentOrder,
+as:"paymentOrders",
+required:false,
+where:{
+status:"PAID"
+},
+attributes:[
+"id",
+"orderId",
+"coins",
+"amount",
+"paymentMethod",
+"cashfreePaymentId",
+"updatedAt"
+]
+}
+],
+order:[
+[
+"createdAt",
+"DESC"
+]
+]
+});
+
+const rowsAll =
+usersList.map(
+(user)=>{
+
+const data =
+user.toJSON();
+
+const payments =
+data.paymentOrders || [];
+
+const totalRechargeAmount =
+payments.reduce(
+(sum,payment)=>
+sum + Number(payment.amount || 0),
+0
+);
+
+const totalRechargeCoins =
+payments.reduce(
+(sum,payment)=>
+sum + Number(payment.coins || 0),
+0
+);
+
+const latestPayment =
+payments
+.slice()
+.sort(
+(a,b)=>
+new Date(b.updatedAt).getTime() -
+new Date(a.updatedAt).getTime()
+)[0];
+
+return {
+id:data.id,
+publicUserId:data.publicUserId,
+displayName:getDisplayName(
+data
+),
+name:data.name,
+username:data.username,
+phone:data.phone,
+email:data.email,
+avatar:data.avatar,
+gender:data.gender,
+online:data.online,
+walletBalance:Number(data.wallet?.balance || 0),
+totalRechargeAmount,
+totalRechargeCoins,
+rechargeCount:payments.length,
+latestRechargeAt:latestPayment?.updatedAt || null,
+latestOrderId:latestPayment?.orderId || "—",
+latestPaymentMethod:latestPayment?.paymentMethod || "—",
+createdAt:data.createdAt
+};
+
+}
+);
+
+const compactSearch =
+search
+.toLowerCase()
+.replace(
+/[^a-z0-9]/g,
+""
+);
+
+const rows =
+search
+? rowsAll.filter(
+(row)=>{
+
+const values = [
+row.id,
+row.publicUserId,
+row.displayName,
+row.name,
+row.username,
+row.phone,
+row.email,
+row.walletBalance,
+row.totalRechargeAmount,
+row.totalRechargeCoins,
+row.rechargeCount,
+row.latestOrderId,
+row.latestPaymentMethod,
+row.latestRechargeAt
+]
+.filter(Boolean)
+.map(
+(value)=>
+String(value).toLowerCase()
+);
+
+return values.some(
+(value)=>{
+
+const compactValue =
+value.replace(
+/[^a-z0-9]/g,
+""
+);
+
+return value.includes(search.toLowerCase()) ||
+(
+compactSearch &&
+compactValue.includes(
+compactSearch
+)
+);
+
+}
+);
+
+}
+)
+: rowsAll;
+
+const summary =
+rows.reduce(
+(acc,row)=>{
+
+acc.totalUsers += 1;
+acc.totalRechargeAmount += row.totalRechargeAmount;
+acc.totalRechargeCoins += row.totalRechargeCoins;
+acc.totalRecharges += row.rechargeCount;
+acc.walletBalance += row.walletBalance;
+
+return acc;
+
+},
+{
+totalUsers:0,
+totalRechargeAmount:0,
+totalRechargeCoins:0,
+totalRecharges:0,
+walletBalance:0
+}
+);
+
+return res.json({
+summary,
+rows
+});
+
+}catch(error){
+
+console.log(
+"ADMIN MALE USERS ERROR",
+error
+);
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
 
 };
 
@@ -2897,6 +3330,398 @@ message:error.message
 }
 
 
+
+};
+
+
+// ===================================
+// RECHARGE REVENUE
+// ===================================
+
+
+export const rechargeRevenue =
+async(
+req,
+res
+)=>{
+
+try{
+
+const limit =
+Math.min(
+Number(req.query.limit) || 200,
+500
+);
+
+const search =
+String(
+req.query.search || ""
+).trim()
+.toLowerCase();
+
+const compactSearch =
+search.replace(
+/[^a-z0-9]/g,
+""
+);
+
+await backfillPublicUserIds();
+
+const gstSettings =
+await getGstSettings();
+
+const gstPercent =
+Number(gstSettings.gstPercent) || 0;
+
+const applyGstBreakdown =
+(row)=>{
+
+const breakdown =
+splitInclusiveGst(
+row.amount,
+gstPercent
+);
+
+return {
+...row,
+inclusiveAmount:breakdown.inclusiveAmount,
+gstAmount:breakdown.gstAmount,
+baseRevenue:breakdown.baseRevenue,
+gstPercent:breakdown.gstPercent,
+};
+
+};
+
+const getDateBounds =
+()=>{
+
+const startDate =
+String(req.query.startDate || "").trim();
+
+const endDate =
+String(req.query.endDate || "").trim();
+
+const month =
+String(req.query.month || "").trim();
+
+let start =
+null;
+
+let end =
+null;
+
+if(
+startDate ||
+endDate
+){
+
+if(startDate){
+start =
+new Date(`${startDate}T00:00:00`);
+}
+
+if(endDate){
+end =
+new Date(`${endDate}T00:00:00`);
+end.setDate(
+end.getDate() + 1
+);
+}
+
+}else if(
+month
+){
+
+start =
+new Date(`${month}-01T00:00:00`);
+
+end =
+new Date(start);
+
+end.setMonth(
+end.getMonth() + 1
+);
+
+}
+
+const where = {};
+
+if(start){
+where[Op.gte] =
+start;
+}
+
+if(end){
+where[Op.lt] =
+end;
+}
+
+return Object.keys(where).length
+? where
+: null;
+
+};
+
+const dateBounds =
+getDateBounds();
+
+const paymentWhere = {
+status:"PAID"
+};
+
+if(dateBounds){
+paymentWhere.updatedAt =
+dateBounds;
+}
+
+const paidOrders =
+await PaymentOrder.findAll({
+where:paymentWhere,
+include:[
+{
+model:User,
+attributes:[
+"id",
+"publicUserId",
+"name",
+"nickname",
+"username",
+"phone",
+"gender"
+]
+}
+],
+order:[
+[
+"updatedAt",
+"DESC"
+]
+],
+limit:
+search
+? 2000
+: limit
+});
+
+const paidRowsAll =
+paidOrders.map(
+(order)=>{
+
+const data =
+order.toJSON();
+
+return {
+id:`payment-${data.id}`,
+source:"payment",
+orderId:data.orderId,
+userId:data.userId,
+publicUserId:data.user?.publicUserId,
+userName:getDisplayName(
+data.user
+),
+phone:data.user?.phone || "—",
+gender:data.user?.gender || "—",
+amount:Number(data.amount) || 0,
+coins:Number(data.coins) || 0,
+status:data.status,
+paymentMethod:data.paymentMethod || "Cashfree",
+paymentId:data.cashfreePaymentId || "—",
+createdAt:data.createdAt,
+paidAt:data.updatedAt
+};
+
+}
+);
+
+const paidRows =
+search
+? paidRowsAll.filter(
+(row)=>
+{
+const values =
+[
+row.orderId,
+row.userId,
+row.publicUserId,
+row.userName,
+row.phone,
+row.paymentMethod,
+row.paymentId,
+row.status,
+row.amount,
+row.coins,
+row.paidAt
+]
+.filter(Boolean)
+.map(
+(value)=>
+String(value).toLowerCase()
+);
+
+return values.some(
+(value)=>{
+
+const compactValue =
+value.replace(
+/[^a-z0-9]/g,
+""
+);
+
+return (
+value.includes(search) ||
+(
+compactSearch &&
+compactValue.includes(compactSearch)
+)
+);
+
+}
+);
+
+}
+)
+: paidRowsAll;
+
+const rows =
+[
+...paidRows
+]
+.sort(
+(a,b)=>
+new Date(b.paidAt).getTime() -
+new Date(a.paidAt).getTime()
+)
+.slice(
+0,
+limit
+)
+.map(applyGstBreakdown);
+
+const totalAmount =
+paidRows.reduce(
+(sum,row)=>
+sum + row.amount,
+0
+);
+
+const totalGstAmount =
+paidRows.reduce(
+(sum,row)=>
+sum + splitInclusiveGst(row.amount, gstPercent).gstAmount,
+0
+);
+
+const totalBaseRevenue =
+paidRows.reduce(
+(sum,row)=>
+sum + splitInclusiveGst(row.amount, gstPercent).baseRevenue,
+0
+);
+
+const totalCoins =
+rows.reduce(
+(sum,row)=>
+sum + row.coins,
+0
+);
+
+const todayStart =
+new Date();
+
+todayStart.setHours(
+0,
+0,
+0,
+0
+);
+
+const todayEnd =
+new Date(
+todayStart
+);
+
+todayEnd.setDate(
+todayEnd.getDate() + 1
+);
+
+const todayAmount =
+paidRows
+.filter(
+(row)=>
+{
+const paidAt =
+new Date(
+row.paidAt
+);
+
+return (
+paidAt >= todayStart &&
+paidAt < todayEnd
+);
+}
+)
+.reduce(
+(sum,row)=>
+sum + row.amount,
+0
+);
+
+const todayGstAmount =
+paidRows
+.filter(
+(row)=>
+{
+const paidAt =
+new Date(
+row.paidAt
+);
+
+return (
+paidAt >= todayStart &&
+paidAt < todayEnd
+);
+}
+)
+.reduce(
+(sum,row)=>
+sum + splitInclusiveGst(row.amount, gstPercent).gstAmount,
+0
+);
+
+const todayBaseRevenue =
+todayAmount - todayGstAmount;
+
+return res.json({
+summary:{
+totalAmount,
+todayAmount,
+totalCoins,
+totalRecharges:rows.length,
+paidOrders:paidRows.length,
+legacyWalletRecharges:0,
+gstPercent,
+totalGstAmount:Math.round((totalGstAmount + Number.EPSILON) * 100) / 100,
+totalBaseRevenue:Math.round((totalBaseRevenue + Number.EPSILON) * 100) / 100,
+todayGstAmount:Math.round((todayGstAmount + Number.EPSILON) * 100) / 100,
+todayBaseRevenue:Math.round((todayBaseRevenue + Number.EPSILON) * 100) / 100,
+},
+rows
+});
+
+}catch(error){
+
+console.log(
+"ADMIN RECHARGE REVENUE ERROR",
+error
+);
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
 
 };
 

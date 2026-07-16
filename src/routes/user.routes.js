@@ -5,6 +5,7 @@ import {
   getUsers,
   updateProfile,
   updateOnlineStatus,
+  updateCallPreferences,
   getUserById,
   uploadVerificationAudio,
   uploadVerificationVideo
@@ -55,6 +56,11 @@ router.get(
   "/status",
   updateOnlineStatus
   );
+
+ router.put(
+  "/call-preferences",
+  updateCallPreferences
+ );
 
   router.get(
     "/:id",

@@ -73,6 +73,22 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
     "TINYINT(1) NOT NULL DEFAULT 0"
   );
   await ensureColumn("users", "publicUserId", "VARCHAR(8) NULL");
+  await ensureColumn(
+    "users",
+    "acceptVoiceCalls",
+    "TINYINT(1) NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    "users",
+    "acceptVideoCalls",
+    "TINYINT(1) NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    "users",
+    "welcomeOfferClaimed",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await ensureColumn("users", "loginPinHash", "VARCHAR(255) NULL");
 
   try {
     await sequelize.query(

@@ -53,6 +53,15 @@ from "./routes/block.routes.js";
 import newsRoutes
 from "./routes/news.routes.js";
 
+import spinWheelRoutes
+from "./routes/spinWheel.routes.js";
+
+import welcomeOfferRoutes
+from "./routes/welcomeOffer.routes.js";
+
+import paymentRoutes
+from "./routes/payment.routes.js";
+
 /* 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -176,6 +185,21 @@ app.use(
                     app.use(
                       "/api/news",
                       newsRoutes
+                      );
+
+                    app.use(
+                      "/api/spin-wheel",
+                      spinWheelRoutes
+                      );
+
+                    app.use(
+                      "/api/welcome-offer",
+                      welcomeOfferRoutes
+                      );
+
+                    app.use(
+                      "/api/payments",
+                      paymentRoutes
                       );
 
                    

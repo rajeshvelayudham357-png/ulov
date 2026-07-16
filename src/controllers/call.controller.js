@@ -11,7 +11,8 @@ import {
 normalizeCallTypeForDb
 } from "../constants/callTypes.js";
 import {
-CallHistory
+CallHistory,
+User
 } from "../models/index.js";
 
 export const createVideoCall =
@@ -83,6 +84,48 @@ message:"User is busy on another call"
 
 });
 
+}
+
+const receiver =
+await User.findByPk(
+receiverId,
+{
+attributes:[
+"gender",
+"acceptVoiceCalls",
+"acceptVideoCalls"
+]
+}
+);
+
+if(
+receiver &&
+String(receiver.gender ?? "")
+.toLowerCase() === "female"
+){
+const acceptsVoice =
+Boolean(receiver.acceptVoiceCalls ?? true);
+
+const acceptsVideo =
+Boolean(receiver.acceptVideoCalls ?? true);
+
+if(
+normalizedType === "voice" &&
+!acceptsVoice
+){
+return res.status(403).json({
+message:"This user is not accepting voice calls"
+});
+}
+
+if(
+normalizedType === "video" &&
+!acceptsVideo
+){
+return res.status(403).json({
+message:"This user is not accepting video calls"
+});
+}
 }
 
 

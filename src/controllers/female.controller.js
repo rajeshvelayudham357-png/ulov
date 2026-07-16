@@ -1,8 +1,12 @@
 import {
     Earning,
-    CallHistory
+    CallHistory,
+    User
     }
     from "../models/index.js";
+
+import { getBlockedPeerIds } from "../services/block.service.js";
+import { fetchMalePurchaseRankers } from "../services/maleRankers.service.js";
     
     
     
@@ -93,3 +97,63 @@ import {
     
     
     };
+
+
+export const getMaleRankers =
+async(req,res)=>{
+
+try{
+
+const {
+userId
+}
+=
+req.params;
+
+const page =
+Math.max(
+1,
+Number(req.query.page) || 1
+);
+
+const limit =
+Math.min(
+50,
+Math.max(
+1,
+Number(req.query.limit) || 20
+)
+);
+
+const female =
+await User.findByPk(userId);
+
+if(!female){
+
+return res.status(404).json({
+message:"User not found"
+});
+
+}
+
+const blockedIds =
+await getBlockedPeerIds(userId);
+
+const data =
+await fetchMalePurchaseRankers({
+page,
+limit,
+excludeUserIds:[...blockedIds]
+});
+
+return res.json(data);
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};

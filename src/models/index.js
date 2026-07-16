@@ -24,6 +24,8 @@ import { NotificationRecord } from "./NotificationRecord.js";
 import { ChatMessage } from "./ChatMessage.js";
 import { CallRating } from "./CallRating.js";
 import { Block } from "./Block.js";
+import { PaymentOrder } from "./PaymentOrder.js";
+import { CallGiftRecord } from "./CallGiftRecord.js";
 
 // =========================
 // USER -> WALLET
@@ -64,6 +66,53 @@ WalletTransaction.belongsTo(
   User,
   {
     foreignKey: "userId"
+  }
+);
+
+User.hasMany(
+  PaymentOrder,
+  {
+    foreignKey: "userId",
+    as: "paymentOrders",
+  }
+);
+
+PaymentOrder.belongsTo(
+  User,
+  {
+    foreignKey: "userId",
+  }
+);
+
+User.hasMany(
+  CallGiftRecord,
+  {
+    foreignKey: "senderId",
+    as: "sentGifts",
+  }
+);
+
+User.hasMany(
+  CallGiftRecord,
+  {
+    foreignKey: "receiverId",
+    as: "receivedGifts",
+  }
+);
+
+CallGiftRecord.belongsTo(
+  User,
+  {
+    foreignKey: "senderId",
+    as: "sender",
+  }
+);
+
+CallGiftRecord.belongsTo(
+  User,
+  {
+    foreignKey: "receiverId",
+    as: "receiver",
   }
 );
 
@@ -427,6 +476,8 @@ DeviceToken,
 NotificationRecord,
 ChatMessage,
 CallRating,
-Block
+Block,
+PaymentOrder,
+CallGiftRecord
 
 };

@@ -48,6 +48,11 @@ export const User = sequelize.define(
       unique: true,
     },
 
+    loginPinHash: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+
     languages:{
       type:DataTypes.JSON
      },
@@ -142,6 +147,16 @@ export const User = sequelize.define(
       defaultValue: false,
     },
 
+    acceptVoiceCalls: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+
+    acceptVideoCalls: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+
 
     lastSeen: {
       type: DataTypes.DATE,
@@ -171,7 +186,12 @@ export const User = sequelize.define(
       defaultValue:
       false
      
-     }
+     },
+
+    welcomeOfferClaimed: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    }
 
   },
 

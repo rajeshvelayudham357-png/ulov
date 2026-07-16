@@ -16,3 +16,5 @@ uploads/**/*
 # Override global ~/.gitignore_global `*.js` for this Node backend repo
 !*.js
 !**/*.js
+.env
+src/config/.env

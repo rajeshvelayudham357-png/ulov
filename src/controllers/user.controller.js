@@ -21,12 +21,20 @@ import {
 getPublicCallRates
 } from "../services/callRate.service.js";
 import {
+getAppSettings,
+languagesOverlap,
+parseLanguages
+} from "../services/appSettings.service.js";
+import {
 buildVerificationAudioUrl,
 buildVerificationVideoUrl
 } from "../services/verificationUpload.service.js";
 import {
 ensureUserSchema
 } from "../services/userSchema.service.js";
+import {
+resolveMaleAvatarForProfile,
+} from "../services/maleAvatar.service.js";
 
 const ensureVerificationAudioColumns =
 ensureUserSchema;
@@ -178,6 +186,28 @@ ensureUserSchema;
     
     
     }
+
+    const normalizedLanguages =
+      languages !== undefined
+        ? parseLanguages(languages)
+        : parseLanguages(user.languages);
+
+    const resolvedGender =
+      gender ?? user.gender;
+
+    if (
+      resolvedGender === "Male" &&
+      normalizedLanguages.length === 0
+    ) {
+      return res.status(400).json({
+        message: "At least one language is required",
+      });
+    }
+
+    const resolvedAvatar = resolveMaleAvatarForProfile({
+      avatar,
+      gender: resolvedGender,
+    });
     
     
     
@@ -192,7 +222,7 @@ ensureUserSchema;
       bio,
      
      
-      avatar,
+      avatar: resolvedAvatar,
      
      
       gender,
@@ -204,7 +234,7 @@ ensureUserSchema;
       preferredAge,
      
      
-      languages,
+      languages: normalizedLanguages,
      
      
       interests,
@@ -327,6 +357,11 @@ ensureUserSchema;
        onlineOnly === "true"
        ){
         where.online = true;
+       } else if(
+       onlineOnly === "0" ||
+       onlineOnly === "false"
+       ){
+        where.online = false;
        }
       }
       
@@ -347,6 +382,8 @@ ensureUserSchema;
         "verified",
         "online",
         "accountStatus",
+        "acceptVoiceCalls",
+        "acceptVideoCalls",
         "createdAt"
        ],
       
@@ -428,6 +465,43 @@ ensureUserSchema;
        );
       }
 
+      const appSettings =
+      await getAppSettings();
+
+      if(
+      isFemaleQuery &&
+      appSettings.languageMatchingEnabled &&
+      userId
+      ){
+       const requester =
+       await User.findByPk(
+       userId,
+       {
+        attributes:[
+         "id",
+         "gender",
+         "languages"
+        ]
+       }
+       );
+
+       const requesterLanguages =
+       parseLanguages(
+       requester?.languages
+       );
+
+       if(requesterLanguages.length > 0){
+        formattedUsers =
+        formattedUsers.filter(
+        (candidate)=>
+        languagesOverlap(
+        requesterLanguages,
+        candidate.languages
+        )
+        );
+       }
+      }
+
       const page =
       Math.max(
       1,
@@ -468,7 +542,9 @@ ensureUserSchema;
        limit,
        hasMore:
        offset + paginatedUsers.length < total,
-       callRates
+       callRates,
+       languageMatchingEnabled:
+       appSettings.languageMatchingEnabled
       });
       }
       
@@ -648,6 +724,98 @@ message:error.message
 
 };
 
+// =====================
+// UPDATE CALL PREFERENCES
+// =====================
+
+export const updateCallPreferences =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const {
+ userId,
+ acceptVoiceCalls,
+ acceptVideoCalls
+}=req.body;
+
+const user =
+await User.findByPk(
+userId
+);
+
+if(!user){
+
+return res.status(404).json({
+message:"User not found"
+});
+
+}
+
+if(
+user.gender !== "Female"
+){
+return res.status(403).json({
+message:"Only female users can update call preferences"
+});
+}
+
+const accountStatus =
+user.accountStatus ||
+"pending";
+
+if(
+accountStatus !== "approved"
+){
+return res.status(403).json({
+message:"Your account must be approved to update call preferences",
+accountStatus
+});
+}
+
+const nextVoice =
+typeof acceptVoiceCalls === "boolean"
+?
+acceptVoiceCalls
+:
+Boolean(user.acceptVoiceCalls ?? true);
+
+const nextVideo =
+typeof acceptVideoCalls === "boolean"
+?
+acceptVideoCalls
+:
+Boolean(user.acceptVideoCalls ?? true);
+
+if(!nextVoice){
+return res.status(400).json({
+message:"Voice calls must remain enabled"
+});
+}
+
+await user.update({
+acceptVoiceCalls:nextVoice,
+acceptVideoCalls:nextVideo
+});
+
+return res.json({
+message:"Call preferences updated",
+acceptVoiceCalls:Boolean(user.acceptVoiceCalls),
+acceptVideoCalls:Boolean(user.acceptVideoCalls)
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
 export const getUserById =
 async(req,res)=>{
 
@@ -676,6 +844,10 @@ attributes:[
 
 "age",
 
+"phone",
+
+"preferredAge",
+
 "languages",
 
 "interests",
@@ -685,6 +857,10 @@ attributes:[
 "online",
 
 "accountStatus",
+
+"acceptVoiceCalls",
+
+"acceptVideoCalls",
 
 "createdAt"
 

@@ -1,25 +1,26 @@
 import express from "express";
 
 import {
- sendOtp,
- verifyOtp
+  sendOtp,
+  verifyOtp,
+  getAuthConfig,
+  checkPinPhone,
+  setLoginPin,
+  verifyLoginPin,
 } from "../controllers/authController.js";
 
+const router = express.Router();
 
-const router =
-express.Router();
+router.get("/config", getAuthConfig);
 
+router.post("/send-otp", sendOtp);
 
-router.post(
-"/send-otp",
-sendOtp
-);
+router.post("/verify-otp", verifyOtp);
 
+router.post("/pin/check-phone", checkPinPhone);
 
-router.post(
-"/verify-otp",
-verifyOtp
-);
+router.post("/pin/set", setLoginPin);
 
+router.post("/pin/verify", verifyLoginPin);
 
 export default router;

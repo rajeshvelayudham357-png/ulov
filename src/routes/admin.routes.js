@@ -13,6 +13,18 @@ import {
 
     updateCallRateConfig,
 
+    getAppSettingsConfig,
+
+    updateAppSettingsConfig,
+
+    getGstSettingsConfig,
+
+    updateGstSettingsConfig,
+
+    getGiftSettingsConfig,
+
+    updateGiftSettingsConfig,
+
     getCreatorCallRateConfig,
 
     updateCreatorCallRateConfig,
@@ -26,6 +38,8 @@ import {
     dashboard,
     
     users,
+
+    maleUsers,
     
     calls,
 
@@ -40,6 +54,8 @@ import {
     analytics,
 
     revenue,
+
+    rechargeRevenue,
     
     getUserDetails,
     
@@ -69,6 +85,13 @@ adminListTickets,
 adminSendMessage,
 adminUpdateStatus
 } from "../controllers/adminSupport.controller.js";
+
+import {
+getSpinWheelAdminSettings,
+updateSpinWheelAdminSettings,
+getMaleUserSpinWheelSettings,
+updateMaleUserSpinWheelSettings
+} from "../controllers/spinWheel.controller.js";
 
 
 
@@ -102,6 +125,66 @@ getCallRateConfig
 router.patch(
 "/call-rates",
 updateCallRateConfig
+);
+
+
+router.get(
+"/app-settings",
+getAppSettingsConfig
+);
+
+
+router.patch(
+"/app-settings",
+updateAppSettingsConfig
+);
+
+
+router.get(
+"/gst-settings",
+getGstSettingsConfig
+);
+
+
+router.patch(
+"/gst-settings",
+updateGstSettingsConfig
+);
+
+
+router.get(
+"/gift-settings",
+getGiftSettingsConfig
+);
+
+
+router.patch(
+"/gift-settings",
+updateGiftSettingsConfig
+);
+
+
+router.get(
+"/spin-wheel",
+getSpinWheelAdminSettings
+);
+
+
+router.patch(
+"/spin-wheel",
+updateSpinWheelAdminSettings
+);
+
+
+router.get(
+"/spin-wheel/male-users",
+getMaleUserSpinWheelSettings
+);
+
+
+router.patch(
+"/spin-wheel/male-users/:id",
+updateMaleUserSpinWheelSettings
 );
 
 
@@ -149,6 +232,12 @@ users
 
 
 router.get(
+"/male-users",
+maleUsers
+);
+
+
+router.get(
 "/calls",
 calls
 );
@@ -187,6 +276,12 @@ analytics
 router.get(
 "/revenue",
 revenue
+);
+
+
+router.get(
+"/recharge-revenue",
+rechargeRevenue
 );
 
 // USER DETAILS

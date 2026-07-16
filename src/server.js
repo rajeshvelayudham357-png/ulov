@@ -354,6 +354,43 @@ error.message
 
 
 // =====================
+// CALL GIFT RELAY
+// =====================
+
+
+socket.on(
+"call-gift-sent",
+(data)=>{
+
+const receiverId =
+String(
+data?.receiverId || ""
+);
+
+if(!receiverId){
+return;
+}
+
+const receiverSocketId =
+onlineUsers.get(
+receiverId
+);
+
+if(receiverSocketId){
+io.to(
+receiverSocketId
+).emit(
+"call-gift-received",
+data
+);
+}
+
+});
+
+
+
+
+// =====================
 // CALL USER
 // MALE -> FEMALE
 // =====================

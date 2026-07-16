@@ -1,7 +1,8 @@
 import express from "express";
 
 import {
-getFemaleDashboard
+getFemaleDashboard,
+getMaleRankers
 }
 from "../controllers/female.controller.js";
 
@@ -18,6 +19,10 @@ pingFemaleOnlineTime,
 startFemaleOnlineSession
 } from "../controllers/femaleOnlineTime.controller.js";
 
+import {
+getFemaleReceivedGifts
+} from "../controllers/callGift.controller.js";
+
 
 const router =
 express.Router();
@@ -27,6 +32,16 @@ express.Router();
 router.get(
 "/dashboard/:userId",
 getFemaleDashboard
+);
+
+router.get(
+"/male-rankers/:userId",
+getMaleRankers
+);
+
+router.get(
+"/gifts/:userId",
+getFemaleReceivedGifts
 );
 
 router.get(
