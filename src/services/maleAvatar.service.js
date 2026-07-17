@@ -7,6 +7,7 @@ export const MALE_AVATAR_KEYS = [
   "mava6",
   "mava7",
   "mava8",
+  "mava9",
 ];
 
 export const pickRandomMaleAvatarKey = () =>

@@ -832,6 +832,8 @@ attributes:[
 
 "id",
 
+"publicUserId",
+
 "username",
 
 "name",
