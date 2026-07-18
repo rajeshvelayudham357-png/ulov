@@ -2,14 +2,66 @@ import {
   createPaymentOrder,
   getPaymentOrderForUser,
   handleCashfreeWebhook,
+  handleRazorpayWebhook,
+  syncPaymentOrder,
   syncPaymentOrderFromCashfree,
+  syncPaymentOrderFromRazorpay,
 } from "../services/payment.service.js";
-import { getCashfreeCheckoutMode } from "../services/cashfree.service.js";
+import {
+  getCashfreeCheckoutMode,
+  getPublicApiBaseUrl,
+} from "../services/cashfree.service.js";
+import {
+  getPublicPaymentConfig,
+} from "../services/paymentSettings.service.js";
+import {
+  getRazorpayCheckoutKeyId,
+  verifyRazorpayWebhookSignature,
+} from "../services/razorpay.service.js";
 
-export const createCashfreePaymentOrder = async (
-  req,
-  res
-) => {
+const buildCreateOrderResponse = async (result) => {
+  const base = {
+    orderId: result.paymentOrder.orderId,
+    gateway: result.gateway,
+    paymentSessionId: result.paymentOrder.paymentSessionId,
+    amount: Number(result.paymentOrder.amount),
+    coins: result.paymentOrder.coins,
+    packageId: result.paymentOrder.packageId,
+    status: result.paymentOrder.status,
+  };
+
+  if (result.gateway === "razorpay") {
+    return {
+      ...base,
+      razorpayOrderId: result.paymentOrder.razorpayOrderId,
+      razorpayKeyId: result.razorpayKeyId,
+      razorpayMode: result.razorpayMode,
+      customerContact: result.customerContact,
+      customerEmail: result.customerEmail,
+      customerName: result.customerName,
+    };
+  }
+
+  return {
+    ...base,
+    cashfreeMode:
+      result.cashfreeMode || (await getCashfreeCheckoutMode()),
+    cashfreeOrderStatus: result.cashfreeOrder?.order_status,
+  };
+};
+
+export const getPaymentConfig = async (_req, res) => {
+  try {
+    const config = await getPublicPaymentConfig();
+    return res.json(config);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Failed to load payment config",
+    });
+  }
+};
+
+export const createGatewayPaymentOrder = async (req, res) => {
   try {
     const userId = Number(req.user?.id);
 
@@ -27,27 +79,15 @@ export const createCashfreePaymentOrder = async (
       });
     }
 
-    const { paymentOrder, cashfreeOrder } =
-      await createPaymentOrder({
-        userId,
-        packageId,
-      });
-
-    return res.json({
-      orderId: paymentOrder.orderId,
-      paymentSessionId:
-        paymentOrder.paymentSessionId,
-      amount: Number(paymentOrder.amount),
-      coins: paymentOrder.coins,
-      packageId: paymentOrder.packageId,
-      status: paymentOrder.status,
-      cashfreeMode: getCashfreeCheckoutMode(),
-      cashfreeOrderStatus:
-        cashfreeOrder.order_status,
+    const result = await createPaymentOrder({
+      userId,
+      packageId,
     });
+
+    return res.json(await buildCreateOrderResponse(result));
   } catch (error) {
     console.log(
-      "CREATE CASHFREE ORDER ERROR:",
+      "CREATE PAYMENT ORDER ERROR:",
       error.response?.data || error.message
     );
 
@@ -60,10 +100,63 @@ export const createCashfreePaymentOrder = async (
   }
 };
 
-export const verifyCashfreePayment = async (
-  req,
-  res
-) => {
+export const createCashfreePaymentOrder = async (req, res) => {
+  return createGatewayPaymentOrder(req, res);
+};
+
+export const verifyGatewayPayment = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    const { orderId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
+    }
+
+    const paymentOrder = await getPaymentOrderForUser({
+      orderId,
+      userId,
+    });
+
+    const result = await syncPaymentOrder(orderId, {
+      razorpayPaymentId:
+        req.body?.razorpay_payment_id ||
+        req.body?.razorpayPaymentId ||
+        req.query?.razorpay_payment_id ||
+        null,
+      razorpaySignature:
+        req.body?.razorpay_signature ||
+        req.body?.razorpaySignature ||
+        req.query?.razorpay_signature ||
+        null,
+    });
+
+    return res.json({
+      orderId: result.paymentOrder.orderId,
+      gateway: paymentOrder.gateway || result.paymentOrder.gateway,
+      status: result.paymentOrder.status,
+      coins: result.paymentOrder.coins,
+      amount: Number(result.paymentOrder.amount),
+      credited: result.credited,
+      wallet: result.wallet,
+      cashfreeOrderStatus: result.cashfreeOrder?.order_status,
+      razorpayOrderStatus: result.razorpayOrder?.status,
+    });
+  } catch (error) {
+    console.log(
+      "VERIFY PAYMENT ERROR:",
+      error.response?.data || error.message
+    );
+
+    return res.status(500).json({
+      message: error.message || "Failed to verify payment",
+    });
+  }
+};
+
+export const verifyCashfreePayment = async (req, res) => {
   try {
     const userId = Number(req.user?.id);
     const { orderId } = req.params;
@@ -79,20 +172,17 @@ export const verifyCashfreePayment = async (
       userId,
     });
 
-    const result =
-      await syncPaymentOrderFromCashfree(
-        orderId
-      );
+    const result = await syncPaymentOrderFromCashfree(orderId);
 
     return res.json({
       orderId: result.paymentOrder.orderId,
+      gateway: "cashfree",
       status: result.paymentOrder.status,
       coins: result.paymentOrder.coins,
       amount: Number(result.paymentOrder.amount),
       credited: result.credited,
       wallet: result.wallet,
-      cashfreeOrderStatus:
-        result.cashfreeOrder?.order_status,
+      cashfreeOrderStatus: result.cashfreeOrder?.order_status,
     });
   } catch (error) {
     console.log(
@@ -101,9 +191,56 @@ export const verifyCashfreePayment = async (
     );
 
     return res.status(500).json({
-      message:
-        error.message ||
-        "Failed to verify payment",
+      message: error.message || "Failed to verify payment",
+    });
+  }
+};
+
+export const verifyRazorpayPayment = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    const { orderId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
+    }
+
+    await getPaymentOrderForUser({
+      orderId,
+      userId,
+    });
+
+    const result = await syncPaymentOrderFromRazorpay(orderId, {
+      razorpayPaymentId:
+        req.body?.razorpay_payment_id ||
+        req.body?.razorpayPaymentId ||
+        null,
+      razorpaySignature:
+        req.body?.razorpay_signature ||
+        req.body?.razorpaySignature ||
+        null,
+    });
+
+    return res.json({
+      orderId: result.paymentOrder.orderId,
+      gateway: "razorpay",
+      status: result.paymentOrder.status,
+      coins: result.paymentOrder.coins,
+      amount: Number(result.paymentOrder.amount),
+      credited: result.credited,
+      wallet: result.wallet,
+      razorpayOrderStatus: result.razorpayOrder?.status,
+    });
+  } catch (error) {
+    console.log(
+      "VERIFY RAZORPAY PAYMENT ERROR:",
+      error.response?.data || error.message
+    );
+
+    return res.status(500).json({
+      message: error.message || "Failed to verify payment",
     });
   }
 };
@@ -116,10 +253,7 @@ export const cashfreeWebhook = async (req, res) => {
       success: true,
     });
   } catch (error) {
-    console.log(
-      "CASHFREE WEBHOOK ERROR:",
-      error.message
-    );
+    console.log("CASHFREE WEBHOOK ERROR:", error.message);
 
     return res.status(400).json({
       success: false,
@@ -128,8 +262,103 @@ export const cashfreeWebhook = async (req, res) => {
   }
 };
 
+export const razorpayWebhook = async (req, res) => {
+  try {
+    const signature = req.headers["x-razorpay-signature"];
+    const rawBody =
+      typeof req.rawBody === "string"
+        ? req.rawBody
+        : JSON.stringify(req.body || {});
+
+    const valid = await verifyRazorpayWebhookSignature({
+      rawBody,
+      signature,
+    });
+
+    if (!valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid webhook signature",
+      });
+    }
+
+    await handleRazorpayWebhook(req.body);
+
+    return res.json({
+      success: true,
+    });
+  } catch (error) {
+    console.log("RAZORPAY WEBHOOK ERROR:", error.message);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const paymentReturnHtml = (orderId, type) => `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payment Complete</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        background: #fff4f8;
+        color: #333;
+      }
+      .card {
+        text-align: center;
+        padding: 24px;
+      }
+      h1 {
+        color: #ff2e73;
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Payment Received</h1>
+      <p>Returning to Ulov...</p>
+    </div>
+    <script>
+      const payload = {
+        type: ${JSON.stringify(type)},
+        orderId: ${JSON.stringify(orderId)}
+      };
+
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+
+      setTimeout(function () {
+        window.location.href = "datingapp://payment/result?order_id=${encodeURIComponent(
+          orderId
+        )}";
+      }, 600);
+    </script>
+  </body>
+</html>`;
+
 export const cashfreeReturn = async (req, res) => {
   const orderId = req.query.order_id || "";
+  res.setHeader("Content-Type", "text/html");
+  return res.send(paymentReturnHtml(orderId, "cashfree_return"));
+};
+
+export const razorpayReturn = async (req, res) => {
+  const orderId = req.query.order_id || "";
+  const razorpayPaymentId = req.query.razorpay_payment_id || "";
+  const razorpayOrderId = req.query.razorpay_order_id || "";
+  const razorpaySignature = req.query.razorpay_signature || "";
 
   res.setHeader("Content-Type", "text/html");
   return res.send(`<!DOCTYPE html>
@@ -166,8 +395,11 @@ export const cashfreeReturn = async (req, res) => {
     </div>
     <script>
       const payload = {
-        type: "cashfree_return",
-        orderId: ${JSON.stringify(orderId)}
+        type: "razorpay_return",
+        orderId: ${JSON.stringify(orderId)},
+        razorpay_payment_id: ${JSON.stringify(razorpayPaymentId)},
+        razorpay_order_id: ${JSON.stringify(razorpayOrderId)},
+        razorpay_signature: ${JSON.stringify(razorpaySignature)}
       };
 
       if (window.ReactNativeWebView) {
@@ -175,28 +407,26 @@ export const cashfreeReturn = async (req, res) => {
       }
 
       setTimeout(function () {
-        window.location.href = "datingapp://payment/result?order_id=${encodeURIComponent(
-          orderId
-        )}";
+        window.location.href =
+          "datingapp://payment/result?order_id=" +
+          encodeURIComponent(${JSON.stringify(orderId)}) +
+          "&razorpay_payment_id=" + encodeURIComponent(${JSON.stringify(razorpayPaymentId)}) +
+          "&razorpay_signature=" + encodeURIComponent(${JSON.stringify(razorpaySignature)});
       }, 600);
     </script>
   </body>
 </html>`);
 };
 
-export const getCashfreeCheckoutHtml = async (
-  req,
-  res
-) => {
-  const paymentSessionId =
-    req.query.payment_session_id || "";
+export const getCashfreeCheckoutHtml = async (req, res) => {
+  const paymentSessionId = req.query.payment_session_id || "";
   const orderId = req.query.order_id || "";
-  const mode = getCashfreeCheckoutMode();
+  const mode = await getCashfreeCheckoutMode();
 
   if (!paymentSessionId || !orderId) {
-    return res.status(400).send(
-      "payment_session_id and order_id are required"
-    );
+    return res
+      .status(400)
+      .send("payment_session_id and order_id are required");
   }
 
   const publicApiBaseUrl =
@@ -254,9 +484,7 @@ export const getCashfreeCheckoutHtml = async (
       </div>
     </div>
     <script>
-      const paymentSessionId = ${JSON.stringify(
-        paymentSessionId
-      )};
+      const paymentSessionId = ${JSON.stringify(paymentSessionId)};
       const returnUrl = ${JSON.stringify(returnUrl)};
       const mode = ${JSON.stringify(mode)};
 
@@ -275,6 +503,164 @@ export const getCashfreeCheckoutHtml = async (
       setTimeout(function () {
         document.getElementById("pay-btn").click();
       }, 300);
+    </script>
+  </body>
+</html>`);
+};
+
+export const getRazorpayCheckoutHtml = async (req, res) => {
+  const orderId = req.query.order_id || "";
+  const razorpayOrderId = req.query.razorpay_order_id || "";
+  const amount = Number(req.query.amount || 0);
+  const name = req.query.name || "Ulov Gold";
+  const contact = String(req.query.contact || "").replace(/\D/g, "").slice(-10);
+  const email = String(req.query.email || "");
+  const customerName = String(req.query.customer_name || "Ulov User");
+
+  if (!orderId || !razorpayOrderId) {
+    return res
+      .status(400)
+      .send("order_id and razorpay_order_id are required");
+  }
+
+  let keyId;
+
+  try {
+    keyId = await getRazorpayCheckoutKeyId();
+  } catch (error) {
+    return res.status(500).send(error.message);
+  }
+
+  const publicApiBaseUrl =
+    getPublicApiBaseUrl() ||
+    `${req.protocol}://${req.get("host")}`;
+  const returnUrl = `${publicApiBaseUrl}/api/payments/razorpay/return?order_id=${encodeURIComponent(
+    orderId
+  )}`;
+
+  res.setHeader("Content-Type", "text/html");
+  return res.send(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ulov Checkout</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        background: #fff;
+        color: #333;
+      }
+      .wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+      }
+      button {
+        background: #ff2e73;
+        color: #fff;
+        border: 0;
+        border-radius: 14px;
+        padding: 14px 24px;
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .error {
+        color: #c62828;
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <h2>Secure Payment</h2>
+        <p>Pay safely with UPI, cards, or wallets via Razorpay.</p>
+        <button id="pay-btn" type="button">Continue to Pay</button>
+        <div id="error" class="error"></div>
+      </div>
+    </div>
+    <script>
+      const keyId = ${JSON.stringify(keyId)};
+      const orderId = ${JSON.stringify(orderId)};
+      const razorpayOrderId = ${JSON.stringify(razorpayOrderId)};
+      const amountPaise = ${JSON.stringify(Math.round(amount * 100))};
+      const name = ${JSON.stringify(name)};
+      const returnUrl = ${JSON.stringify(returnUrl)};
+      const contact = ${JSON.stringify(contact)};
+      const email = ${JSON.stringify(email)};
+      const customerName = ${JSON.stringify(customerName)};
+
+      function openCheckout() {
+        const options = {
+          key: keyId,
+          amount: amountPaise,
+          currency: "INR",
+          name: "Ulov",
+          description: name,
+          order_id: razorpayOrderId,
+          theme: { color: "#FF2E73" },
+          // Required for UPI apps inside Android WebView checkout
+          webview_intent: true,
+          method: {
+            upi: true,
+            card: true,
+            netbanking: true,
+            wallet: true
+          },
+          prefill: {
+            name: customerName || "Ulov User",
+            email: email || undefined,
+            contact: contact || undefined
+          },
+          handler: function (response) {
+            const payload = {
+              type: "razorpay_success",
+              orderId: orderId,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature
+            };
+
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+            }
+
+            window.location.href =
+              returnUrl +
+              "&razorpay_payment_id=" + encodeURIComponent(response.razorpay_payment_id || "") +
+              "&razorpay_order_id=" + encodeURIComponent(response.razorpay_order_id || "") +
+              "&razorpay_signature=" + encodeURIComponent(response.razorpay_signature || "");
+          },
+          modal: {
+            ondismiss: function () {
+              const payload = {
+                type: "razorpay_dismiss",
+                orderId: orderId
+              };
+
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+              }
+            }
+          }
+        };
+
+        const rzp = new Razorpay(options);
+        rzp.on("payment.failed", function (response) {
+          document.getElementById("error").textContent =
+            response?.error?.description || "Payment failed";
+        });
+        rzp.open();
+      }
+
+      document.getElementById("pay-btn").addEventListener("click", openCheckout);
+      setTimeout(openCheckout, 300);
     </script>
   </body>
 </html>`);

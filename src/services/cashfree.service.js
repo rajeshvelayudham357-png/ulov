@@ -1,18 +1,17 @@
 import axios from "axios";
 
+import { getPaymentSettings } from "./paymentSettings.service.js";
+
 const API_VERSION = "2023-08-01";
 
-const getCashfreeConfig = () => {
-  const clientId = process.env.CASHFREE_CLIENT_ID;
-  const clientSecret = process.env.CASHFREE_CLIENT_SECRET;
-  const env = (
-    process.env.CASHFREE_ENV || "sandbox"
-  ).toLowerCase();
+const getCashfreeConfig = async () => {
+  const settings = await getPaymentSettings();
+  const clientId = settings.cashfreeClientId;
+  const clientSecret = settings.cashfreeClientSecret;
+  const env = settings.cashfreeEnv;
 
   if (!clientId || !clientSecret) {
-    throw new Error(
-      "Cashfree credentials are not configured"
-    );
+    throw new Error("Cashfree credentials are not configured");
   }
 
   const baseUrl =
@@ -26,15 +25,13 @@ const getCashfreeConfig = () => {
     env,
     baseUrl,
     checkoutMode:
-      env === "production"
-        ? "production"
-        : "sandbox",
+      env === "production" ? "production" : "sandbox",
   };
 };
 
-const cashfreeHeaders = () => {
+const cashfreeHeaders = async () => {
   const { clientId, clientSecret } =
-    getCashfreeConfig();
+    await getCashfreeConfig();
 
   return {
     "Content-Type": "application/json",
@@ -52,7 +49,7 @@ export const createCashfreeOrder = async ({
   returnUrl,
   notifyUrl,
 }) => {
-  const { baseUrl } = getCashfreeConfig();
+  const { baseUrl } = await getCashfreeConfig();
 
   const response = await axios.post(
     `${baseUrl}/orders`,
@@ -67,7 +64,7 @@ export const createCashfreeOrder = async ({
       },
     },
     {
-      headers: cashfreeHeaders(),
+      headers: await cashfreeHeaders(),
     }
   );
 
@@ -75,20 +72,20 @@ export const createCashfreeOrder = async ({
 };
 
 export const fetchCashfreeOrder = async (orderId) => {
-  const { baseUrl } = getCashfreeConfig();
+  const { baseUrl } = await getCashfreeConfig();
 
   const response = await axios.get(
     `${baseUrl}/orders/${orderId}`,
     {
-      headers: cashfreeHeaders(),
+      headers: await cashfreeHeaders(),
     }
   );
 
   return response.data;
 };
 
-export const getCashfreeCheckoutMode = () =>
-  getCashfreeConfig().checkoutMode;
+export const getCashfreeCheckoutMode = async () =>
+  (await getCashfreeConfig()).checkoutMode;
 
 export const getPublicApiBaseUrl = () => {
   const configured =

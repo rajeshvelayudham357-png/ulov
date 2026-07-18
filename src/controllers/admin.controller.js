@@ -69,6 +69,10 @@ getGiftSettings,
 updateGiftSettings,
 } from "../services/giftSettings.service.js";
 import {
+getAdminPaymentSettingsView,
+updatePaymentSettings,
+} from "../services/paymentSettings.service.js";
+import {
 backfillPublicUserIds
 } from "../services/publicUserId.service.js";
 import {
@@ -117,6 +121,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"gift-master", label:"Gift Master", path:"/gift-master" },
 { key:"recharge-revenue", label:"Revenue", path:"/recharge-revenue" },
 { key:"gst-master", label:"GST Master", path:"/gst-master" },
+{ key:"payment-settings", label:"Payment Settings", path:"/payment-settings" },
 { key:"auth-settings", label:"Auth Settings", path:"/auth-settings" },
 { key:"app-settings", label:"App Settings", path:"/app-settings" },
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
@@ -1127,6 +1132,65 @@ req.body.gstPercent
 
 return res.json({
 message:"GST settings updated",
+settings
+});
+
+}catch(error){
+
+return res
+.status(400)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getPaymentSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getAdminPaymentSettingsView();
+
+return res.json(
+settings
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updatePaymentSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updatePaymentSettings(
+req.body || {}
+);
+
+return res.json({
+message:"Payment settings updated",
 settings
 });
 

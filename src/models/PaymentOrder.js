@@ -42,6 +42,22 @@ export const PaymentOrder = sequelize.define(
       allowNull: true,
     },
 
+    gateway: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      defaultValue: "cashfree",
+    },
+
+    razorpayOrderId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+
+    razorpayPaymentId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+
     status: {
       type: DataTypes.STRING(30),
       allowNull: false,

@@ -33,6 +33,10 @@ import {
 
     updateGstSettingsConfig,
 
+    getPaymentSettingsConfig,
+
+    updatePaymentSettingsConfig,
+
     getGiftSettingsConfig,
 
     updateGiftSettingsConfig,
@@ -190,6 +194,20 @@ router.patch(
 "/gst-settings",
 requirePageAccess("gst-master"),
 updateGstSettingsConfig
+);
+
+
+router.get(
+"/payment-settings",
+requirePageAccess("payment-settings"),
+getPaymentSettingsConfig
+);
+
+
+router.patch(
+"/payment-settings",
+requirePageAccess("payment-settings"),
+updatePaymentSettingsConfig
 );
 
 
