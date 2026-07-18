@@ -62,6 +62,12 @@ from "./routes/welcomeOffer.routes.js";
 import paymentRoutes
 from "./routes/payment.routes.js";
 
+import accountDeletionRoutes
+from "./routes/accountDeletion.routes.js";
+
+import adminAccountDeletionRoutes
+from "./routes/adminAccountDeletion.routes.js";
+
 /* 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -200,6 +206,16 @@ app.use(
                     app.use(
                       "/api/payments",
                       paymentRoutes
+                      );
+
+                    app.use(
+                      "/api/account-deletion",
+                      accountDeletionRoutes
+                      );
+
+                    app.use(
+                      "/api/admin/account-deletion",
+                      adminAccountDeletionRoutes
                       );
 
                    

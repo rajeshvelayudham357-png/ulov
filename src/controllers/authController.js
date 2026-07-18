@@ -341,6 +341,15 @@ if (!user?.loginPinHash) {
   });
 }
 
+if (
+  user.accountStatus === "deleted" ||
+  Number(user.blocked) === 1
+) {
+  return res.status(403).json({
+    message: "This account has been deleted or disabled.",
+  });
+}
+
 const pinMatches =
 await verifyPinHash(
 pin,

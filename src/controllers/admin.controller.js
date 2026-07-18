@@ -102,8 +102,176 @@ const adminProfile = {
 id:"admin",
 name:"Ulov Admin",
 email:ADMIN_EMAIL,
-role:"admin"
+role:"admin",
+isSuperAdmin:true,
+allowedPages:["*"]
 };
+
+const ADMIN_PAGE_PERMISSIONS = [
+{ key:"dashboard", label:"Dashboard", path:"/dashboard" },
+{ key:"users", label:"Users", path:"/users" },
+{ key:"male-users", label:"Male Users", path:"/male-users" },
+{ key:"calls", label:"Calls", path:"/calls" },
+{ key:"live-calls", label:"Live Calls", path:"/live-calls" },
+{ key:"call-rates", label:"Call Rates", path:"/call-rates" },
+{ key:"gift-master", label:"Gift Master", path:"/gift-master" },
+{ key:"recharge-revenue", label:"Revenue", path:"/recharge-revenue" },
+{ key:"gst-master", label:"GST Master", path:"/gst-master" },
+{ key:"auth-settings", label:"Auth Settings", path:"/auth-settings" },
+{ key:"app-settings", label:"App Settings", path:"/app-settings" },
+{ key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
+{ key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
+{ key:"broadcast", label:"Broadcast", path:"/broadcast" },
+{ key:"support", label:"Support", path:"/support" },
+{ key:"withdraw", label:"Withdraw", path:"/withdraw" },
+{ key:"kyc", label:"KYC", path:"/kyc" },
+{ key:"creators", label:"Creators", path:"/creators" },
+{ key:"payouts", label:"Payouts", path:"/payouts" },
+{ key:"account-deletion", label:"Account Deletion", path:"/account-deletion" },
+{ key:"analytics", label:"Analytics", path:"/analytics" }
+];
+
+let adminUsersTableReady =
+false;
+
+const normalizeAllowedPages =
+(pages)=>{
+
+if(
+!Array.isArray(
+pages
+)
+){
+
+return [];
+
+}
+
+const validPages =
+new Set(
+ADMIN_PAGE_PERMISSIONS.map(
+(page)=>page.key
+)
+);
+
+return [
+...new Set(
+pages
+.map(
+(page)=>String(page || "").trim()
+)
+.filter(
+(page)=>validPages.has(page)
+)
+)
+];
+
+};
+
+const parseAllowedPages =
+(value)=>{
+
+if(
+Array.isArray(
+value
+)
+){
+
+return normalizeAllowedPages(
+value
+);
+
+}
+
+try{
+
+return normalizeAllowedPages(
+JSON.parse(
+value || "[]"
+)
+);
+
+}catch(error){
+
+return [];
+
+}
+
+};
+
+const ensureAdminUsersTable =
+async()=>{
+
+if(
+adminUsersTableReady
+){
+
+return;
+
+}
+
+await sequelize.query(
+`CREATE TABLE IF NOT EXISTS admin_users (
+id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+name VARCHAR(120) NOT NULL,
+email VARCHAR(180) NOT NULL UNIQUE,
+passwordHash VARCHAR(255) NOT NULL,
+allowedPages TEXT NULL,
+active TINYINT(1) NOT NULL DEFAULT 1,
+createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+)`
+);
+
+adminUsersTableReady =
+true;
+
+};
+
+const formatManagedAdminUser =
+(row)=>({
+id:String(row.id),
+name:row.name,
+email:row.email,
+role:"admin",
+isSuperAdmin:false,
+active:Boolean(row.active),
+allowedPages:parseAllowedPages(
+row.allowedPages
+),
+createdAt:row.createdAt,
+updatedAt:row.updatedAt
+});
+
+const findManagedAdminByEmail =
+async(
+email
+)=>{
+
+await ensureAdminUsersTable();
+
+const rows =
+await sequelize.query(
+"SELECT * FROM admin_users WHERE LOWER(email) = LOWER(:email) LIMIT 1",
+{
+replacements:{
+email:String(email || "").trim()
+},
+type:QueryTypes.SELECT
+}
+);
+
+return rows[0] || null;
+
+};
+
+const isSuperAdminRequest =
+(req)=>
+Boolean(req.admin?.isSuperAdmin) ||
+(
+String(req.admin?.sub || "") === adminProfile.id &&
+String(req.admin?.email || "").toLowerCase() === ADMIN_EMAIL.toLowerCase()
+);
 
 const isAdminPasswordValid =
 async (
@@ -162,24 +330,19 @@ password
 );
 
 if(
-!emailMatches ||
-!passwordMatches
+emailMatches &&
+passwordMatches
 ){
-
-return res
-.status(401)
-.json({
-message:"Invalid admin credentials"
-});
-
-}
 
 const token =
 jwt.sign(
 {
 sub:adminProfile.id,
 email:adminProfile.email,
-role:adminProfile.role
+role:adminProfile.role,
+name:adminProfile.name,
+isSuperAdmin:true,
+allowedPages:["*"]
 },
 JWT_SECRET,
 {
@@ -190,6 +353,70 @@ expiresIn:"8h"
 return res.json({
 token,
 admin:adminProfile
+});
+
+}
+
+const managedAdmin =
+await findManagedAdminByEmail(
+email
+);
+
+if(
+!managedAdmin ||
+!managedAdmin.active
+){
+
+return res
+.status(401)
+.json({
+message:"Invalid admin credentials"
+});
+
+}
+
+const managedPasswordMatches =
+await bcrypt.compare(
+password,
+managedAdmin.passwordHash
+);
+
+if(
+!managedPasswordMatches
+){
+
+return res
+.status(401)
+.json({
+message:"Invalid admin credentials"
+});
+
+}
+
+const managedProfile =
+formatManagedAdminUser(
+managedAdmin
+);
+
+const token =
+jwt.sign(
+{
+sub:managedProfile.id,
+email:managedProfile.email,
+role:managedProfile.role,
+name:managedProfile.name,
+isSuperAdmin:false,
+allowedPages:managedProfile.allowedPages
+},
+JWT_SECRET,
+{
+expiresIn:"8h"
+}
+);
+
+return res.json({
+token,
+admin:managedProfile
 });
 
 }catch(error){
@@ -269,6 +496,75 @@ message:"Admin session expired"
 };
 
 
+export const requireSuperAdmin =
+(
+req,
+res,
+next
+)=>{
+
+if(
+isSuperAdminRequest(
+req
+)
+){
+
+return next();
+
+}
+
+return res
+.status(403)
+.json({
+message:"Super admin access required"
+});
+
+};
+
+
+export const requirePageAccess =
+(pageKey)=>(
+req,
+res,
+next
+)=>{
+
+if(
+isSuperAdminRequest(
+req
+)
+){
+
+return next();
+
+}
+
+const allowedPages =
+Array.isArray(
+req.admin?.allowedPages
+)
+? req.admin.allowedPages
+: [];
+
+if(
+allowedPages.includes(
+pageKey
+)
+){
+
+return next();
+
+}
+
+return res
+.status(403)
+.json({
+message:"You do not have access to this page"
+});
+
+};
+
+
 export const adminMe =
 async (
 req,
@@ -276,8 +572,326 @@ res
 )=>{
 
 return res.json({
-admin:adminProfile
+admin:{
+id:String(
+req.admin?.sub || adminProfile.id
+),
+name:req.admin?.name || adminProfile.name,
+email:req.admin?.email || adminProfile.email,
+role:"admin",
+isSuperAdmin:isSuperAdminRequest(
+req
+),
+allowedPages:isSuperAdminRequest(
+req
+)
+? ["*"]
+: (
+Array.isArray(
+req.admin?.allowedPages
+)
+? req.admin.allowedPages
+: []
+)
+}
 });
+
+};
+
+
+export const adminPagePermissions =
+async (
+req,
+res
+)=>{
+
+return res.json({
+pages:ADMIN_PAGE_PERMISSIONS
+});
+
+};
+
+
+export const listAdminUsers =
+async (
+req,
+res
+)=>{
+
+try{
+
+await ensureAdminUsersTable();
+
+const rows =
+await sequelize.query(
+"SELECT id, name, email, allowedPages, active, createdAt, updatedAt FROM admin_users ORDER BY createdAt DESC",
+{
+type:QueryTypes.SELECT
+}
+);
+
+return res.json({
+rows:rows.map(
+formatManagedAdminUser
+),
+pages:ADMIN_PAGE_PERMISSIONS
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const createAdminUser =
+async (
+req,
+res
+)=>{
+
+try{
+
+await ensureAdminUsersTable();
+
+const name =
+String(req.body.name || "").trim();
+const email =
+String(req.body.email || "").trim().toLowerCase();
+const password =
+String(req.body.password || "");
+const allowedPages =
+normalizeAllowedPages(
+req.body.allowedPages
+);
+
+if(
+!name ||
+!email ||
+!password
+){
+
+return res
+.status(400)
+.json({
+message:"Name, email, and password are required"
+});
+
+}
+
+if(
+password.length < 6
+){
+
+return res
+.status(400)
+.json({
+message:"Password must be at least 6 characters"
+});
+
+}
+
+if(
+allowedPages.length === 0
+){
+
+return res
+.status(400)
+.json({
+message:"Select at least one page access"
+});
+
+}
+
+if(
+email === ADMIN_EMAIL.toLowerCase()
+){
+
+return res
+.status(400)
+.json({
+message:"This email is reserved for the main admin"
+});
+
+}
+
+const existing =
+await findManagedAdminByEmail(
+email
+);
+
+if(
+existing
+){
+
+return res
+.status(409)
+.json({
+message:"Admin user already exists"
+});
+
+}
+
+const passwordHash =
+await bcrypt.hash(
+password,
+10
+);
+
+await sequelize.query(
+`INSERT INTO admin_users (name, email, passwordHash, allowedPages, active, createdAt, updatedAt)
+VALUES (:name, :email, :passwordHash, :allowedPages, 1, NOW(), NOW())`,
+{
+replacements:{
+name,
+email,
+passwordHash,
+allowedPages:JSON.stringify(
+allowedPages
+)
+}
+}
+);
+
+return res
+.status(201)
+.json({
+message:"Admin user created"
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateAdminUser =
+async (
+req,
+res
+)=>{
+
+try{
+
+await ensureAdminUsersTable();
+
+const id =
+String(req.params.id || "").trim();
+const name =
+String(req.body.name || "").trim();
+const allowedPages =
+normalizeAllowedPages(
+req.body.allowedPages
+);
+const active =
+req.body.active === undefined
+? true
+: Boolean(req.body.active);
+const password =
+String(req.body.password || "");
+
+if(
+!id ||
+!name
+){
+
+return res
+.status(400)
+.json({
+message:"Admin user and name are required"
+});
+
+}
+
+if(
+allowedPages.length === 0
+){
+
+return res
+.status(400)
+.json({
+message:"Select at least one page access"
+});
+
+}
+
+const replacements = {
+id,
+name,
+allowedPages:JSON.stringify(
+allowedPages
+),
+active:active ? 1 : 0
+};
+
+let passwordSql =
+"";
+
+if(
+password
+){
+
+if(
+password.length < 6
+){
+
+return res
+.status(400)
+.json({
+message:"Password must be at least 6 characters"
+});
+
+}
+
+replacements.passwordHash =
+await bcrypt.hash(
+password,
+10
+);
+passwordSql =
+", passwordHash = :passwordHash";
+
+}
+
+await sequelize.query(
+`UPDATE admin_users
+SET name = :name,
+allowedPages = :allowedPages,
+active = :active
+${passwordSql},
+updatedAt = NOW()
+WHERE id = :id`,
+{
+replacements
+}
+);
+
+return res.json({
+message:"Admin user updated"
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
 
 };
 

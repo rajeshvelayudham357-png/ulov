@@ -26,6 +26,7 @@ import { CallRating } from "./CallRating.js";
 import { Block } from "./Block.js";
 import { PaymentOrder } from "./PaymentOrder.js";
 import { CallGiftRecord } from "./CallGiftRecord.js";
+import { AccountDeletionRequest } from "./AccountDeletionRequest.js";
 
 // =========================
 // USER -> WALLET
@@ -443,7 +444,23 @@ Block.belongsTo(
  }
 );
 
-      
+User.hasMany(
+  AccountDeletionRequest,
+  {
+    foreignKey: "userId",
+    as: "accountDeletionRequests",
+    constraints: false,
+  }
+);
+
+AccountDeletionRequest.belongsTo(
+  User,
+  {
+    foreignKey: "userId",
+    as: "user",
+    constraints: false,
+  }
+);
 
 
 
@@ -478,6 +495,7 @@ ChatMessage,
 CallRating,
 Block,
 PaymentOrder,
-CallGiftRecord
+CallGiftRecord,
+AccountDeletionRequest
 
 };

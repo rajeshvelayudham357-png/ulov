@@ -9,6 +9,7 @@ import {
   SupportTicket,
   PaymentOrder,
   CallGiftRecord,
+  AccountDeletionRequest,
 } from "../models/index.js";
 import { sequelize } from "../config/database.js";
 import { getPublicCallRates } from "./callRate.service.js";
@@ -46,6 +47,7 @@ export const runDatabaseMigrations = async () => {
   await safeModelSync(Earning, "Earning");
   await safeModelSync(PaymentOrder, "PaymentOrder");
   await safeModelSync(CallGiftRecord, "CallGiftRecord");
+  await safeModelSync(AccountDeletionRequest, "AccountDeletionRequest");
 
   console.log("Database migrations completed");
 };
