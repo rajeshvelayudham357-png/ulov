@@ -32,6 +32,20 @@ import {
 } from "../models/index.js";
 
 import {
+    WalletTransaction,
+    Favorite,
+    DeviceToken,
+    NotificationRecord,
+    ChatMessage,
+    CallRating,
+    Block,
+    CallGiftRecord,
+    AccountDeletionRequest,
+    SupportTicket,
+    SupportMessage
+} from "../models/index.js";
+
+import {
     Kyc
 }
 from "../models/index.js";
@@ -1628,6 +1642,35 @@ const activeStatuses = [
 "accepted"
 ];
 
+const staleMinutes =
+Number(
+process.env.LIVE_CALL_STALE_MINUTES || 240
+);
+
+const staleCutoff =
+new Date(
+Date.now() -
+staleMinutes *
+60 *
+1000
+);
+
+await CallHistory.update(
+{
+status:"cancelled"
+},
+{
+where:{
+status:{
+[Op.in]:activeStatuses
+},
+createdAt:{
+[Op.lt]:staleCutoff
+}
+}
+}
+);
+
 const data =
 await CallHistory.findAll({
 where:{
@@ -2399,6 +2442,27 @@ res
 
 try{
 
+const date =
+String(req.query.date || "").trim();
+
+const where = {};
+
+if(date){
+
+const start =
+new Date(`${date}T00:00:00`);
+const end =
+new Date(start);
+end.setDate(
+end.getDate() + 1
+);
+
+where.createdAt = {
+[Op.gte]:start,
+[Op.lt]:end
+};
+
+}
 
 
 const data =
@@ -2406,6 +2470,8 @@ await CallHistory.findAll({
 
 
 limit:100,
+
+where,
 
 
 include:[
@@ -2589,7 +2655,11 @@ type:row.type ||
 "video",
 
 status:row.status ||
-"completed"
+"completed",
+
+startedAt:row.createdAt,
+
+createdAt:row.createdAt
 
 };
 
@@ -2675,6 +2745,8 @@ attributes:[
 "name",
 
 "nickname",
+
+"username",
 
 "avatar",
 
@@ -2780,9 +2852,22 @@ id:data.id,
 
 publicUserId:data.publicUserId,
 
+name:data.name,
+
+username:data.username,
+
+displayName:getDisplayName(
+data
+),
+
 nickname:
 data.nickname ||
-data.name ||
+(
+data.name !== "New User"
+? data.name
+: null
+) ||
+data.username ||
 "Unknown",
 
 image:data.avatar,
@@ -4592,6 +4677,242 @@ message:error.message
 }
 
 
+
+};
+
+
+
+// ===================================
+// DELETE USER
+// ===================================
+
+
+export const deleteUser =
+async(
+req,
+res
+)=>{
+
+const userId =
+req.params.id;
+
+const transaction =
+await sequelize.transaction();
+
+try{
+
+const user =
+await User.findByPk(
+userId,
+{
+transaction
+}
+);
+
+if(
+!user
+){
+
+await transaction.rollback();
+
+return res
+.status(404)
+.json({
+message:"User not found"
+});
+
+}
+
+const callRows =
+await CallHistory.findAll({
+where:{
+[Op.or]:[
+{ callerId:userId },
+{ receiverId:userId }
+]
+},
+attributes:[
+"id"
+],
+transaction
+});
+
+const callIds =
+callRows.map(
+(row)=>row.id
+);
+
+if(
+callIds.length
+){
+
+await Earning.destroy({
+where:{
+callId:{
+[Op.in]:callIds
+}
+},
+transaction
+});
+
+await CallRating.destroy({
+where:{
+[Op.or]:[
+{
+callHistoryId:{
+[Op.in]:callIds
+}
+},
+{ callerId:userId },
+{ femaleId:userId }
+]
+},
+transaction
+});
+
+}
+
+await Promise.all([
+WalletTransaction.destroy({
+where:{ userId },
+transaction
+}),
+PaymentOrder.destroy({
+where:{ userId },
+transaction
+}),
+Wallet.destroy({
+where:{ userId },
+transaction
+}),
+Favorite.destroy({
+where:{
+[Op.or]:[
+{ userId },
+{ favoriteUserId:userId }
+]
+},
+transaction
+}),
+Earning.destroy({
+where:{ userId },
+transaction
+}),
+Withdraw.destroy({
+where:{ userId },
+transaction
+}),
+Kyc.destroy({
+where:{ userId },
+transaction
+}),
+DeviceToken.destroy({
+where:{ userId },
+transaction
+}),
+NotificationRecord.destroy({
+where:{ userId },
+transaction
+}),
+ChatMessage.destroy({
+where:{
+[Op.or]:[
+{ senderId:userId },
+{ receiverId:userId }
+]
+},
+transaction
+}),
+CallGiftRecord.destroy({
+where:{
+[Op.or]:[
+{ senderId:userId },
+{ receiverId:userId }
+]
+},
+transaction
+}),
+Block.destroy({
+where:{
+[Op.or]:[
+{ blockerId:userId },
+{ blockedUserId:userId }
+]
+},
+transaction
+}),
+AccountDeletionRequest.destroy({
+where:{ userId },
+transaction
+})
+]);
+
+const tickets =
+await SupportTicket.findAll({
+where:{ userId },
+attributes:[
+"id"
+],
+transaction
+});
+
+const ticketIds =
+tickets.map(
+(ticket)=>ticket.id
+);
+
+if(
+ticketIds.length
+){
+
+await SupportMessage.destroy({
+where:{
+ticketId:{
+[Op.in]:ticketIds
+}
+},
+transaction
+});
+
+await SupportTicket.destroy({
+where:{ userId },
+transaction
+});
+
+}
+
+await CallHistory.destroy({
+where:{
+[Op.or]:[
+{ callerId:userId },
+{ receiverId:userId }
+]
+},
+transaction
+});
+
+await user.destroy({
+transaction
+});
+
+await transaction.commit();
+
+return res.json({
+success:true,
+message:"User deleted"
+});
+
+}catch(error){
+
+await transaction.rollback();
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
 
 };
 

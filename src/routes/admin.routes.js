@@ -76,6 +76,8 @@ import {
     getUserDetails,
     
     blockUser,
+
+    deleteUser,
     
     verifyUser,
     kycRequests,
@@ -389,6 +391,17 @@ router.get(
     requirePageAccess("users"),
     
     blockUser
+    
+    );
+
+
+    router.delete(
+    
+    "/users/:id",
+
+    requirePageAccess("users"),
+    
+    deleteUser
     
     );
     
