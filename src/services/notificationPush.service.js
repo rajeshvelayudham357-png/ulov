@@ -185,16 +185,24 @@ if(
 !ioRef ||
 !onlineUsersRef
 ){
-return;
+return false;
 }
 
+const keys = [
+String(userId),
+Number(userId),
+userId
+].map((value)=>String(value));
+
+const uniqueKeys = [...new Set(keys)];
+let emitted = false;
+
+for(const key of uniqueKeys){
 const socketId =
-onlineUsersRef.get(
-String(userId)
-);
+onlineUsersRef.get(key);
 
 if(!socketId){
-return;
+continue;
 }
 
 ioRef
@@ -203,6 +211,10 @@ ioRef
 event,
 payload
 );
+emitted = true;
+}
+
+return emitted;
 };
 
 export const notifyMalesWhenFemaleOnline =
@@ -398,3 +410,159 @@ return {
 notified
 };
 };
+
+export const notifyKycApproved =
+async(
+userId
+)=>{
+const id =
+Number(userId);
+
+if(
+!Number.isFinite(id)
+){
+return {
+notified:false
+};
+}
+
+const pushPayload = {
+title:
+"Bank account verified",
+body:
+"Your KYC is approved. You can now withdraw your earnings.",
+data:{
+type:"kyc_approved",
+userId:id,
+screen:"/female/withdraw"
+}
+};
+
+ // Persist first so Notifications screen always has it.
+const saved =
+await saveNotification(
+id,
+pushPayload
+);
+
+const realtimePayload = {
+...pushPayload,
+id:saved?.id ?? null,
+notificationId:saved?.id ?? null,
+type:"kyc_approved",
+message:pushPayload.body,
+userId:id,
+screen:"/female/withdraw"
+};
+
+const socketEmitted =
+emitToUser(
+id,
+"kyc-approved",
+realtimePayload
+) ||
+emitToUser(
+id,
+"notification",
+realtimePayload
+);
+
+await sendPushToUser(
+id,
+pushPayload
+);
+
+console.log(
+"KYC APPROVED NOTIFIED",
+{
+userId:id,
+saved:Boolean(saved),
+notificationId:saved?.id ?? null,
+socketEmitted
+}
+);
+
+return {
+notified:true,
+saved:Boolean(saved),
+socketEmitted
+};
+};
+
+export const notifyFemaleAccountApproved =
+async(
+userId
+)=>{
+const id =
+Number(userId);
+
+if(
+!Number.isFinite(id)
+){
+return {
+notified:false
+};
+}
+
+const pushPayload = {
+title:
+"Profile approved",
+body:
+"Your account is approved. Go online and start earning by receiving calls.",
+data:{
+type:"account_approved",
+userId:id,
+screen:"/female/dashboard"
+}
+};
+
+const saved =
+await saveNotification(
+id,
+pushPayload
+);
+
+const realtimePayload = {
+...pushPayload,
+id:saved?.id ?? null,
+notificationId:saved?.id ?? null,
+type:"account_approved",
+message:pushPayload.body,
+userId:id,
+screen:"/female/dashboard"
+};
+
+const socketEmitted =
+emitToUser(
+id,
+"account-approved",
+realtimePayload
+) ||
+emitToUser(
+id,
+"notification",
+realtimePayload
+);
+
+await sendPushToUser(
+id,
+pushPayload
+);
+
+console.log(
+"FEMALE ACCOUNT APPROVED NOTIFIED",
+{
+userId:id,
+saved:Boolean(saved),
+notificationId:saved?.id ?? null,
+socketEmitted
+}
+);
+
+return {
+notified:true,
+saved:Boolean(saved),
+socketEmitted
+};
+};
+

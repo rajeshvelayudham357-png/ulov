@@ -5,6 +5,13 @@ import {
     QueryTypes
 } from "sequelize";
 
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 
 import {
@@ -94,6 +101,10 @@ createMasterFemaleTask,
 getMasterFemaleTasks,
 updateMasterFemaleTask
 } from "../services/femaleTask.service.js";
+import {
+notifyKycApproved,
+notifyFemaleAccountApproved
+} from "../services/notificationPush.service.js";
 
 
 
@@ -137,6 +148,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"gst-master", label:"GST Master", path:"/gst-master" },
 { key:"payment-settings", label:"Payment Settings", path:"/payment-settings" },
 { key:"auth-settings", label:"Auth Settings", path:"/auth-settings" },
+{ key:"user-verification", label:"User Verification", path:"/user-verification" },
 { key:"app-settings", label:"App Settings", path:"/app-settings" },
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
 { key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
@@ -565,9 +577,14 @@ req.admin?.allowedPages
 ? req.admin.allowedPages
 : [];
 
+const requiredPages =
+Array.isArray(pageKey)
+? pageKey
+: [pageKey];
+
 if(
-allowedPages.includes(
-pageKey
+requiredPages.some(
+(key)=>allowedPages.includes(key)
 )
 ){
 
@@ -1022,6 +1039,8 @@ welcomeOfferCoins:
 req.body.welcomeOfferCoins,
 authVerificationMode:
 req.body.authVerificationMode,
+femaleVerificationMethod:
+req.body.femaleVerificationMethod,
 });
 
 return res.json({
@@ -1496,6 +1515,36 @@ true;
 
 
 
+
+const parseRejectionReasons =
+(value)=>{
+if(Array.isArray(value)){
+return value
+.map((item)=>String(item || "").trim())
+.filter(Boolean);
+}
+
+if(typeof value === "string" && value.trim()){
+try{
+const parsed =
+JSON.parse(value);
+
+if(Array.isArray(parsed)){
+return parsed
+.map((item)=>String(item || "").trim())
+.filter(Boolean);
+}
+}catch(_error){
+return value
+.split("|")
+.map((item)=>item.trim())
+.filter(Boolean);
+}
+}
+
+return [];
+};
+
 const getDisplayName =
 (user)=>{
 
@@ -1596,6 +1645,10 @@ verificationSentence:data.verificationSentence,
 verified:data.verified,
 
 accountStatus,
+
+rejectionReasons:parseRejectionReasons(
+data.rejectionReasons
+),
 
 online:data.online,
 
@@ -1982,6 +2035,34 @@ await Withdraw.count();
 
 
 
+const [
+kycApproved,
+kycPending,
+kycRejected,
+kycTotal
+] =
+await Promise.all([
+Kyc.count({
+where:{
+status:"approved"
+}
+}),
+Kyc.count({
+where:{
+status:"pending"
+}
+}),
+Kyc.count({
+where:{
+status:"rejected"
+}
+}),
+Kyc.count()
+]);
+
+
+
+
 res.json({
 
 
@@ -2012,6 +2093,18 @@ approved:approvedPayouts,
 approvedAmount:approvedPayoutAmount,
 
 rejected:rejectedPayouts
+
+},
+
+kyc:{
+
+total:kycTotal,
+
+pending:kycPending,
+
+approved:kycApproved,
+
+rejected:kycRejected
 
 }
 
@@ -2576,35 +2669,6 @@ return `${String(mins).padStart(2,"0")}:${String(secs).padStart(2,"0")}`;
 
 };
 
-
-
-
-const getDisplayName =
-(user)=>{
-
-
-if(!user){
-
-
-return "Unknown";
-
-
-}
-
-
-return (
-user.nickname ||
-(
-user.name !== "New User"
-? user.name
-: null
-) ||
-user.username ||
-"Unknown"
-);
-
-
-};
 
 
 
@@ -4921,6 +4985,86 @@ message:error.message
 
 
 // ===================================
+// STREAM VERIFICATION MEDIA
+// ===================================
+
+const resolveVerificationUploadPath = (mediaUrl) => {
+  if (!mediaUrl || typeof mediaUrl !== "string") {
+    return null;
+  }
+
+  const cleaned = mediaUrl.split("?")[0].split("#")[0];
+
+  if (!cleaned.startsWith("/uploads/verification-")) {
+    return null;
+  }
+
+  const uploadsRoot = path.resolve(
+    path.join(__dirname, "../../uploads")
+  );
+
+  const absolutePath = path.resolve(
+    path.join(__dirname, "../..", cleaned.replace(/^\//, ""))
+  );
+
+  if (
+    absolutePath !== uploadsRoot &&
+    !absolutePath.startsWith(`${uploadsRoot}${path.sep}`)
+  ) {
+    return null;
+  }
+
+  if (!fs.existsSync(absolutePath)) {
+    return null;
+  }
+
+  return absolutePath;
+};
+
+export const streamUserVerificationMedia =
+async (
+req,
+res
+) => {
+  try {
+    const kind = String(req.params.kind || "").toLowerCase();
+
+    if (kind !== "video" && kind !== "audio") {
+      return res.status(400).json({
+        message: "Invalid media kind. Use video or audio.",
+      });
+    }
+
+    const user = await User.findByPk(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    const mediaUrl =
+      kind === "video"
+        ? user.verificationVideoUrl
+        : user.verificationAudioUrl;
+
+    const filePath = resolveVerificationUploadPath(mediaUrl);
+
+    if (!filePath) {
+      return res.status(404).json({
+        message: `Verification ${kind} not found`,
+      });
+    }
+
+    return res.sendFile(filePath);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+// ===================================
 // VERIFY USER
 // ===================================
 
@@ -5026,8 +5170,36 @@ message:"Invalid action. Use approve or reject."
 
 
 
+let rejectionReasonsPayload =
+null;
+
+if(accountStatus === "rejected"){
+const rawReasons =
+req.body?.rejectionReasons ??
+req.body?.reasons ??
+[];
+
+const rejectionReasons =
+parseRejectionReasons(
+rawReasons
+);
+
+if(rejectionReasons.length === 0){
+return res.status(400).json({
+message:"Select at least one rejection reason"
+});
+}
+
+rejectionReasonsPayload =
+JSON.stringify(rejectionReasons);
+}
+
 await sequelize.query(
-`UPDATE users SET accountStatus = :accountStatus, verified = :verified WHERE id = :id`,
+`UPDATE users
+SET accountStatus = :accountStatus,
+verified = :verified,
+rejectionReasons = :rejectionReasons
+WHERE id = :id`,
 
 {
 replacements:{
@@ -5035,6 +5207,11 @@ replacements:{
 accountStatus,
 
 verified:accountStatus === "approved" ? 1 : 0,
+
+rejectionReasons:
+accountStatus === "approved"
+? null
+: rejectionReasonsPayload,
 
 id:req.params.id
 
@@ -5044,8 +5221,11 @@ id:req.params.id
 
 );
 
-
-
+if(accountStatus === "approved"){
+await notifyFemaleAccountApproved(
+req.params.id
+);
+}
 
 res.json({
 
@@ -5053,6 +5233,11 @@ res.json({
 success:true,
 
 accountStatus,
+
+rejectionReasons:
+accountStatus === "rejected"
+? parseRejectionReasons(rejectionReasonsPayload)
+: [],
 
 message:accountStatus === "approved" ? "User approved" : "User rejected"
 
@@ -5227,14 +5412,16 @@ id:kyc.userId
 );
 
 
-
+await notifyKycApproved(
+kyc.userId
+);
 
 
 res.json({
 
 success:true,
 
-message:"Creator approved"
+message:"KYC approved"
 
 });
 

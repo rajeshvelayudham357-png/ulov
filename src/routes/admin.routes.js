@@ -80,6 +80,7 @@ import {
     deleteUser,
     
     verifyUser,
+    streamUserVerificationMedia,
     kycRequests,
 
 approveKyc,
@@ -173,14 +174,22 @@ updateCallRateConfig
 
 router.get(
 "/app-settings",
-requirePageAccess("app-settings"),
+requirePageAccess([
+"app-settings",
+"auth-settings",
+"user-verification"
+]),
 getAppSettingsConfig
 );
 
 
 router.patch(
 "/app-settings",
-requirePageAccess("app-settings"),
+requirePageAccess([
+"app-settings",
+"auth-settings",
+"user-verification"
+]),
 updateAppSettingsConfig
 );
 
@@ -418,6 +427,12 @@ router.get(
     
     verifyUser
     
+    );
+
+    router.get(
+      "/users/:id/verification-media/:kind",
+      requirePageAccess("users"),
+      streamUserVerificationMedia
     );
 
     router.get(

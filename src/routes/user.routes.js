@@ -41,9 +41,30 @@ router.post(
   uploadVerificationAudio
 );
 
+const handleVerificationVideoUpload =
+(req, res, next) => {
+  verificationVideoUpload.single("video")(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
+
+    console.log("VERIFICATION VIDEO MULTER ERROR", error);
+
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        message: "Video is too large. Please record a shorter clip.",
+      });
+    }
+
+    return res.status(400).json({
+      message: error.message || "Video upload failed",
+    });
+  });
+};
+
 router.post(
   "/verification-video",
-  verificationVideoUpload.single("video"),
+  handleVerificationVideoUpload,
   uploadVerificationVideo
 );
 

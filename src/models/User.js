@@ -139,6 +139,11 @@ export const User = sequelize.define(
       defaultValue: "pending",
     },
 
+    rejectionReasons: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
 
     // STATUS
 

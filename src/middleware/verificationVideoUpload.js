@@ -48,7 +48,11 @@ const allowedMimeTypes =
 "video/mov",
 "video/webm",
 "video/3gpp",
-"application/octet-stream"
+"video/3gp",
+"video/x-m4v",
+"video/mpeg",
+"application/octet-stream",
+""
 ];
 
 export const verificationVideoUpload =
@@ -62,9 +66,18 @@ _req,
 file,
 cb
 )=>{
+const mime =
+String(file.mimetype || "")
+.toLowerCase();
+
+const original =
+String(file.originalname || "");
+
 if(
-allowedMimeTypes.includes(file.mimetype) ||
-file.originalname?.match(/\.(mp4|mov|webm|m4v)$/i)
+!mime ||
+mime.startsWith("video/") ||
+allowedMimeTypes.includes(mime) ||
+original.match(/\.(mp4|mov|webm|m4v|3gp)$/i)
 ){
 cb(null, true);
 return;

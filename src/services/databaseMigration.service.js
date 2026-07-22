@@ -34,10 +34,21 @@ export const runDatabaseMigrations = async () => {
   await sequelize.authenticate();
   console.log("Database connection OK");
 
+  console.log("Ensuring user schema...");
   await ensureUserSchema({ force: true });
+  console.log("User schema ready");
+
+  console.log("Ensuring support tables...");
   await ensureSupportTables();
+  console.log("Support tables ready");
+
+  console.log("Ensuring female online time tables...");
   await ensureFemaleOnlineTimeTables();
+  console.log("Female online time tables ready");
+
+  console.log("Loading call rates...");
   await getPublicCallRates();
+  console.log("Call rates ready");
 
   await safeModelSync(DeviceToken, "DeviceToken");
   await safeModelSync(NotificationRecord, "NotificationRecord");

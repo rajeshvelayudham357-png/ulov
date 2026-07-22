@@ -72,6 +72,23 @@ const buildAuthUserPayload = (user) => ({
   accountStatus:
     user.accountStatus ??
     (user.gender === "Female" ? "pending" : "active"),
+  rejectionReasons: (() => {
+    const value = user.rejectionReasons;
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+        }
+      } catch {
+        return value.split("|").map((item) => item.trim()).filter(Boolean);
+      }
+    }
+    return [];
+  })(),
   welcomeOfferClaimed: Boolean(user.welcomeOfferClaimed),
 });
 
@@ -126,6 +143,8 @@ return res.json({
 authVerificationMode:
 settings.authVerificationMode || "otp",
 pinLength: PIN_LENGTH,
+femaleVerificationMethod:
+settings.femaleVerificationMethod || "audio",
 });
 
 }catch(error){

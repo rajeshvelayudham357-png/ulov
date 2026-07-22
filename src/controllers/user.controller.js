@@ -204,6 +204,20 @@ ensureUserSchema;
       });
     }
 
+    const resolvedAge =
+      age !== undefined && age !== null
+        ? Number(age)
+        : Number(user.age);
+
+    if (
+      resolvedGender === "Male" &&
+      (!Number.isFinite(resolvedAge) || resolvedAge < 18)
+    ) {
+      return res.status(400).json({
+        message: "You must be 18 years or older to register",
+      });
+    }
+
     const resolvedAvatar = resolveMaleAvatarForProfile({
       avatar,
       gender: resolvedGender,
@@ -269,6 +283,12 @@ ensureUserSchema;
       (audioVerified || videoVerified)
         ? "pending"
         : user.accountStatus,
+
+      rejectionReasons:
+      gender === "Female" &&
+      (audioVerified || videoVerified)
+        ? null
+        : user.rejectionReasons,
      
      
       profileCompleted:true
@@ -860,6 +880,8 @@ attributes:[
 
 "accountStatus",
 
+"rejectionReasons",
+
 "acceptVoiceCalls",
 
 "acceptVideoCalls",
@@ -1006,7 +1028,8 @@ try{
 await ensureVerificationAudioColumns();
 
 const {
-userId
+userId,
+sentence
 } = req.body;
 
 if(!userId){
@@ -1035,9 +1058,19 @@ buildVerificationVideoUrl(
 req.file.filename
 );
 
-await user.update({
+const updates = {
 verificationVideoUrl
-});
+};
+
+if(
+typeof sentence === "string" &&
+sentence.trim()
+){
+updates.verificationSentence =
+sentence.trim();
+}
+
+await user.update(updates);
 
 const host =
 req.get("host");

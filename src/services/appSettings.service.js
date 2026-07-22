@@ -6,6 +6,12 @@ const DEFAULT_SETTINGS = {
   welcomeOfferEnabled: 1,
   welcomeOfferCoins: 100,
   authVerificationMode: "otp",
+  femaleVerificationMethod: "audio",
+};
+
+const normalizeFemaleVerificationMethod = (value) => {
+  const method = String(value ?? "audio").trim().toLowerCase();
+  return method === "video" ? "video" : "audio";
 };
 
 let tableReady = false;
@@ -70,11 +76,16 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     "authVerificationMode",
     "VARCHAR(10) NOT NULL DEFAULT 'otp'"
   );
+  await ensureColumn(
+    "admin_app_settings",
+    "femaleVerificationMethod",
+    "VARCHAR(10) NOT NULL DEFAULT 'audio'"
+  );
 
   await sequelize.query(
     `INSERT IGNORE INTO admin_app_settings
-(id, languageMatchingEnabled, welcomeOfferEnabled, welcomeOfferCoins, authVerificationMode)
-VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :authVerificationMode)`,
+(id, languageMatchingEnabled, welcomeOfferEnabled, welcomeOfferCoins, authVerificationMode, femaleVerificationMethod)
+VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :authVerificationMode, :femaleVerificationMethod)`,
     {
       replacements: DEFAULT_SETTINGS,
     }
@@ -107,6 +118,9 @@ export const getAppSettings = async () => {
       String(row.authVerificationMode ?? "otp").toLowerCase() === "pin"
         ? "pin"
         : "otp",
+    femaleVerificationMethod: normalizeFemaleVerificationMethod(
+      row.femaleVerificationMethod
+    ),
     updatedAt: row.updatedAt || null,
   };
 };
@@ -116,6 +130,7 @@ export const updateAppSettings = async ({
   welcomeOfferEnabled,
   welcomeOfferCoins,
   authVerificationMode,
+  femaleVerificationMethod,
 }) => {
   await ensureAppSettingsTable();
 
@@ -154,12 +169,18 @@ export const updateAppSettings = async ({
         ? "pin"
         : "otp";
 
+  const nextFemaleVerificationMethod =
+    femaleVerificationMethod === undefined
+      ? current.femaleVerificationMethod
+      : normalizeFemaleVerificationMethod(femaleVerificationMethod);
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
 welcomeOfferEnabled = :welcomeOfferEnabled,
 welcomeOfferCoins = :welcomeOfferCoins,
-authVerificationMode = :authVerificationMode
+authVerificationMode = :authVerificationMode,
+femaleVerificationMethod = :femaleVerificationMethod
 WHERE id = 1`,
     {
       replacements: {
@@ -167,6 +188,7 @@ WHERE id = 1`,
         welcomeOfferEnabled: nextWelcomeOfferEnabled,
         welcomeOfferCoins: nextWelcomeOfferCoins,
         authVerificationMode: nextAuthVerificationMode,
+        femaleVerificationMethod: nextFemaleVerificationMethod,
       },
     }
   );

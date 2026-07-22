@@ -126,32 +126,42 @@ async()=>{
 
 try{
 
-await runDatabaseMigrations();
+console.log("Starting HTTP server...");
+
+server.listen(
+3001,
+"0.0.0.0",
+()=>{
+console.log(
+"Server running on http://0.0.0.0:3001"
+);
+}
+);
+
+startChatRetention();
+
+console.log("Running database migrations in background...");
+runDatabaseMigrations()
+.then(()=>{
+console.log("Background migrations finished");
+})
+.catch((error)=>{
+console.error(
+"DATABASE MIGRATION FAILED",
+error
+);
+});
 
 }catch(error){
 
 console.error(
-"DATABASE MIGRATION FAILED",
+"SERVER START FAILED",
 error
 );
 
 process.exit(1);
 
 }
-
-server.listen(
-3001,
-()=>{
-
-
-console.log(
-"Server running on port 3001"
-);
-
-
-});
-
-startChatRetention();
 
 };
 

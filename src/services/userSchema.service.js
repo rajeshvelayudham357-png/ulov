@@ -89,6 +89,7 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
     "TINYINT(1) NOT NULL DEFAULT 0"
   );
   await ensureColumn("users", "loginPinHash", "VARCHAR(255) NULL");
+  await ensureColumn("users", "rejectionReasons", "TEXT NULL");
 
   try {
     await sequelize.query(
