@@ -284,11 +284,44 @@ String(req.body.verificationType || "audio").toLowerCase() === "video"
 ? "video"
 : "audio";
 
+const buildUniqueUsername = async (baseName, currentUserId = null) => {
+  const cleaned = String(baseName || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+
+  const preferred = cleaned || `User${Date.now()}`;
+
+  let candidate = preferred;
+  let suffix = 1;
+
+  while (true) {
+    const existing = await User.findOne({
+      where: {
+        username: candidate,
+      },
+      attributes: ["id"],
+    });
+
+    if (!existing || String(existing.id) === String(currentUserId || "")) {
+      return candidate;
+    }
+
+    suffix += 1;
+    candidate = `${preferred}${suffix}`;
+  }
+};
+
+const username = await buildUniqueUsername(
+  displayName,
+  user?.id
+);
+
 const payload = {
 phone,
 name:displayName,
 nickname:displayName,
-username:user?.username || `Creator${Date.now()}`,
+username,
 gender:"Female",
 age,
 bio:String(req.body.bio || "").trim(),
