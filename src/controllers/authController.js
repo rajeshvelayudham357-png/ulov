@@ -16,6 +16,7 @@ isFallbackOtp,
 } from "../services/msg91.service.js";
 import {
 getAppSettings,
+parseLanguages,
 } from "../services/appSettings.service.js";
 import {
 hashPin,
@@ -151,6 +152,292 @@ settings.femaleVerificationMethod || "audio",
 
 return res.status(500).json({
 message: error.message,
+});
+
+}
+
+};
+
+
+export const registerFemaleCreator =
+async(
+req,
+res
+)=>{
+
+try{
+
+await ensureUserSchema();
+
+const phoneResult =
+validatePhone(req.body.phone);
+
+if(
+!phoneResult.ok
+){
+
+return res.status(400).json({
+message:phoneResult.message
+});
+
+}
+
+const displayName =
+String(
+req.body.name ||
+req.body.nickname ||
+""
+).trim();
+
+const age =
+Number(req.body.age);
+
+if(
+!displayName
+){
+
+return res.status(400).json({
+message:"Name is required"
+});
+
+}
+
+if(
+!Number.isFinite(age) ||
+age < 18
+){
+
+return res.status(400).json({
+message:"You must be 18 years or older to register"
+});
+
+}
+
+const languages =
+parseLanguages(
+req.body.languages
+);
+
+if(
+languages.length === 0
+){
+
+return res.status(400).json({
+message:"Select at least one language"
+});
+
+}
+
+if(
+languages.length > 2
+){
+
+return res.status(400).json({
+message:"You can select maximum 2 languages"
+});
+
+}
+
+const phone =
+phoneResult.phone;
+
+let user =
+await User.findOne({
+where:{
+phone
+}
+});
+
+if(
+user &&
+user.gender === "Male"
+){
+
+return res.status(409).json({
+message:"This phone number is already registered as a male user"
+});
+
+}
+
+const interests =
+Array.isArray(req.body.interests)
+? req.body.interests
+.map((item)=>String(item || "").trim())
+.filter(Boolean)
+: String(req.body.interests || "")
+.split(",")
+.map((item)=>item.trim())
+.filter(Boolean);
+
+if(
+interests.length > 3
+){
+
+return res.status(400).json({
+message:"You can select maximum 3 interests"
+});
+
+}
+
+const verificationType =
+String(req.body.verificationType || "audio").toLowerCase() === "video"
+? "video"
+: "audio";
+
+const payload = {
+phone,
+name:displayName,
+nickname:displayName,
+username:user?.username || `Creator${Date.now()}`,
+gender:"Female",
+age,
+bio:String(req.body.bio || "").trim(),
+preferredAge:String(req.body.preferredAge || "").trim(),
+languages,
+interests,
+verificationType,
+verificationSentence:String(req.body.verificationSentence || "").trim() || null,
+verified:false,
+audioVerified:false,
+videoVerified:false,
+profileCompleted:true,
+accountStatus:"pending",
+rejectionReasons:null,
+online:false
+};
+
+if(
+user
+){
+
+await assignPublicUserId(
+user
+);
+
+await user.update(
+payload
+);
+
+}else{
+
+user =
+await User.create({
+...payload,
+publicUserId:await generateUniquePublicUserId()
+});
+
+}
+
+return res
+.status(201)
+.json({
+success:true,
+message:"Registration submitted for approval",
+user:buildAuthUserPayload(user)
+});
+
+}catch(error){
+
+console.log(
+"FEMALE WEB REGISTRATION ERROR",
+error
+);
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const completeFemaleCreatorVerification =
+async(
+req,
+res
+)=>{
+
+try{
+
+await ensureUserSchema();
+
+const {
+userId,
+phone,
+verificationType
+} = req.body;
+
+if(
+!userId
+){
+
+return res.status(400).json({
+message:"userId required"
+});
+
+}
+
+const phoneResult =
+validatePhone(phone);
+
+if(
+!phoneResult.ok
+){
+
+return res.status(400).json({
+message:phoneResult.message
+});
+
+}
+
+const user =
+await User.findOne({
+where:{
+id:userId,
+phone:phoneResult.phone,
+gender:"Female"
+}
+});
+
+if(
+!user
+){
+
+return res.status(404).json({
+message:"Creator registration not found"
+});
+
+}
+
+const isVideo =
+String(verificationType || user.verificationType || "audio").toLowerCase() === "video";
+
+await user.update({
+verificationType:isVideo ? "video" : "audio",
+audioVerified:!isVideo,
+videoVerified:isVideo,
+verified:true,
+profileCompleted:true,
+accountStatus:"pending",
+rejectionReasons:null
+});
+
+return res.json({
+success:true,
+message:"Verification submitted for approval",
+user:buildAuthUserPayload(user)
+});
+
+}catch(error){
+
+console.log(
+"FEMALE WEB VERIFICATION COMPLETE ERROR",
+error
+);
+
+return res.status(500).json({
+message:error.message
 });
 
 }
