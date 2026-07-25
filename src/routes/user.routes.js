@@ -6,6 +6,8 @@ import {
   updateProfile,
   updateOnlineStatus,
   updateCallPreferences,
+  updateNotificationPreferences,
+  verifyPhoneNumber,
   getUserById,
   uploadVerificationAudio,
   uploadVerificationVideo
@@ -81,6 +83,16 @@ router.get(
  router.put(
   "/call-preferences",
   updateCallPreferences
+ );
+
+ router.put(
+  "/notification-preferences",
+  updateNotificationPreferences
+ );
+
+ router.post(
+  "/phone/verify",
+  verifyPhoneNumber
  );
 
   router.get(

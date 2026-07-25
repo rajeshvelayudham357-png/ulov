@@ -313,12 +313,10 @@ receiverId
 const settings =
 await getCallRateSettings();
 
-const minutes =
+const durationSeconds =
 Math.max(
-1,
-Math.ceil(
-(Number(duration) || 0) / 60
-)
+0,
+Number(duration) || 0
 );
 
 const normalizedType =
@@ -329,10 +327,39 @@ normalizedType === "voice"
 ? settings.voiceRatePerMinute
 : settings.videoRatePerMinute;
 
-const maleCost =
-Math.ceil(
-minutes * ratePerMinute
-);
+const VIDEO_FIRST_HALF_SECONDS = 30;
+
+let minutes = 0;
+let maleCost = 0;
+
+if(durationSeconds <= 0){
+ minutes = 0;
+ maleCost = 0;
+}else if(
+normalizedType === "video" &&
+durationSeconds <= VIDEO_FIRST_HALF_SECONDS
+){
+ // First 30 billable seconds of video: half the per-minute rate.
+ minutes = 0.5;
+ maleCost =
+ Math.max(
+ 1,
+ Math.ceil(ratePerMinute / 2)
+ );
+}else{
+ // Face-gated video can end with 0 billable seconds — do not force a 1-minute minimum above.
+ minutes =
+ Math.max(
+ 1,
+ Math.ceil(
+ durationSeconds / 60
+ )
+ );
+ maleCost =
+ Math.ceil(
+ minutes * ratePerMinute
+ );
+}
 
 const creatorPercentage =
 await getCreatorEarningPercentage(

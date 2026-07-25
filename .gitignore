@@ -18,3 +18,7 @@ uploads/**/*
 !**/*.js
 .env
 src/config/.env
+
+# Firebase service account keys (never commit)
+*firebase-adminsdk*.json
+*-firebase-adminsdk-*.json

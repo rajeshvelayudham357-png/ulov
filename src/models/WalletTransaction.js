@@ -2,7 +2,6 @@ import { DataTypes } from "sequelize";
 
 import { sequelize } from "../config/database.js";
 
-
 export const WalletTransaction =
 sequelize.define(
 "wallet_transactions",
@@ -33,8 +32,21 @@ sequelize.define(
 
  description:{
   type:DataTypes.STRING
- }
+ },
 
+
+ // e.g. call session id for consolidated call charges
+ referenceId:{
+  type:DataTypes.BIGINT,
+  allowNull:true
+ },
+
+
+ // e.g. "call"
+ referenceType:{
+  type:DataTypes.STRING,
+  allowNull:true
+ }
 
 }
 

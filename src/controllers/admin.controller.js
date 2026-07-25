@@ -153,6 +153,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
 { key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
 { key:"broadcast", label:"Broadcast", path:"/broadcast" },
+{ key:"user-notify", label:"User Notify", path:"/user-notify" },
 { key:"support", label:"Support", path:"/support" },
 { key:"withdraw", label:"Withdraw", path:"/withdraw" },
 { key:"kyc", label:"KYC", path:"/kyc" },

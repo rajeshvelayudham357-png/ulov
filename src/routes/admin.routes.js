@@ -99,6 +99,12 @@ createBroadcast
 } from "../controllers/broadcast.controller.js";
 
 import {
+  listNotifyUsers,
+  sendAdminNotify,
+  listAdminNotifyHistory,
+} from "../controllers/adminNotify.controller.js";
+
+import {
 adminGetTicket,
 adminListTickets,
 adminSendMessage,
@@ -489,6 +495,24 @@ requirePageAccess("broadcast"),
 
 createBroadcast
 
+);
+
+router.get(
+  "/notify/users",
+  requirePageAccess("user-notify"),
+  listNotifyUsers
+);
+
+router.get(
+  "/notify/history",
+  requirePageAccess("user-notify"),
+  listAdminNotifyHistory
+);
+
+router.post(
+  "/notify",
+  requirePageAccess("user-notify"),
+  sendAdminNotify
 );
 
 router.get(

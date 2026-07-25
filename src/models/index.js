@@ -19,6 +19,7 @@ import {
   Broadcast
   } from "./Broadcast.js";
 
+import { AdminNotify } from "./AdminNotify.js";
 import { DeviceToken } from "./DeviceToken.js";
 import { NotificationRecord } from "./NotificationRecord.js";
 import { ChatMessage } from "./ChatMessage.js";
@@ -489,6 +490,7 @@ export {
   SupportTicket,
 SupportMessage,
 Broadcast,
+AdminNotify,
 DeviceToken,
 NotificationRecord,
 ChatMessage,

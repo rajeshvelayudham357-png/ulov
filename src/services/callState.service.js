@@ -207,24 +207,32 @@ if(history){
  }
 }
 
-const [
-earning
-]=
-await Earning.findOrCreate({
+let earning =
+null;
 
-where:{
- callId:history.id
-},
+if(billing.femaleEarn > 0){
+ const [
+ createdEarning
+ ]=
+ await Earning.findOrCreate({
 
-defaults:{
- userId:receiverId,
- coins:billing.femaleEarn,
- amount:billing.femaleAmount,
- duration:billing.minutes,
- status:"pending"
+ where:{
+  callId:history.id
+ },
+
+ defaults:{
+  userId:receiverId,
+  coins:billing.femaleEarn,
+  amount:billing.femaleAmount,
+  duration:billing.minutes,
+  status:"pending"
+ }
+
+ });
+
+ earning =
+ createdEarning;
 }
-
-});
 
 return {
  history,

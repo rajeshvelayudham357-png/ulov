@@ -35,6 +35,10 @@ ensureUserSchema
 import {
 resolveMaleAvatarForProfile,
 } from "../services/maleAvatar.service.js";
+import {
+isFallbackOtp,
+verifyMsg91AccessToken,
+} from "../services/msg91.service.js";
 
 const ensureVerificationAudioColumns =
 ensureUserSchema;
@@ -618,7 +622,8 @@ await ensureUserSchema();
 const {
  userId,
  online,
- status
+ status,
+ notifyFavorites
 }=req.body;
 
 
@@ -696,23 +701,43 @@ online:isOnline
 
 
 
+const wantsFavoriteNotify =
+notifyFavorites === true ||
+notifyFavorites === "true" ||
+notifyFavorites === 1 ||
+notifyFavorites === "1";
+
+// Notify males only on explicit Offline → Online (female Online switch),
+// including closed-app FCM/Expo push. Skip call busy/resume and system restore.
 if(
 isOnline &&
-!wasOnline
+!wasOnline &&
+wantsFavoriteNotify
 ){
-notifyMalesWhenFemaleOnline(
+try{
+const notifyResult =
+await notifyMalesWhenFemaleOnline(
 userId,
 {
-broadcastStatus:true
+broadcastStatus:true,
+// Real off→on toggle must always attempt push for offline males.
+ignoreCooldown:true
 }
-).catch(
-error=>{
+);
+
+console.log(
+"STATUS FAVORITE ONLINE RESULT",
+{
+userId,
+...notifyResult
+}
+);
+}catch(error){
 console.log(
 "STATUS FAVORITE ONLINE ERROR",
 error.message
 );
 }
-);
 }
 
 
@@ -747,6 +772,121 @@ message:error.message
 // =====================
 // UPDATE CALL PREFERENCES
 // =====================
+
+export const verifyPhoneNumber =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const {
+userId,
+otp,
+accessToken,
+adminNotifyId
+}=req.body || {};
+
+const user =
+await User.findByPk(
+userId
+);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+let verified = false;
+
+if(isFallbackOtp(otp)){
+verified = true;
+}else if(accessToken){
+verified =
+await verifyMsg91AccessToken(
+accessToken
+);
+}
+
+if(!verified){
+return res.status(400).json({
+message:"Invalid or expired OTP"
+});
+}
+
+await user.update({
+phoneVerified:true
+});
+
+return res.json({
+message:"Mobile number validated",
+phoneVerified:true,
+phone:user.phone,
+adminNotifyId:
+adminNotifyId ??
+null
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+export const updateNotificationPreferences =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const {
+ userId,
+ notificationsEnabled
+}=req.body;
+
+const user =
+await User.findByPk(
+userId
+);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+if(
+typeof notificationsEnabled !== "boolean"
+){
+return res.status(400).json({
+message:"notificationsEnabled must be a boolean"
+});
+}
+
+await user.update({
+notificationsEnabled
+});
+
+return res.json({
+message:"Notification preferences updated",
+notificationsEnabled:Boolean(user.notificationsEnabled)
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
 
 export const updateCallPreferences =
 async(req,res)=>{
@@ -809,9 +949,12 @@ acceptVideoCalls
 :
 Boolean(user.acceptVideoCalls ?? true);
 
-if(!nextVoice){
+if(
+!nextVoice &&
+!nextVideo
+){
 return res.status(400).json({
-message:"Voice calls must remain enabled"
+message:"Enable at least one call mode: voice or video"
 });
 }
 
@@ -885,6 +1028,8 @@ attributes:[
 "acceptVoiceCalls",
 
 "acceptVideoCalls",
+
+"notificationsEnabled",
 
 "createdAt"
 

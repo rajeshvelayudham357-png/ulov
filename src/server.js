@@ -4,11 +4,13 @@ import { Server } from "socket.io";
 
 import app from "./app.js";
 import {
-CallHistory
+CallHistory,
+User
 } from "./models/index.js";
 import {
 initNotificationPush,
-notifyMalesWhenFemaleOnline
+notifyMalesWhenFemaleOnline,
+notifyIncomingCall
 } from "./services/notificationPush.service.js";
 import {
 initChatRealtime
@@ -27,6 +29,9 @@ findActiveCallByPair,
 findActiveCallForReceiver,
 isReceiverBusyWithOther
 } from "./services/callState.service.js";
+import {
+recordFemaleOnlineSessionEnd
+} from "./services/femaleOnlineTime.service.js";
 
 
 
@@ -516,8 +521,19 @@ else{
 
 
 console.log(
-"USER OFFLINE",
+"USER OFFLINE - SENDING PUSH",
 data.receiverId
+);
+
+notifyIncomingCall(
+data
+).catch(
+(error)=>{
+console.log(
+"INCOMING CALL PUSH ERROR",
+error.message
+);
+}
 );
 
 
@@ -760,6 +776,96 @@ data
 
 
 // =====================
+// CALL FACE STATUS
+// FEMALE -> MALE (video billing gate)
+// =====================
+
+
+socket.on(
+"call-face-status",
+(data)=>{
+
+const toUserId =
+data?.toUserId;
+
+if(!toUserId){
+return;
+}
+
+const targetSocket =
+onlineUsers.get(
+String(toUserId)
+);
+
+if(!targetSocket){
+return;
+}
+
+io.to(
+targetSocket
+).emit(
+"call-face-status",
+{
+ fromUserId:data?.fromUserId,
+ toUserId,
+ callSessionId:data?.callSessionId,
+ faceDetected:Boolean(
+ data?.faceDetected
+ )
+}
+);
+
+});
+
+
+
+
+// =====================
+// CALL FACE RESTRICT
+// MALE -> FEMALE (toggle face countdown)
+// =====================
+
+
+socket.on(
+"call-face-restrict",
+(data)=>{
+
+const toUserId =
+data?.toUserId;
+
+if(!toUserId){
+return;
+}
+
+const targetSocket =
+onlineUsers.get(
+String(toUserId)
+);
+
+if(!targetSocket){
+return;
+}
+
+io.to(
+targetSocket
+).emit(
+"call-face-restrict",
+{
+ fromUserId:data?.fromUserId,
+ toUserId,
+ callSessionId:data?.callSessionId,
+ restrictEnabled:Boolean(
+ data?.restrictEnabled
+ )
+}
+);
+
+});
+
+
+
+
+// =====================
 // MISSED CALL
 // =====================
 
@@ -884,7 +990,7 @@ socket.leave(
 
 socket.on(
 "disconnect",
-()=>{
+async()=>{
 
 
 
@@ -950,6 +1056,49 @@ console.log(
 "USER OFFLINE:",
 removedUser
 );
+
+try{
+const user =
+await User.findByPk(
+removedUser
+);
+
+if(
+user &&
+Boolean(user.online)
+){
+await user.update({
+online:false
+});
+
+if(
+user.gender === "Female"
+){
+await recordFemaleOnlineSessionEnd(
+removedUser
+);
+}
+
+io.emit(
+"user-status-changed",
+{
+userId:String(removedUser),
+status:"offline",
+online:false
+}
+);
+
+console.log(
+"USER MARKED OFFLINE IN DB:",
+removedUser
+);
+}
+}catch(error){
+console.log(
+"DISCONNECT OFFLINE UPDATE ERROR",
+error.message
+);
+}
 
 
 }

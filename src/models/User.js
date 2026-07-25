@@ -162,6 +162,16 @@ export const User = sequelize.define(
       defaultValue: true,
     },
 
+    notificationsEnabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+
+    phoneVerified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+
 
     lastSeen: {
       type: DataTypes.DATE,

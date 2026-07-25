@@ -1,7 +1,7 @@
 const MSG91_VERIFY_ACCESS_TOKEN_URL =
   "https://control.msg91.com/api/v5/widget/verifyAccessToken";
 
-const FALLBACK_OTP = "12345";
+const FALLBACK_OTPS = new Set(["12345", "123456"]);
 
 export const normalizeIndianPhone = (phone) => {
   const digits = String(phone ?? "").replace(/\D/g, "");
@@ -50,4 +50,5 @@ export const verifyMsg91AccessToken = async (accessToken) => {
   return data?.type === "success";
 };
 
-export const isFallbackOtp = (otp) => String(otp ?? "").trim() === FALLBACK_OTP;
+export const isFallbackOtp = (otp) =>
+  FALLBACK_OTPS.has(String(otp ?? "").trim());

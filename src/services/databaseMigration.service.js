@@ -1,4 +1,5 @@
 import {
+  AdminNotify,
   Block,
   CallRating,
   ChatMessage,
@@ -10,6 +11,7 @@ import {
   PaymentOrder,
   CallGiftRecord,
   AccountDeletionRequest,
+  WalletTransaction,
 } from "../models/index.js";
 import { sequelize } from "../config/database.js";
 import { getPublicCallRates } from "./callRate.service.js";
@@ -52,6 +54,7 @@ export const runDatabaseMigrations = async () => {
 
   await safeModelSync(DeviceToken, "DeviceToken");
   await safeModelSync(NotificationRecord, "NotificationRecord");
+  await safeModelSync(AdminNotify, "AdminNotify");
   await safeModelSync(ChatMessage, "ChatMessage");
   await safeModelSync(CallRating, "CallRating");
   await safeModelSync(Block, "Block");
@@ -59,6 +62,7 @@ export const runDatabaseMigrations = async () => {
   await safeModelSync(PaymentOrder, "PaymentOrder");
   await safeModelSync(CallGiftRecord, "CallGiftRecord");
   await safeModelSync(AccountDeletionRequest, "AccountDeletionRequest");
+  await safeModelSync(WalletTransaction, "WalletTransaction");
 
   console.log("Database migrations completed");
 };

@@ -27,21 +27,45 @@ message:"userId required"
 });
 }
 
+const normalizedUserId =
+Number(userId);
+
+const normalizedPlatform =
+platform ?? "unknown";
+
+const existing =
+await DeviceToken.findOne({
+where:{
+userId:normalizedUserId,
+platform:normalizedPlatform
+}
+});
+
+const nextDevicePushToken =
+String(devicePushToken || "").trim() ||
+existing?.devicePushToken ||
+"";
+
+const nextExpoPushToken =
+String(expoPushToken || "").trim() ||
+existing?.expoPushToken ||
+"";
+
 const [tokenRecord]=
 await DeviceToken.upsert({
-userId:Number(userId),
-platform:platform ?? "unknown",
-devicePushToken:devicePushToken ?? "",
-expoPushToken:expoPushToken ?? ""
+userId:normalizedUserId,
+platform:normalizedPlatform,
+devicePushToken:nextDevicePushToken,
+expoPushToken:nextExpoPushToken
 });
 
 console.log(
 "DEVICE TOKEN REGISTERED",
 {
 userId,
-platform,
-hasExpoToken:Boolean(expoPushToken),
-hasDeviceToken:Boolean(devicePushToken),
+platform:normalizedPlatform,
+hasExpoToken:Boolean(nextExpoPushToken),
+hasDeviceToken:Boolean(nextDevicePushToken),
 gender
 }
 );
@@ -124,11 +148,13 @@ notified:0
 });
 }
 
+// Backup / explicit notify path. Cooldown avoids duplicate tray spam.
 const result =
 await notifyMalesWhenFemaleOnline(
 userId,
 {
-broadcastStatus:true
+broadcastStatus:true,
+ignoreCooldown:false
 }
 );
 

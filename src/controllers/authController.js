@@ -91,6 +91,8 @@ const buildAuthUserPayload = (user) => ({
     return [];
   })(),
   welcomeOfferClaimed: Boolean(user.welcomeOfferClaimed),
+  notificationsEnabled: user.notificationsEnabled !== false,
+  phoneVerified: Boolean(user.phoneVerified),
 });
 
 const issueAuthToken = (user) =>

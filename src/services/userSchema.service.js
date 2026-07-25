@@ -88,6 +88,16 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
     "welcomeOfferClaimed",
     "TINYINT(1) NOT NULL DEFAULT 0"
   );
+  await ensureColumn(
+    "users",
+    "notificationsEnabled",
+    "TINYINT(1) NOT NULL DEFAULT 1"
+  );
+  await ensureColumn(
+    "users",
+    "phoneVerified",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
   await ensureColumn("users", "loginPinHash", "VARCHAR(255) NULL");
   await ensureColumn("users", "rejectionReasons", "TEXT NULL");
 
