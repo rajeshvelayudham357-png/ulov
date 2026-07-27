@@ -6,8 +6,7 @@ import {
     from "../models/index.js";
 
 import { getBlockedPeerIds } from "../services/block.service.js";
-import { fetchMalePurchaseRankers } from "../services/maleRankers.service.js";
-    
+import { fetchMalePurchaseRankers, fetchMaleTopSupportedCreators } from "../services/maleRankers.service.js";
     
     
     
@@ -156,4 +155,27 @@ message:error.message
 
 }
 
+};
+
+export const getMaleProfileForFemale = async (req, res) => {
+  try {
+    const { maleId } = req.params;
+
+    const male = await User.findByPk(maleId, {
+      attributes: ['id', 'username', 'name', 'avatar', 'publicUserId', 'online', 'gender']
+    });
+
+    if (!male || male.gender?.toLowerCase() !== 'male') {
+      return res.status(404).json({ message: "Male user not found" });
+    }
+
+    const topCreators = await fetchMaleTopSupportedCreators(male.id, 10);
+
+    return res.json({
+      user: male,
+      topCreators
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
 };

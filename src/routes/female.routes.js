@@ -2,7 +2,8 @@ import express from "express";
 
 import {
 getFemaleDashboard,
-getMaleRankers
+getMaleRankers,
+getMaleProfileForFemale
 }
 from "../controllers/female.controller.js";
 
@@ -37,6 +38,11 @@ getFemaleDashboard
 router.get(
 "/male-rankers/:userId",
 getMaleRankers
+);
+
+router.get(
+"/male-profile/:maleId",
+getMaleProfileForFemale
 );
 
 router.get(
