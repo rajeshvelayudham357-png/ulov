@@ -32,6 +32,8 @@ isReceiverBusyWithOther
 import {
 recordFemaleOnlineSessionEnd
 } from "./services/femaleOnlineTime.service.js";
+import { setSocketInstance as setAppSettingsSocketInstance } from "./services/appSettings.service.js";
+import { setSocketInstance as setGoogleBillingSocketInstance } from "./services/googleBilling.service.js";
 
 
 
@@ -95,6 +97,9 @@ initSupportRealtime(
 io,
 onlineUsers
 );
+
+setAppSettingsSocketInstance(io);
+setGoogleBillingSocketInstance(io);
 
 const startChatRetention =
 async()=>{

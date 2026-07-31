@@ -1,14 +1,14 @@
 import { QueryTypes } from "sequelize";
-
 import { sequelize } from "../config/database.js";
+import { ensurePaymentDatabaseSchemas } from "./paymentSchema.service.js";
 
 const DEFAULT_SETTINGS = {
   activeGateway: "cashfree",
   cashfreeEnv: "sandbox",
   razorpayEnv: "test",
+  googlePlayEnabled: true,
+  googlePlayEnv: "test",
 };
-
-let tableReady = false;
 
 const maskSecret = (value) => {
   const text = String(value || "");
@@ -21,39 +21,6 @@ const maskSecret = (value) => {
   return `${"*".repeat(Math.min(text.length - 4, 12))}${text.slice(-4)}`;
 };
 
-const ensurePaymentSettingsTable = async () => {
-  if (tableReady) {
-    return;
-  }
-
-  await sequelize.query(
-    `CREATE TABLE IF NOT EXISTS admin_payment_settings (
-id TINYINT NOT NULL PRIMARY KEY,
-activeGateway VARCHAR(30) NOT NULL DEFAULT 'cashfree',
-cashfreeClientId TEXT NULL,
-cashfreeClientSecret TEXT NULL,
-cashfreeEnv VARCHAR(20) NOT NULL DEFAULT 'sandbox',
-razorpayKeyId TEXT NULL,
-razorpayKeySecret TEXT NULL,
-razorpayWebhookSecret TEXT NULL,
-razorpayEnv VARCHAR(20) NOT NULL DEFAULT 'test',
-createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-)`
-  );
-
-  await sequelize.query(
-    `INSERT IGNORE INTO admin_payment_settings
-(id, activeGateway, cashfreeEnv, razorpayEnv)
-VALUES (1, :activeGateway, :cashfreeEnv, :razorpayEnv)`,
-    {
-      replacements: DEFAULT_SETTINGS,
-    }
-  );
-
-  tableReady = true;
-};
-
 const normalizeGateway = (value) => {
   const gateway = String(value || "")
     .trim()
@@ -62,12 +29,18 @@ const normalizeGateway = (value) => {
   if (gateway === "razorpay") {
     return "razorpay";
   }
+  if (gateway === "google_play") {
+    return "google_play";
+  }
+  if (gateway === "apple_iap") {
+    return "apple_iap";
+  }
 
   return "cashfree";
 };
 
 const readRow = async () => {
-  await ensurePaymentSettingsTable();
+  await ensurePaymentDatabaseSchemas();
 
   const rows = await sequelize.query(
     "SELECT * FROM admin_payment_settings WHERE id = 1 LIMIT 1",
@@ -114,18 +87,52 @@ export const getPaymentSettings = async () => {
     DEFAULT_SETTINGS.razorpayEnv
   ).toLowerCase();
 
+  const googlePlayEnabled = Boolean(
+    row.googlePlayEnabled ?? DEFAULT_SETTINGS.googlePlayEnabled
+  );
+  const googlePlayEnv = (
+    row.googlePlayEnv ||
+    process.env.GOOGLE_PLAY_ENV ||
+    DEFAULT_SETTINGS.googlePlayEnv
+  ).toLowerCase();
+  const googlePlayPackageName =
+    row.googlePlayPackageName ||
+    process.env.GOOGLE_PLAY_PACKAGE_NAME ||
+    "com.ulov.app";
+  const googlePlayServiceAccountEmail =
+    row.googlePlayServiceAccountEmail ||
+    process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_EMAIL ||
+    "";
+  const googlePlayProjectId =
+    row.googlePlayProjectId ||
+    process.env.GOOGLE_PLAY_PROJECT_ID ||
+    "";
+  const googlePlayProjectNumber =
+    row.googlePlayProjectNumber ||
+    process.env.GOOGLE_PLAY_PROJECT_NUMBER ||
+    "";
+  const googlePlayApiEnabled = Boolean(row.googlePlayApiEnabled);
+  const googlePlayNotes = row.googlePlayNotes || "";
+
   return {
     activeGateway: normalizeGateway(
       row.activeGateway || DEFAULT_SETTINGS.activeGateway
     ),
     cashfreeClientId,
     cashfreeClientSecret,
-    cashfreeEnv:
-      cashfreeEnv === "production" ? "production" : "sandbox",
+    cashfreeEnv: cashfreeEnv === "production" ? "production" : "sandbox",
     razorpayKeyId,
     razorpayKeySecret,
     razorpayWebhookSecret,
     razorpayEnv: razorpayEnv === "live" ? "live" : "test",
+    googlePlayEnabled,
+    googlePlayEnv: googlePlayEnv === "production" ? "production" : "test",
+    googlePlayPackageName,
+    googlePlayServiceAccountEmail,
+    googlePlayProjectId,
+    googlePlayProjectNumber,
+    googlePlayApiEnabled,
+    googlePlayNotes,
     updatedAt: row.updatedAt || null,
   };
 };
@@ -134,16 +141,18 @@ export const getPublicPaymentConfig = async () => {
   const settings = await getPaymentSettings();
 
   return {
+    provider: settings.activeGateway,
     activeGateway: settings.activeGateway,
     cashfreeMode:
-      settings.cashfreeEnv === "production"
-        ? "production"
-        : "sandbox",
+      settings.cashfreeEnv === "production" ? "production" : "sandbox",
     razorpayMode: settings.razorpayEnv,
     razorpayKeyId:
       settings.activeGateway === "razorpay"
         ? settings.razorpayKeyId
         : undefined,
+    googlePlayMode: settings.googlePlayEnv,
+    googlePlayPackageName: settings.googlePlayPackageName,
+    googlePlayEnabled: settings.googlePlayEnabled,
   };
 };
 
@@ -153,33 +162,29 @@ export const getAdminPaymentSettingsView = async () => {
   return {
     activeGateway: settings.activeGateway,
     cashfreeClientId: settings.cashfreeClientId,
-    cashfreeClientSecretMasked: maskSecret(
-      settings.cashfreeClientSecret
-    ),
-    cashfreeClientSecretConfigured: Boolean(
-      settings.cashfreeClientSecret
-    ),
+    cashfreeClientSecretMasked: maskSecret(settings.cashfreeClientSecret),
+    cashfreeClientSecretConfigured: Boolean(settings.cashfreeClientSecret),
     cashfreeEnv: settings.cashfreeEnv,
     razorpayKeyId: settings.razorpayKeyId,
-    razorpayKeySecretMasked: maskSecret(
-      settings.razorpayKeySecret
-    ),
-    razorpayKeySecretConfigured: Boolean(
-      settings.razorpayKeySecret
-    ),
-    razorpayWebhookSecretMasked: maskSecret(
-      settings.razorpayWebhookSecret
-    ),
-    razorpayWebhookSecretConfigured: Boolean(
-      settings.razorpayWebhookSecret
-    ),
+    razorpayKeySecretMasked: maskSecret(settings.razorpayKeySecret),
+    razorpayKeySecretConfigured: Boolean(settings.razorpayKeySecret),
+    razorpayWebhookSecretMasked: maskSecret(settings.razorpayWebhookSecret),
+    razorpayWebhookSecretConfigured: Boolean(settings.razorpayWebhookSecret),
     razorpayEnv: settings.razorpayEnv,
+    googlePlayEnabled: settings.googlePlayEnabled,
+    googlePlayEnv: settings.googlePlayEnv,
+    googlePlayPackageName: settings.googlePlayPackageName,
+    googlePlayServiceAccountEmail: settings.googlePlayServiceAccountEmail,
+    googlePlayProjectId: settings.googlePlayProjectId,
+    googlePlayProjectNumber: settings.googlePlayProjectNumber,
+    googlePlayApiEnabled: settings.googlePlayApiEnabled,
+    googlePlayNotes: settings.googlePlayNotes,
     updatedAt: settings.updatedAt,
   };
 };
 
 export const updatePaymentSettings = async (payload = {}) => {
-  await ensurePaymentSettingsTable();
+  await ensurePaymentDatabaseSchemas();
   const current = await getPaymentSettings();
 
   const next = {
@@ -196,9 +201,7 @@ export const updatePaymentSettings = async (payload = {}) => {
         ? String(payload.cashfreeClientSecret).trim()
         : current.cashfreeClientSecret,
     cashfreeEnv:
-      String(
-        payload.cashfreeEnv ?? current.cashfreeEnv
-      ).toLowerCase() === "production"
+      String(payload.cashfreeEnv ?? current.cashfreeEnv).toLowerCase() === "production"
         ? "production"
         : "sandbox",
     razorpayKeyId:
@@ -216,24 +219,62 @@ export const updatePaymentSettings = async (payload = {}) => {
         ? String(payload.razorpayWebhookSecret).trim()
         : current.razorpayWebhookSecret,
     razorpayEnv:
-      String(
-        payload.razorpayEnv ?? current.razorpayEnv
-      ).toLowerCase() === "live"
+      String(payload.razorpayEnv ?? current.razorpayEnv).toLowerCase() === "live"
         ? "live"
         : "test",
+    googlePlayEnabled:
+      payload.googlePlayEnabled !== undefined
+        ? Boolean(payload.googlePlayEnabled)
+        : current.googlePlayEnabled,
+    googlePlayEnv:
+      String(payload.googlePlayEnv ?? current.googlePlayEnv).toLowerCase() === "production"
+        ? "production"
+        : "test",
+    googlePlayPackageName:
+      payload.googlePlayPackageName !== undefined
+        ? String(payload.googlePlayPackageName || "").trim()
+        : current.googlePlayPackageName,
+    googlePlayServiceAccountEmail:
+      payload.googlePlayServiceAccountEmail !== undefined
+        ? String(payload.googlePlayServiceAccountEmail || "").trim()
+        : current.googlePlayServiceAccountEmail,
+    googlePlayProjectId:
+      payload.googlePlayProjectId !== undefined
+        ? String(payload.googlePlayProjectId || "").trim()
+        : current.googlePlayProjectId,
+    googlePlayProjectNumber:
+      payload.googlePlayProjectNumber !== undefined
+        ? String(payload.googlePlayProjectNumber || "").trim()
+        : current.googlePlayProjectNumber,
+    googlePlayApiEnabled:
+      payload.googlePlayApiEnabled !== undefined
+        ? Boolean(payload.googlePlayApiEnabled)
+        : current.googlePlayApiEnabled,
+    googlePlayNotes:
+      payload.googlePlayNotes !== undefined
+        ? String(payload.googlePlayNotes || "").trim()
+        : current.googlePlayNotes,
   };
 
   await sequelize.query(
     `UPDATE admin_payment_settings
-SET activeGateway = :activeGateway,
-cashfreeClientId = :cashfreeClientId,
-cashfreeClientSecret = :cashfreeClientSecret,
-cashfreeEnv = :cashfreeEnv,
-razorpayKeyId = :razorpayKeyId,
-razorpayKeySecret = :razorpayKeySecret,
-razorpayWebhookSecret = :razorpayWebhookSecret,
-razorpayEnv = :razorpayEnv
-WHERE id = 1`,
+     SET activeGateway = :activeGateway,
+         cashfreeClientId = :cashfreeClientId,
+         cashfreeClientSecret = :cashfreeClientSecret,
+         cashfreeEnv = :cashfreeEnv,
+         razorpayKeyId = :razorpayKeyId,
+         razorpayKeySecret = :razorpayKeySecret,
+         razorpayWebhookSecret = :razorpayWebhookSecret,
+         razorpayEnv = :razorpayEnv,
+         googlePlayEnabled = :googlePlayEnabled,
+         googlePlayEnv = :googlePlayEnv,
+         googlePlayPackageName = :googlePlayPackageName,
+         googlePlayServiceAccountEmail = :googlePlayServiceAccountEmail,
+         googlePlayProjectId = :googlePlayProjectId,
+         googlePlayProjectNumber = :googlePlayProjectNumber,
+         googlePlayApiEnabled = :googlePlayApiEnabled,
+         googlePlayNotes = :googlePlayNotes
+     WHERE id = 1`,
     {
       replacements: next,
     }

@@ -118,7 +118,7 @@ process.env.ADMIN_EMAIL ||
 
 const ADMIN_PASSWORD =
 process.env.ADMIN_PASSWORD ||
-"admin123";
+"ulovadmin357*";
 
 const ADMIN_PASSWORD_HASH =
 process.env.ADMIN_PASSWORD_HASH;
@@ -1042,6 +1042,8 @@ authVerificationMode:
 req.body.authVerificationMode,
 femaleVerificationMethod:
 req.body.femaleVerificationMethod,
+femaleUserCardLayout:
+req.body.femaleUserCardLayout,
 });
 
 return res.json({
@@ -4294,7 +4296,9 @@ const dateBounds =
 getDateBounds();
 
 const paymentWhere = {
-status:"PAID"
+  status: {
+    [Op.in]: ["PAID", "SUCCESS", "CAPTURED", "credited"]
+  }
 };
 
 if(dateBounds){
@@ -4352,8 +4356,12 @@ gender:data.user?.gender || "—",
 amount:Number(data.amount) || 0,
 coins:Number(data.coins) || 0,
 status:data.status,
-paymentMethod:data.paymentMethod || "Cashfree",
-paymentId:data.cashfreePaymentId || "—",
+paymentMethod: data.paymentProvider === "google_play"
+  ? "Google Play Billing"
+  : data.paymentProvider === "razorpay"
+  ? "Razorpay"
+  : (data.paymentMethod || "Cashfree"),
+paymentId: data.googleOrderId || data.cashfreePaymentId || data.purchaseToken || "—",
 createdAt:data.createdAt,
 paidAt:data.updatedAt
 };

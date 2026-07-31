@@ -2,6 +2,10 @@ import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import {
+  getPaymentProvider,
+  getPaymentProductsList,
+} from "../controllers/googleBilling.controller.js";
+import {
   cashfreeReturn,
   cashfreeWebhook,
   createCashfreePaymentOrder,
@@ -19,6 +23,8 @@ import {
 const router = express.Router();
 
 router.get("/config", getPaymentConfig);
+router.get("/provider", getPaymentProvider);
+router.get("/products", getPaymentProductsList);
 
 router.post(
   "/create-order",

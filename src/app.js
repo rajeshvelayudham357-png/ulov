@@ -62,11 +62,17 @@ from "./routes/welcomeOffer.routes.js";
 import paymentRoutes
 from "./routes/payment.routes.js";
 
+import googleBillingRoutes
+from "./routes/googleBilling.routes.js";
+
 import accountDeletionRoutes
 from "./routes/accountDeletion.routes.js";
 
 import adminAccountDeletionRoutes
 from "./routes/adminAccountDeletion.routes.js";
+
+import appSettingsRoutes
+from "./routes/appSettings.routes.js";
 
 /* 
 import authRoutes from "./routes/auth.routes.js";
@@ -209,6 +215,16 @@ app.use(
                       );
 
                     app.use(
+                      "/api/payment",
+                      googleBillingRoutes
+                      );
+
+                    app.use(
+                      "/api/google-play",
+                      googleBillingRoutes
+                      );
+
+                    app.use(
                       "/api/account-deletion",
                       accountDeletionRoutes
                       );
@@ -216,6 +232,11 @@ app.use(
                     app.use(
                       "/api/admin/account-deletion",
                       adminAccountDeletionRoutes
+                      );
+
+                    app.use(
+                      "/api/app",
+                      appSettingsRoutes
                       );
 
                    

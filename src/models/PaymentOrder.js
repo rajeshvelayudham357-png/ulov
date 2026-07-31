@@ -24,7 +24,7 @@ export const PaymentOrder = sequelize.define(
 
     packageId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
 
     coins: {

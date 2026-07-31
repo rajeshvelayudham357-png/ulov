@@ -1,12 +1,19 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
 
+let ioInstance = null;
+
+export const setSocketInstance = (io) => {
+  ioInstance = io;
+};
+
 const DEFAULT_SETTINGS = {
   languageMatchingEnabled: 1,
   welcomeOfferEnabled: 1,
   welcomeOfferCoins: 100,
   authVerificationMode: "otp",
   femaleVerificationMethod: "audio",
+  femaleUserCardLayout: 0,
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -81,11 +88,16 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     "femaleVerificationMethod",
     "VARCHAR(10) NOT NULL DEFAULT 'audio'"
   );
+  await ensureColumn(
+    "admin_app_settings",
+    "femaleUserCardLayout",
+    "TINYINT NOT NULL DEFAULT 0"
+  );
 
   await sequelize.query(
     `INSERT IGNORE INTO admin_app_settings
-(id, languageMatchingEnabled, welcomeOfferEnabled, welcomeOfferCoins, authVerificationMode, femaleVerificationMethod)
-VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :authVerificationMode, :femaleVerificationMethod)`,
+(id, languageMatchingEnabled, welcomeOfferEnabled, welcomeOfferCoins, authVerificationMode, femaleVerificationMethod, femaleUserCardLayout)
+VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :authVerificationMode, :femaleVerificationMethod, :femaleUserCardLayout)`,
     {
       replacements: DEFAULT_SETTINGS,
     }
@@ -121,6 +133,7 @@ export const getAppSettings = async () => {
     femaleVerificationMethod: normalizeFemaleVerificationMethod(
       row.femaleVerificationMethod
     ),
+    femaleUserCardLayout: Number(row.femaleUserCardLayout ?? 0),
     updatedAt: row.updatedAt || null,
   };
 };
@@ -131,6 +144,7 @@ export const updateAppSettings = async ({
   welcomeOfferCoins,
   authVerificationMode,
   femaleVerificationMethod,
+  femaleUserCardLayout,
 }) => {
   await ensureAppSettingsTable();
 
@@ -174,13 +188,22 @@ export const updateAppSettings = async ({
       ? current.femaleVerificationMethod
       : normalizeFemaleVerificationMethod(femaleVerificationMethod);
 
+  const parsedLayout = Number(femaleUserCardLayout);
+  const nextFemaleUserCardLayout =
+    femaleUserCardLayout === undefined
+      ? current.femaleUserCardLayout
+      : Number.isFinite(parsedLayout) && parsedLayout >= 0
+        ? Math.round(parsedLayout)
+        : current.femaleUserCardLayout;
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
 welcomeOfferEnabled = :welcomeOfferEnabled,
 welcomeOfferCoins = :welcomeOfferCoins,
 authVerificationMode = :authVerificationMode,
-femaleVerificationMethod = :femaleVerificationMethod
+femaleVerificationMethod = :femaleVerificationMethod,
+femaleUserCardLayout = :femaleUserCardLayout
 WHERE id = 1`,
     {
       replacements: {
@@ -189,11 +212,20 @@ WHERE id = 1`,
         welcomeOfferCoins: nextWelcomeOfferCoins,
         authVerificationMode: nextAuthVerificationMode,
         femaleVerificationMethod: nextFemaleVerificationMethod,
+        femaleUserCardLayout: nextFemaleUserCardLayout,
       },
     }
   );
 
-  return getAppSettings();
+  const updatedSettings = await getAppSettings();
+
+  if (ioInstance) {
+    try {
+      ioInstance.emit("app-settings-updated", { settings: updatedSettings });
+    } catch (_e) {}
+  }
+
+  return updatedSettings;
 };
 
 export const isLanguageMatchingEnabled = async () => {
