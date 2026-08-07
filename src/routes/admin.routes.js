@@ -66,14 +66,36 @@ import {
     getCreatorDetails,
     
     getCreatorDayCalls,
-    
     analytics,
-
+    peakCallHoursAnalytics,
+    getAnalyticsGlobalSummary,
+    getAnalyticsOverview,
+    getAnalyticsUsers,
+    getAnalyticsCalls,
+    getAnalyticsRevenue,
+    getAnalyticsWallet,
+    getAnalyticsCreators,
+    getAnalyticsWithdrawals,
+    getAnalyticsRankings,
+    getAnalyticsSystem,
     revenue,
-
     rechargeRevenue,
     
     getUserDetails,
+
+    getUserFullProfile,
+
+    resetUserPin,
+
+    forceUserLogout,
+
+    resetUserDevice,
+
+    unblockUser,
+
+    approveCreator,
+
+    rejectCreator,
     
     blockUser,
 
@@ -363,9 +385,75 @@ getCreatorDayCalls
 
 
 router.get(
-"/analytics",
-requirePageAccess("analytics"),
-analytics
+  "/analytics",
+  requirePageAccess("analytics"),
+  analytics
+);
+
+router.get(
+  "/analytics/summary",
+  requirePageAccess("analytics"),
+  getAnalyticsGlobalSummary
+);
+
+router.get(
+  "/analytics/overview",
+  requirePageAccess("analytics"),
+  getAnalyticsOverview
+);
+
+router.get(
+  "/analytics/peak-hours",
+  requirePageAccess("analytics"),
+  peakCallHoursAnalytics
+);
+
+router.get(
+  "/analytics/users",
+  requirePageAccess("analytics"),
+  getAnalyticsUsers
+);
+
+router.get(
+  "/analytics/calls",
+  requirePageAccess("analytics"),
+  getAnalyticsCalls
+);
+
+router.get(
+  "/analytics/revenue",
+  requirePageAccess("analytics"),
+  getAnalyticsRevenue
+);
+
+router.get(
+  "/analytics/wallet",
+  requirePageAccess("analytics"),
+  getAnalyticsWallet
+);
+
+router.get(
+  "/analytics/creators",
+  requirePageAccess("analytics"),
+  getAnalyticsCreators
+);
+
+router.get(
+  "/analytics/withdrawals",
+  requirePageAccess("analytics"),
+  getAnalyticsWithdrawals
+);
+
+router.get(
+  "/analytics/rankings",
+  requirePageAccess("analytics"),
+  getAnalyticsRankings
+);
+
+router.get(
+  "/analytics/system",
+  requirePageAccess("analytics"),
+  getAnalyticsSystem
 );
 
 
@@ -382,17 +470,39 @@ requirePageAccess("recharge-revenue"),
 rechargeRevenue
 );
 
-// USER DETAILS
+// USER DETAILS & PROFILE
 
 router.get(
+  "/users/:id/profile",
+  requirePageAccess("users"),
+  getUserFullProfile
+);
 
-    "/users/:id",
+router.get(
+  "/users/:id",
+  requirePageAccess("users"),
+  getUserDetails
+);
 
-    requirePageAccess("users"),
-    
-    getUserDetails
-    
-    );
+// USER MODERATION ACTIONS
+
+router.post(
+  "/users/:id/reset-pin",
+  requirePageAccess("users"),
+  resetUserPin
+);
+
+router.post(
+  "/users/:id/force-logout",
+  requirePageAccess("users"),
+  forceUserLogout
+);
+
+router.post(
+  "/users/:id/reset-device",
+  requirePageAccess("users"),
+  resetUserDevice
+);
     
     
     
@@ -400,39 +510,47 @@ router.get(
     // BLOCK / UNBLOCK USER
     
     router.patch(
-    
-    "/users/:id/block",
-
-    requirePageAccess("users"),
-    
-    blockUser
-    
+      "/users/:id/block",
+      requirePageAccess("users"),
+      blockUser
     );
 
+    router.post(
+      "/users/:id/block",
+      requirePageAccess("users"),
+      blockUser
+    );
+
+    router.post(
+      "/users/:id/unblock",
+      requirePageAccess("users"),
+      unblockUser
+    );
 
     router.delete(
-    
-    "/users/:id",
-
-    requirePageAccess("users"),
-    
-    deleteUser
-    
+      "/users/:id",
+      requirePageAccess("users"),
+      deleteUser
     );
     
-    
-    
-    
-    // VERIFY CREATOR
+    // VERIFY / APPROVE / REJECT CREATOR
     
     router.patch(
-    
-    "/users/:id/verify",
+      "/users/:id/verify",
+      requirePageAccess(["users", "kyc", "creators"]),
+      verifyUser
+    );
 
-    requirePageAccess("kyc"),
-    
-    verifyUser
-    
+    router.post(
+      "/users/:id/approve",
+      requirePageAccess(["users", "kyc", "creators"]),
+      approveCreator
+    );
+
+    router.post(
+      "/users/:id/reject",
+      requirePageAccess(["users", "kyc", "creators"]),
+      rejectCreator
     );
 
     router.get(
