@@ -6601,3 +6601,435 @@ export const getAnalyticsSystem = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// ===================================
+// REVENUE RECHARGES (Tab 1)
+// ===================================
+
+export const revenueRecharges = async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const offset = (page - 1) * limit;
+    const search = String(req.query.search || '').trim().toLowerCase();
+    const gateway = String(req.query.gateway || '').trim();
+    const status = String(req.query.status || '').trim();
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
+    const minAmount = Number(req.query.minAmount) || 0;
+    const maxAmount = Number(req.query.maxAmount) || 0;
+
+    const gstSettings = await getGstSettings();
+    const gstPercent = Number(gstSettings.gstPercent) || 0;
+
+    // Build WHERE
+    const where = {
+      status: { [Op.in]: ['PAID', 'SUCCESS', 'CAPTURED', 'credited'] },
+    };
+    if (gateway) {
+      where.gateway = gateway;
+    }
+    if (status && ['PAID','SUCCESS','CAPTURED','credited'].includes(status)) {
+      where.status = status;
+    }
+    if (startDate) {
+      where.updatedAt = where.updatedAt || {};
+      where.updatedAt[Op.gte] = new Date(`${startDate}T00:00:00`);
+    }
+    if (endDate) {
+      where.updatedAt = where.updatedAt || {};
+      const ed = new Date(`${endDate}T00:00:00`);
+      ed.setDate(ed.getDate() + 1);
+      where.updatedAt[Op.lt] = ed;
+    }
+    if (minAmount > 0) where.amount = { ...(where.amount || {}), [Op.gte]: minAmount };
+    if (maxAmount > 0) where.amount = { ...(where.amount || {}), [Op.lte]: maxAmount };
+
+    // Fetch all matching orders (no pagination yet - we need search filter)
+    const allOrders = await PaymentOrder.findAll({
+      where,
+      include: [
+        {
+          model: User,
+          attributes: ['id', 'publicUserId', 'name', 'nickname', 'username', 'phone', 'gender'],
+        },
+        {
+          model: Wallet,
+          as: 'wallet',
+          attributes: ['balance'],
+          required: false,
+        },
+      ],
+      order: [['updatedAt', 'DESC']],
+      limit: search ? 5000 : limit + offset + 100,
+    });
+
+    // Collect unique userIds for coins-used query
+    const userIds = [...new Set(allOrders.map((o) => o.userId))];
+
+    // Get coins used per user (sum of negative wallet transactions)
+    let coinsUsedMap = {};
+    if (userIds.length > 0) {
+      const usedRows = await sequelize.query(
+        `SELECT userId, ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed
+         FROM wallet_transactions
+         WHERE userId IN (:userIds) AND amount < 0
+         GROUP BY userId`,
+        { replacements: { userIds }, type: QueryTypes.SELECT }
+      );
+      usedRows.forEach((r) => { coinsUsedMap[r.userId] = Number(r.coinsUsed) || 0; });
+    }
+
+    let rows = allOrders.map((order) => {
+      const data = order.toJSON();
+      const { gstAmount, baseRevenue } = splitInclusiveGst(Number(data.amount) || 0, gstPercent);
+      const walletBalance = data.wallet?.balance ?? 0;
+      const coinsUsed = coinsUsedMap[data.userId] || 0;
+      const displayName = getDisplayName(data.user);
+
+      return {
+        id: data.id,
+        orderId: data.orderId,
+        userId: data.userId,
+        publicUserId: data.user?.publicUserId,
+        userName: displayName,
+        phone: data.user?.phone || '—',
+        rechargeDate: data.updatedAt,
+        amount: Number(data.amount) || 0,
+        gstPercent,
+        gstAmount,
+        netRevenue: baseRevenue,
+        coinsPurchased: Number(data.coins) || 0,
+        coinsUsed,
+        walletBalance,
+        gateway: data.gateway || 'cashfree',
+        transactionId: data.cashfreePaymentId || data.razorpayPaymentId || data.orderId || '—',
+        status: data.status,
+        paymentMethod: data.paymentMethod || '—',
+      };
+    });
+
+    // Search filter
+    if (search) {
+      rows = rows.filter((row) => {
+        const vals = [row.orderId, row.userName, row.phone, row.publicUserId, row.transactionId, String(row.amount)]
+          .filter(Boolean).map((v) => String(v).toLowerCase());
+        return vals.some((v) => v.includes(search));
+      });
+    }
+
+    // Aggregate summary (over all matched rows before pagination)
+    const totalRecharges = rows.length;
+    const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+    const totalGst = rows.reduce((s, r) => s + r.gstAmount, 0);
+    const totalNetRevenue = rows.reduce((s, r) => s + r.netRevenue, 0);
+    const totalCoins = rows.reduce((s, r) => s + r.coinsPurchased, 0);
+
+    // Paginate
+    const total = rows.length;
+    const paginatedRows = rows.slice(offset, offset + limit);
+
+    return res.json({
+      rows: paginatedRows,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      summary: { totalRecharges, totalAmount, totalGst, totalNetRevenue, totalCoins, gstPercent },
+    });
+  } catch (error) {
+    console.error('REVENUE RECHARGES ERROR', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ===================================
+// REVENUE SUMMARY (Tab 2)
+// ===================================
+
+export const revenueSummary = async (req, res) => {
+  try {
+    const gstSettings = await getGstSettings();
+    const gstPercent = Number(gstSettings.gstPercent) || 0;
+
+    const successStatuses = ['PAID', 'SUCCESS', 'CAPTURED', 'credited'];
+
+    // All successful payment orders
+    const orders = await PaymentOrder.findAll({
+      where: { status: { [Op.in]: successStatuses } },
+      attributes: ['amount', 'coins', 'gateway', 'userId'],
+    });
+
+    // Aggregate recharge stats
+    let totalAmount = 0, totalGst = 0, totalNetRevenue = 0, totalCoins = 0;
+    const gatewayCounts = {};
+    const gatewayAmounts = {};
+    const uniqueUsers = new Set();
+
+    orders.forEach((o) => {
+      const amt = Number(o.amount) || 0;
+      const { gstAmount, baseRevenue } = splitInclusiveGst(amt, gstPercent);
+      totalAmount += amt;
+      totalGst += gstAmount;
+      totalNetRevenue += baseRevenue;
+      totalCoins += Number(o.coins) || 0;
+      const gw = o.gateway || 'cashfree';
+      gatewayCounts[gw] = (gatewayCounts[gw] || 0) + 1;
+      gatewayAmounts[gw] = (gatewayAmounts[gw] || 0) + amt;
+      uniqueUsers.add(o.userId);
+    });
+
+    // Coins used (sum of all negative wallet transactions)
+    const [coinsUsedRow] = await sequelize.query(
+      `SELECT ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed FROM wallet_transactions WHERE amount < 0`,
+      { type: QueryTypes.SELECT }
+    );
+    const totalCoinsUsed = Number(coinsUsedRow?.coinsUsed) || 0;
+
+    // Current wallet coins
+    const [walletRow] = await sequelize.query(
+      `SELECT SUM(balance) AS totalBalance FROM wallets`,
+      { type: QueryTypes.SELECT }
+    );
+    const totalWalletBalance = Number(walletRow?.totalBalance) || 0;
+
+    // Creator earnings from Earning model
+    const [earningRow] = await sequelize.query(
+      `SELECT SUM(amount) AS totalEarnings FROM earnings`,
+      { type: QueryTypes.SELECT }
+    );
+    const totalCreatorEarnings = Number(earningRow?.totalEarnings) || 0;
+
+    // Approved payouts
+    const [approvedPayoutRow] = await sequelize.query(
+      `SELECT SUM(amount) AS total FROM Withdraws WHERE status='approved'`,
+      { type: QueryTypes.SELECT }
+    );
+    const approvedPayout = Number(approvedPayoutRow?.total) || 0;
+
+    // Pending payouts
+    const [pendingPayoutRow] = await sequelize.query(
+      `SELECT SUM(amount) AS total FROM Withdraws WHERE status='pending'`,
+      { type: QueryTypes.SELECT }
+    );
+    const pendingPayout = Number(pendingPayoutRow?.total) || 0;
+
+    const remainingRevenue = totalNetRevenue - approvedPayout;
+    const rechargeCount = orders.length;
+    const avgRecharge = rechargeCount > 0 ? totalAmount / rechargeCount : 0;
+    const maleUsersRecharged = uniqueUsers.size;
+    const avgRevenuePerUser = maleUsersRecharged > 0 ? totalNetRevenue / maleUsersRecharged : 0;
+
+    // Gateway pie data
+    const allGateways = ['cashfree', 'razorpay', 'google_play'];
+    const gatewayPie = allGateways.map((gw) => ({
+      name: gw === 'google_play' ? 'Google Play' : gw === 'razorpay' ? 'Razorpay' : 'Cashfree',
+      value: gatewayAmounts[gw] || 0,
+      count: gatewayCounts[gw] || 0,
+      percentage: totalAmount > 0 ? (((gatewayAmounts[gw] || 0) / totalAmount) * 100).toFixed(1) : '0.0',
+    }));
+
+    return res.json({
+      cards: {
+        totalAmount, totalGst, totalNetRevenue, totalCoins, totalCoinsUsed, totalWalletBalance,
+        totalCreatorEarnings, approvedPayout, pendingPayout, remainingRevenue,
+        rechargeCount, avgRecharge, avgRevenuePerUser, maleUsersRecharged, gstPercent,
+      },
+      breakdown: {
+        rechargeRevenue: totalAmount,
+        gst: totalGst,
+        netRevenue: totalNetRevenue,
+        creatorEarnings: totalCreatorEarnings,
+        approvedPayout,
+        pendingPayout,
+        remainingRevenue,
+        platformRevenue: totalNetRevenue - totalCreatorEarnings,
+      },
+      gatewayPie,
+    });
+  } catch (error) {
+    console.error('REVENUE SUMMARY ERROR', error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ===================================
+// REVENUE ANALYTICS (Tab 3)
+// ===================================
+
+export const revenueAnalytics = async (req, res) => {
+  try {
+    const gstSettings = await getGstSettings();
+    const gstPercent = Number(gstSettings.gstPercent) || 0;
+    const period = String(req.query.period || '30d').trim();
+    const customFrom = String(req.query.from || '').trim();
+    const customTo = String(req.query.to || '').trim();
+    const successStatuses = ['PAID','SUCCESS','CAPTURED','credited'];
+
+    const now = new Date();
+    let fromDate, toDate;
+
+    if (period === 'today') {
+      fromDate = new Date(now); fromDate.setHours(0,0,0,0);
+      toDate = new Date(fromDate); toDate.setDate(toDate.getDate() + 1);
+    } else if (period === 'yesterday') {
+      toDate = new Date(now); toDate.setHours(0,0,0,0);
+      fromDate = new Date(toDate); fromDate.setDate(fromDate.getDate() - 1);
+    } else if (period === '7d') {
+      toDate = new Date(now); toDate.setHours(23,59,59,999);
+      fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 6); fromDate.setHours(0,0,0,0);
+    } else if (period === '30d') {
+      toDate = new Date(now); toDate.setHours(23,59,59,999);
+      fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 29); fromDate.setHours(0,0,0,0);
+    } else if (period === 'thisMonth') {
+      fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (period === 'lastMonth') {
+      fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      toDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (period === 'thisYear') {
+      fromDate = new Date(now.getFullYear(), 0, 1);
+      toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    } else if (period === 'custom' && customFrom && customTo) {
+      fromDate = new Date(`${customFrom}T00:00:00`);
+      toDate = new Date(`${customTo}T23:59:59`);
+    } else {
+      toDate = new Date(now); toDate.setHours(23,59,59,999);
+      fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 29); fromDate.setHours(0,0,0,0);
+    }
+
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    const fromStr = fmt(fromDate);
+    const toStr = fmt(toDate);
+
+    // Daily chart data
+    const dailyRows = await sequelize.query(
+      `SELECT DATE(updatedAt) AS date,
+              COUNT(*) AS count,
+              SUM(amount) AS totalAmount,
+              SUM(coins) AS totalCoins
+       FROM payment_orders
+       WHERE status IN (:statuses)
+         AND updatedAt >= :from AND updatedAt <= :to
+       GROUP BY DATE(updatedAt)
+       ORDER BY date ASC`,
+      { replacements: { statuses: successStatuses, from: fromStr, to: toStr + ' 23:59:59' }, type: QueryTypes.SELECT }
+    );
+
+    const daily = dailyRows.map((r) => {
+      const amt = Number(r.totalAmount) || 0;
+      const { gstAmount, baseRevenue } = splitInclusiveGst(amt, gstPercent);
+      return {
+        date: r.date,
+        rechargeAmount: amt,
+        companyRevenue: baseRevenue,
+        gstAmount,
+        count: Number(r.count) || 0,
+        coinsPurchased: Number(r.totalCoins) || 0,
+      };
+    });
+
+    // KPI: today
+    const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
+    const todayEnd = new Date(now); todayEnd.setHours(23,59,59,999);
+    const [todayRow] = await sequelize.query(
+      `SELECT COUNT(*) AS count, SUM(amount) AS amount, SUM(coins) AS coins FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f AND updatedAt <= :t`,
+      { replacements: { s: successStatuses, f: todayStart, t: todayEnd }, type: QueryTypes.SELECT }
+    );
+    const todayAmt = Number(todayRow?.amount) || 0;
+    const { gstAmount: todayGst, baseRevenue: todayRevenue } = splitInclusiveGst(todayAmt, gstPercent);
+
+    // Weekly KPI
+    const weekStart = new Date(now); weekStart.setDate(weekStart.getDate() - 6); weekStart.setHours(0,0,0,0);
+    const [weekRow] = await sequelize.query(
+      `SELECT SUM(amount) AS amount FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f`,
+      { replacements: { s: successStatuses, f: weekStart }, type: QueryTypes.SELECT }
+    );
+    const weeklyRevenue = splitInclusiveGst(Number(weekRow?.amount) || 0, gstPercent).baseRevenue;
+
+    // Monthly KPI
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [monthRow] = await sequelize.query(
+      `SELECT SUM(amount) AS amount FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f`,
+      { replacements: { s: successStatuses, f: monthStart }, type: QueryTypes.SELECT }
+    );
+    const monthlyRevenue = splitInclusiveGst(Number(monthRow?.amount) || 0, gstPercent).baseRevenue;
+
+    // Yearly KPI
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const [yearRow] = await sequelize.query(
+      `SELECT SUM(amount) AS amount FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f`,
+      { replacements: { s: successStatuses, f: yearStart }, type: QueryTypes.SELECT }
+    );
+    const yearlyRevenue = splitInclusiveGst(Number(yearRow?.amount) || 0, gstPercent).baseRevenue;
+
+    // Avg daily revenue over selected period
+    const totalPeriodRevenue = daily.reduce((s, d) => s + d.companyRevenue, 0);
+    const avgDailyRevenue = daily.length > 0 ? totalPeriodRevenue / daily.length : 0;
+
+    // Current wallet coins
+    const [walletRow] = await sequelize.query(`SELECT SUM(balance) AS total FROM wallets`, { type: QueryTypes.SELECT });
+    const currentWalletCoins = Number(walletRow?.total) || 0;
+
+    // Creator pending payout
+    const [pendingRow] = await sequelize.query(`SELECT SUM(amount) AS total FROM Withdraws WHERE status='pending'`, { type: QueryTypes.SELECT });
+    const creatorPendingPayout = Number(pendingRow?.total) || 0;
+
+    // Gateway pie
+    const gwRows = await sequelize.query(
+      `SELECT gateway, COUNT(*) AS cnt, SUM(amount) AS amt FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f AND updatedAt <= :t GROUP BY gateway`,
+      { replacements: { s: successStatuses, f: fromDate, t: toDate }, type: QueryTypes.SELECT }
+    );
+    const totalGwAmt = gwRows.reduce((s, r) => s + (Number(r.amt) || 0), 0);
+    const gatewayPie = gwRows.map((r) => ({
+      name: r.gateway === 'google_play' ? 'Google Play' : r.gateway === 'razorpay' ? 'Razorpay' : 'Cashfree',
+      value: Number(r.amt) || 0,
+      count: Number(r.cnt) || 0,
+      percentage: totalGwAmt > 0 ? (((Number(r.amt) || 0) / totalGwAmt) * 100).toFixed(1) : '0.0',
+    }));
+
+    // Top recharging users (in period)
+    const topUsers = await sequelize.query(
+      `SELECT po.userId, SUM(po.amount) AS totalAmount, COUNT(*) AS count,
+              u.name, u.nickname, u.username, u.phone
+       FROM payment_orders po
+       LEFT JOIN users u ON u.id = po.userId
+       WHERE po.status IN (:s) AND po.updatedAt >= :f AND po.updatedAt <= :t
+       GROUP BY po.userId
+       ORDER BY totalAmount DESC
+       LIMIT 10`,
+      { replacements: { s: successStatuses, f: fromDate, t: toDate }, type: QueryTypes.SELECT }
+    );
+
+    // Payout trend (approved withdrawals by day in period)
+    const payoutTrend = await sequelize.query(
+      `SELECT DATE(updatedAt) AS date, SUM(amount) AS payout FROM Withdraws WHERE status='approved' AND updatedAt >= :f AND updatedAt <= :t GROUP BY DATE(updatedAt) ORDER BY date ASC`,
+      { replacements: { f: fromDate, t: toDate }, type: QueryTypes.SELECT }
+    );
+    const payoutMap = {};
+    payoutTrend.forEach((r) => { payoutMap[r.date] = Number(r.payout) || 0; });
+
+    // Merge payout into daily
+    const dailyWithPayout = daily.map((d) => ({ ...d, payout: payoutMap[d.date] || 0 }));
+
+    return res.json({
+      daily: dailyWithPayout,
+      kpi: {
+        today: { rechargeAmount: todayAmt, revenue: todayRevenue, gst: todayGst, count: Number(todayRow?.count) || 0, coins: Number(todayRow?.coins) || 0 },
+        weeklyRevenue, monthlyRevenue, yearlyRevenue, avgDailyRevenue,
+        currentWalletCoins, creatorPendingPayout,
+      },
+      gatewayPie,
+      topUsers: topUsers.map((u) => ({
+        userId: u.userId,
+        name: u.name || u.nickname || u.username || 'Unknown',
+        phone: u.phone || '—',
+        totalAmount: Number(u.totalAmount) || 0,
+        count: Number(u.count) || 0,
+      })),
+    });
+  } catch (error) {
+    console.error('REVENUE ANALYTICS ERROR', error);
+    return res.status(500).json({ message: error.message });
+  }
+};

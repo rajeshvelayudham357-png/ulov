@@ -80,6 +80,9 @@ import {
     getAnalyticsSystem,
     revenue,
     rechargeRevenue,
+    revenueRecharges,
+    revenueSummary,
+    revenueAnalytics,
     
     getUserDetails,
 
@@ -656,5 +659,10 @@ router.patch(
 requirePageAccess("support"),
 adminUpdateStatus
 );
+
+// REVENUE MODULE
+router.get('/revenue/recharges', requirePageAccess('recharge-revenue'), revenueRecharges);
+router.get('/revenue/summary', requirePageAccess('recharge-revenue'), revenueSummary);
+router.get('/revenue/analytics', requirePageAccess('recharge-revenue'), revenueAnalytics);
 
 export default router;
