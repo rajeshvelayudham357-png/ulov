@@ -434,6 +434,36 @@ if(
 return;
 }
 
+const receiverUser =
+await User.findByPk(
+receiverId,
+{
+attributes:["id","online","gender"]
+}
+);
+
+if(
+!receiverUser ||
+!Boolean(receiverUser.online)
+){
+const callerSocket =
+onlineUsers.get(
+String(callerId)
+);
+
+if(callerSocket){
+ io.to(callerSocket).emit(
+ "user-offline",
+ {
+  receiverId,
+  callerId
+ }
+ );
+}
+
+return;
+}
+
 const receiverBusy =
 await isReceiverBusyWithOther(
 receiverId,

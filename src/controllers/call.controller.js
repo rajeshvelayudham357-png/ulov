@@ -92,11 +92,23 @@ receiverId,
 {
 attributes:[
 "gender",
+"online",
 "acceptVoiceCalls",
 "acceptVideoCalls"
 ]
 }
 );
+
+if(
+!receiver ||
+!Boolean(receiver.online)
+){
+return res.status(409).json({
+success:false,
+offline:true,
+message:"User is offline"
+});
+}
 
 if(
 receiver &&

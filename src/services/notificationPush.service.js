@@ -1426,6 +1426,24 @@ notified:false
 };
 }
 
+const receiverUser =
+await User.findByPk(
+receiverId,
+{
+attributes:["id","online"]
+}
+);
+
+if(
+!receiverUser ||
+!Boolean(receiverUser.online)
+){
+return {
+notified:false,
+reason:"receiver_offline"
+};
+}
+
 let callerName =
 data.callerName ||
 data.name ||
@@ -1466,11 +1484,22 @@ body:
 ttlSeconds:60,
 data:{
 type:"incoming_call",
-callerId,
-receiverId,
+callerId:String(callerId),
+receiverId:String(receiverId),
 callType,
-channelName:data.channelName || "",
-screen:"/call"
+typeParam:
+callType === "voice"
+?
+"audio"
+:
+callType,
+callerName:String(callerName),
+channelName:String(data.channelName || ""),
+token:String(data.token || ""),
+uid:String(data.uid ?? ""),
+callId:String(data.callId ?? ""),
+avatar:String(data.avatar || ""),
+screen:"/female/incoming-call"
 }
 };
 
