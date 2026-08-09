@@ -3,7 +3,6 @@ import {
     User
 } from "../models/index.js";
 
-
 import {
     Op,
     fn,
@@ -11,148 +10,62 @@ import {
     literal
 } from "sequelize";
 
+const FEMALE_GENDERS = [
+"Female",
+"female",
+"FEMALE"
+];
 
+const getPeriodRange =
+(type = "today")=>{
 
+const start =
+new Date();
 
+const end =
+new Date();
+
+if(type === "today"){
+start.setHours(0, 0, 0, 0);
+return { start, end };
+}
+
+if(type === "yesterday"){
+start.setDate(start.getDate() - 1);
+start.setHours(0, 0, 0, 0);
+
+end.setDate(end.getDate() - 1);
+end.setHours(23, 59, 59, 999);
+
+return { start, end };
+}
+
+start.setDate(start.getDate() - 7);
+start.setHours(0, 0, 0, 0);
+
+return { start, end };
+};
 
 export const leaderboard =
 async(req,res)=>{
 
-
 try{
 
-
 const {
-type="today",
-gender=""
-}
-=
-req.query;
+type = "today",
+gender = ""
+} = req.query;
 
-
-
-let start =
-new Date();
-
-
-let end =
-new Date();
-
-
-
-
-
-if(type==="today"){
-
-
-start.setHours(
-0,0,0,0
-);
-
-
-}
-
-
-
-else if(type==="yesterday"){
-
-
-start.setDate(
-start.getDate()-1
-);
-
-
-start.setHours(
-0,0,0,0
-);
-
-
-
-end.setDate(
-end.getDate()-1
-);
-
-
-end.setHours(
-23,59,59,999
-);
-
-
-}
-
-
-
-else{
-
-
-start.setDate(
-start.getDate()-7
-);
-
-
-}
-
-
-
+const { start, end } =
+getPeriodRange(String(type));
 
 const genderFilter =
 String(gender).toLowerCase();
 
-const creatorInclude = {
-
-model:User,
-
-as:"creator",
-
-required:true,
-
-attributes:[
-
-"id",
-
-"username",
-
-"nickname",
-
-"name",
-
-"avatar",
-
-"online",
-
-"gender"
-
-]
-
-};
-
-if(genderFilter==="female"){
-creatorInclude.where = {
- gender:{
-  [Op.in]:[
-   "Female",
-   "female",
-   "FEMALE"
-  ]
- }
-};
-}
-
-
-
-
-const list =
+const aggregates =
 await Earning.findAll({
-
-
-
 attributes:[
-
-
 "userId",
-
-
-
 [
 fn(
 "SUM",
@@ -160,9 +73,6 @@ col("coins")
 ),
 "totalGold"
 ],
-
-
-
 [
 fn(
 "COUNT",
@@ -170,155 +80,132 @@ col("Earning.id")
 ),
 "totalCalls"
 ]
-
-
 ],
-
-
-
-
 where:{
-
-
 createdAt:{
-
-
-[Op.between]:
-[
+[Op.between]:[
 start,
 end
 ]
-
-
 }
-
-
 },
-
-
-
-
-include:[
-creatorInclude
-],
-
-
-
-
 group:[
-
-"Earning.userId",
-
-"creator.id"
-
+"userId"
 ],
-
-
-
-
-
 order:[
-
-
 [
-literal(
-"totalGold"
-),
-
+literal("totalGold"),
 "DESC"
-
 ]
-
-
 ],
-
-
-
-
-limit:50
-
-
-
+limit:100,
+raw:true
 });
 
+const userIds =
+aggregates
+.map(
+(item)=>
+Number(item.userId)
+)
+.filter(
+Number.isFinite
+);
 
+if(
+userIds.length === 0
+){
+return res.json({
+leaderboard:[]
+});
+}
 
+const userWhere = {
+id:{
+[Op.in]:userIds
+}
+};
 
+if(
+genderFilter === "female"
+){
+userWhere.gender = {
+[Op.in]:FEMALE_GENDERS
+};
+}
+
+const creators =
+await User.findAll({
+where:userWhere,
+attributes:[
+"id",
+"username",
+"nickname",
+"name",
+"avatar",
+"online",
+"gender"
+]
+});
+
+const creatorMap =
+new Map(
+creators.map(
+(creator)=>[
+creator.id,
+creator.toJSON()
+]
+)
+);
 
 const data =
-list.map(
+aggregates
+.filter(
+(item)=>
+creatorMap.has(Number(item.userId))
+)
+.map(
 (item,index)=>({
-
-
-rank:index+1,
-
-
+rank:index + 1,
+userId:Number(item.userId),
+totalGold:Number(item.totalGold) || 0,
+totalCalls:Number(item.totalCalls) || 0,
 reward:
-index===0
+index === 0
 ?
 500
 :
-index===1
+index === 1
 ?
 300
 :
-index===2
+index === 2
 ?
 100
 :
 0,
-
-
-trend:
-Math.floor(
-Math.random()*10
-),
-
-
-
-...item.toJSON()
-
-
-
-})
-
-);
-
-
-
-
+trend:Math.floor(Math.random() * 10),
+creator:creatorMap.get(Number(item.userId)) ?? null
+}))
+.slice(0, 50);
 
 return res.json({
-
 leaderboard:data
-
 });
 
-
-
-
 }catch(error){
-
-
 
 console.log(
 "LEADERBOARD ERROR",
 error
 );
 
-
-
 return res
 .status(500)
 .json({
-
 message:error.message
-
 });
 
-
 }
-
-
 
 };

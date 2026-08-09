@@ -1569,12 +1569,17 @@ return "Unknown";
 return (
 user.nickname ||
 (
+user.name &&
 user.name !== "New User"
-? user.name
-: null
+?
+user.name
+:
+null
 ) ||
 user.username ||
-"Unknown"
+user.publicUserId ||
+user.phone ||
+`User ${user.id ?? ""}`.trim()
 );
 
 
@@ -6380,12 +6385,12 @@ export const getAnalyticsCreators = async (req, res) => {
         { type: QueryTypes.SELECT }
       ),
       sequelize.query(
-        `SELECT users.id, users.name, users.avatar, COALESCE(SUM(earnings.amount), 0) AS totalEarnedAmount, COUNT(call_histories.id) AS totalCalls
+        `SELECT users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar, COALESCE(SUM(earnings.amount), 0) AS totalEarnedAmount, COUNT(call_histories.id) AS totalCalls
          FROM users
          LEFT JOIN earnings earnings ON users.id = earnings.userId
          LEFT JOIN call_histories ON users.id = call_histories.receiverId AND call_histories.status IN ('completed', 'ended')
          WHERE users.gender = 'Female'
-         GROUP BY users.id, users.name, users.avatar
+         GROUP BY users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar
          ORDER BY totalEarnedAmount DESC
          LIMIT 10`,
         { type: QueryTypes.SELECT }
@@ -6412,7 +6417,8 @@ export const getAnalyticsCreators = async (req, res) => {
       },
       topCreators: (topCreators || []).map((tc) => ({
         id: tc.id,
-        name: tc.name || `Creator ${tc.id}`,
+        name: getDisplayName(tc),
+        publicUserId: tc.publicUserId,
         avatar: tc.avatar || null,
         totalEarnedAmount: Number(tc.totalEarnedAmount) || 0,
         totalCalls: Number(tc.totalCalls) || 0,
@@ -6472,31 +6478,31 @@ export const getAnalyticsRankings = async (req, res) => {
   try {
     const [topMaleSpenders, topFemaleEarners, mostActiveCallers] = await Promise.all([
       sequelize.query(
-        `SELECT users.id, users.name, users.publicUserId, users.avatar, COALESCE(SUM(call_histories.coinsSpent), 0) AS coinsSpent
+        `SELECT users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar, COALESCE(SUM(call_histories.coinsSpent), 0) AS coinsSpent
          FROM users
          JOIN call_histories ON users.id = call_histories.callerId AND call_histories.status IN ('completed', 'ended')
          WHERE users.gender = 'Male'
-         GROUP BY users.id, users.name, users.publicUserId, users.avatar
+         GROUP BY users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar
          ORDER BY coinsSpent DESC
          LIMIT 10`,
         { type: QueryTypes.SELECT }
       ),
       sequelize.query(
-        `SELECT users.id, users.name, users.publicUserId, users.avatar, COALESCE(SUM(earnings.amount), 0) AS earningsAmount
+        `SELECT users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar, COALESCE(SUM(earnings.amount), 0) AS earningsAmount
          FROM users
          JOIN earnings earnings ON users.id = earnings.userId
          WHERE users.gender = 'Female'
-         GROUP BY users.id, users.name, users.publicUserId, users.avatar
+         GROUP BY users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar
          ORDER BY earningsAmount DESC
          LIMIT 10`,
         { type: QueryTypes.SELECT }
       ),
       sequelize.query(
-        `SELECT users.id, users.name, users.publicUserId, users.avatar, COUNT(call_histories.id) AS callCount, SUM(COALESCE(call_histories.duration, 0)) AS totalDurationSecs
+        `SELECT users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar, COUNT(call_histories.id) AS callCount, SUM(COALESCE(call_histories.duration, 0)) AS totalDurationSecs
          FROM users
          JOIN call_histories ON users.id = call_histories.callerId OR users.id = call_histories.receiverId
          WHERE call_histories.status IN ('completed', 'ended')
-         GROUP BY users.id, users.name, users.publicUserId, users.avatar
+         GROUP BY users.id, users.name, users.nickname, users.username, users.phone, users.publicUserId, users.avatar
          ORDER BY totalDurationSecs DESC
          LIMIT 10`,
         { type: QueryTypes.SELECT }
@@ -6506,21 +6512,21 @@ export const getAnalyticsRankings = async (req, res) => {
     return res.json({
       topMaleSpenders: (topMaleSpenders || []).map((row) => ({
         id: row.id,
-        name: row.name || `User ${row.id}`,
+        name: getDisplayName(row),
         publicUserId: row.publicUserId,
         avatar: row.avatar || null,
         value: Number(row.coinsSpent) || 0,
       })),
       topFemaleEarners: (topFemaleEarners || []).map((row) => ({
         id: row.id,
-        name: row.name || `Creator ${row.id}`,
+        name: getDisplayName(row),
         publicUserId: row.publicUserId,
         avatar: row.avatar || null,
         value: Number(row.earningsAmount) || 0,
       })),
       mostActiveCallers: (mostActiveCallers || []).map((row) => ({
         id: row.id,
-        name: row.name || `User ${row.id}`,
+        name: getDisplayName(row),
         publicUserId: row.publicUserId,
         avatar: row.avatar || null,
         calls: Number(row.callCount) || 0,
