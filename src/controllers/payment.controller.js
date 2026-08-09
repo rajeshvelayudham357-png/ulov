@@ -11,6 +11,7 @@ import {
   syncPaymentOrderFromPayU,
   syncPaymentOrderFromPhonePe,
 } from "../services/payment.service.js";
+import { PaymentOrder } from "../models/index.js";
 import {
   getCashfreeCheckoutMode,
   getPublicApiBaseUrl,
@@ -871,51 +872,63 @@ export const createPhonePePaymentOrderController = async (req, res) => {
 
 export const getPhonePeCheckoutHtml = async (req, res) => {
   const orderId = req.query.order_id || "";
-  const amount = Number(req.query.amount || 0);
 
   if (!orderId) {
     return res.status(400).send("order_id is required");
   }
 
-  let result;
   try {
-    result = await syncPaymentOrderFromPhonePe(orderId);
-  } catch (_e) {
-    // Continue rendering
+    const paymentOrder = await PaymentOrder.findOne({ where: { orderId } });
+
+    if (!paymentOrder) {
+      return res.status(404).send("Payment order not found");
+    }
+
+    const redirectUrl =
+      paymentOrder.phonepeRedirectUrl ||
+      req.query.redirect_url ||
+      null;
+
+    if (redirectUrl) {
+      return res.redirect(redirectUrl);
+    }
+
+    return res
+      .status(400)
+      .send("PhonePe checkout URL is not available for this order. Create a new order and try again.");
+  } catch (error) {
+    console.error("PHONEPE CHECKOUT HTML ERROR:", error.message);
+    return res.status(500).send(error.message || "Failed to open PhonePe checkout");
   }
+};
 
-  const redirectUrl = result?.phonepeRedirectUrl || req.query.redirect_url;
+const buildPhonePeSyncResponse = (result) => ({
+  orderId: result.paymentOrder.orderId,
+  gateway: "phonepe",
+  status: result.paymentOrder.status,
+  coins: result.paymentOrder.coins,
+  amount: Number(result.paymentOrder.amount),
+  credited: result.credited,
+  wallet: result.wallet,
+  phonepeStatus: result.phonepeStatus,
+});
 
-  if (redirectUrl) {
-    return res.redirect(redirectUrl);
+export const phonepeSyncPaymentController = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    if (!orderId) {
+      return res.status(400).json({ message: "orderId is required" });
+    }
+
+    const result = await syncPaymentOrderFromPhonePe(orderId);
+    return res.json(buildPhonePeSyncResponse(result));
+  } catch (error) {
+    console.error("PHONEPE SYNC ERROR:", error.message);
+    return res.status(500).json({
+      message: error.message || "Failed to sync PhonePe payment",
+    });
   }
-
-  res.setHeader("Content-Type", "text/html");
-  return res.send(`<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ulov Checkout</title>
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #fff4f8; }
-      .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-      .card { text-align: center; padding: 24px; }
-      h2 { color: #ff2e73; }
-    </style>
-  </head>
-  <body>
-    <div class="wrap"><div class="card">
-      <h2>Redirecting to PhonePe...</h2>
-      <p>Please wait while we transfer you to PhonePe secure payment.</p>
-    </div></div>
-    <script>
-      setTimeout(function() {
-        window.location.href = "/api/payments/phonepe/verify/${encodeURIComponent(orderId)}";
-      }, 1500);
-    </script>
-  </body>
-</html>`);
 };
 
 export const verifyPhonePePaymentController = async (req, res) => {
@@ -929,16 +942,7 @@ export const verifyPhonePePaymentController = async (req, res) => {
 
     const result = await syncPaymentOrderFromPhonePe(orderId);
 
-    return res.json({
-      orderId: result.paymentOrder.orderId,
-      gateway: "phonepe",
-      status: result.paymentOrder.status,
-      coins: result.paymentOrder.coins,
-      amount: Number(result.paymentOrder.amount),
-      credited: result.credited,
-      wallet: result.wallet,
-      phonepeStatus: result.phonepeStatus,
-    });
+    return res.json(buildPhonePeSyncResponse(result));
   } catch (error) {
     console.error("VERIFY PHONEPE PAYMENT ERROR:", error.message);
     return res.status(500).json({ message: error.message || "Failed to verify PhonePe payment" });
@@ -957,8 +961,30 @@ export const phonepeWebhook = async (req, res) => {
 };
 
 export const phonepeReturn = async (req, res) => {
-  const orderId = req.query.order_id || req.body?.merchantTransactionId || req.body?.transactionId || "";
+  const orderId =
+    req.query.order_id ||
+    req.body?.merchantOrderId ||
+    req.body?.merchantTransactionId ||
+    req.body?.transactionId ||
+    "";
   const code = req.query.code || req.body?.code || "";
+
+  let paymentStatus = "PENDING";
+  let credited = false;
+
+  if (orderId) {
+    try {
+      const result = await syncPaymentOrderFromPhonePe(orderId);
+      paymentStatus = result?.paymentOrder?.status || paymentStatus;
+      credited = Boolean(result?.credited);
+    } catch (error) {
+      console.error("PHONEPE RETURN SYNC ERROR:", error.message);
+    }
+  }
+
+  const isPaid =
+    String(paymentStatus).toUpperCase() === "PAID" ||
+    String(code).toUpperCase() === "PAYMENT_SUCCESS";
 
   res.setHeader("Content-Type", "text/html");
   return res.send(`<!DOCTYPE html>
@@ -975,20 +1001,22 @@ export const phonepeReturn = async (req, res) => {
   </head>
   <body>
     <div class="card">
-      <h1>Payment ${String(code).toUpperCase() === "PAYMENT_SUCCESS" ? "Successful" : "Processed"}</h1>
+      <h1>Payment ${isPaid ? "Successful" : "Processed"}</h1>
       <p>Returning to Ulov...</p>
     </div>
     <script>
       const payload = {
         type: "phonepe_return",
         orderId: ${JSON.stringify(orderId)},
-        code: ${JSON.stringify(code)}
+        code: ${JSON.stringify(code)},
+        status: ${JSON.stringify(paymentStatus)},
+        credited: ${JSON.stringify(credited)}
       };
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify(payload));
       }
       setTimeout(function() {
-        window.location.href = "datingapp://payment/result?order_id=" + encodeURIComponent(${JSON.stringify(orderId)});
+        window.location.href = "datingapp://payment/result?order_id=" + encodeURIComponent(${JSON.stringify(orderId)}) + "&status=" + encodeURIComponent(${JSON.stringify(paymentStatus)});
       }, 600);
     </script>
   </body>

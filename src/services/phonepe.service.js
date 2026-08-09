@@ -2,53 +2,125 @@ import axios from "axios";
 import crypto from "crypto";
 import { getPaymentSettings } from "./paymentSettings.service.js";
 
-// OAuth Token Cache in memory
 let cachedTokenInfo = {
   accessToken: null,
   expiresAt: 0,
+  cacheKey: null,
+};
+
+const buildCacheKey = (config) =>
+  `${config.env}:${config.clientId}:${config.clientVersion}`;
+
+const formatPhonePeAuthError = (error, config) => {
+  const errData = error?.response?.data || {};
+  const errorCode = String(errData.errorCode || errData.code || "");
+  const status = error?.response?.status;
+
+  if (
+    status === 404 &&
+    (errorCode === "OIM007" || String(errData.code || "") === "CLIENT_NOT_FOUND") &&
+    config.env === "production"
+  ) {
+    return (
+      "PhonePe CLIENT_NOT_FOUND: your credentials are from PhonePe TEST MODE but Payment Settings Environment is Production. " +
+      "Set Environment to Sandbox in Admin → Payment Settings, re-save Client Secret, and restart the backend."
+    );
+  }
+
+  return (
+    errData.message ||
+    errData.code ||
+    error.message ||
+    "Failed to obtain PhonePe OAuth access token"
+  );
+};
+
+const normalizeClientId = (clientId, merchantId) => {
+  const id = String(clientId || "").trim();
+  const merchant = String(merchantId || "").trim();
+
+  if (!id) {
+    return merchant;
+  }
+
+  if (id.includes("_")) {
+    return id;
+  }
+
+  if (merchant && !id.startsWith(merchant)) {
+    return `${merchant}_${id}`;
+  }
+
+  return id;
+};
+
+const sanitizeRedirectUrl = (urlStr, fallbackUrl) => {
+  if (!urlStr || typeof urlStr !== "string") {
+    return fallbackUrl;
+  }
+
+  let cleaned = urlStr.trim();
+
+  if (cleaned.includes("localhost") || cleaned.includes("127.0.0.1")) {
+    return fallbackUrl;
+  }
+
+  if (!cleaned.startsWith("http://") && !cleaned.startsWith("https://")) {
+    cleaned = `https://${cleaned}`;
+  }
+
+  return cleaned;
 };
 
 export const getPhonePeConfig = async () => {
   const settings = await getPaymentSettings();
   const merchantId = String(settings.phonepeMerchantId || "").trim();
-  const clientId = String(settings.phonepeClientId || "").trim();
+  const clientId = normalizeClientId(settings.phonepeClientId, merchantId);
   const clientSecret = String(settings.phonepeClientSecret || "").trim();
   const clientVersion = String(settings.phonepeClientVersion || "1").trim();
+  const env = String(settings.phonepeEnv || "sandbox").toLowerCase();
+  const isProduction = env === "production" || env === "live";
 
   if (!merchantId || !clientSecret) {
-    throw new Error("PhonePe OAuth credentials (Merchant ID & Client Secret) are not configured in Payment Settings");
+    throw new Error(
+      "PhonePe OAuth credentials (Merchant ID & Client Secret) are not configured in Payment Settings"
+    );
   }
 
-  const env = (settings.phonepeEnv || "sandbox").toLowerCase();
-  const baseUrl =
-    env === "production" || env === "live"
-      ? "https://api.phonepe.com/apis/hermes"
-      : "https://api-preprod.phonepe.com/apis/pg-sandbox";
+  if (!clientId) {
+    throw new Error(
+      "PhonePe Client ID is not configured. Use the full value from PhonePe dashboard (e.g. MERCHANTID_1234567890)"
+    );
+  }
 
   return {
     merchantId,
-    clientId: clientId || merchantId,
+    clientId,
     clientSecret,
     clientVersion,
     webhookSecret: String(settings.phonepeWebhookSecret || "").trim(),
-    env,
-    baseUrl,
+    env: isProduction ? "production" : "sandbox",
+    tokenUrl: isProduction
+      ? "https://api.phonepe.com/apis/identity-manager/v1/oauth/token"
+      : "https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token",
+    apiBaseUrl: isProduction
+      ? "https://api.phonepe.com/apis/pg"
+      : "https://api-preprod.phonepe.com/apis/pg-sandbox",
   };
 };
 
-/**
- * Fetch OAuth Access Token from PhonePe with in-memory caching
- */
 export const fetchAccessToken = async () => {
   const now = Date.now();
-  
-  // Return cached token if valid (with 30 second safety margin)
-  if (cachedTokenInfo.accessToken && cachedTokenInfo.expiresAt > now + 30000) {
+  const config = await getPhonePeConfig();
+  const cacheKey = buildCacheKey(config);
+
+  if (
+    cachedTokenInfo.accessToken &&
+    cachedTokenInfo.cacheKey === cacheKey &&
+    cachedTokenInfo.expiresAt > now + 30000
+  ) {
     return cachedTokenInfo.accessToken;
   }
-
-  const config = await getPhonePeConfig();
-  const tokenUrl = `${config.baseUrl}/v1/oauth/token`;
 
   try {
     const params = new URLSearchParams({
@@ -58,7 +130,11 @@ export const fetchAccessToken = async () => {
       client_version: config.clientVersion,
     });
 
-    const response = await axios.post(tokenUrl, params.toString(), {
+    console.log(
+      `[PAYMENT] PhonePe OAuth request (${config.env}) → ${config.tokenUrl} | clientId=${config.clientId}`
+    );
+
+    const response = await axios.post(config.tokenUrl, params.toString(), {
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
@@ -66,244 +142,181 @@ export const fetchAccessToken = async () => {
 
     const data = response.data || {};
     const token = data.access_token || data.accessToken || data.token;
-    const expiresIn = Number(data.expires_in || data.expiresIn || 3600);
 
     if (!token) {
       throw new Error("No access_token returned by PhonePe OAuth API");
     }
 
+    const expiresAtEpoch = Number(data.expires_at || 0);
+    const expiresIn = Number(data.expires_in || data.expiresIn || 3600);
+    const expiresAtMs =
+      expiresAtEpoch > 0
+        ? expiresAtEpoch * (expiresAtEpoch > 1_000_000_000_000 ? 1 : 1000)
+        : now + expiresIn * 1000;
+
     cachedTokenInfo = {
       accessToken: token,
-      expiresAt: now + expiresIn * 1000,
+      expiresAt: expiresAtMs,
+      cacheKey,
     };
 
-    console.log(`[PAYMENT] PhonePe OAuth token fetched successfully (Expires in ${expiresIn}s)`);
+    console.log(
+      `[PAYMENT] PhonePe OAuth token fetched (${config.env}) for client ${config.clientId}`
+    );
+
     return token;
   } catch (error) {
     console.error(
       "[PAYMENT] PhonePe OAuth Token Error:",
+      error?.response?.status,
       error?.response?.data || error.message
     );
-    throw new Error(
-      error?.response?.data?.message || error.message || "Failed to obtain PhonePe OAuth access token"
-    );
+
+    throw new Error(formatPhonePeAuthError(error, config));
   }
 };
 
-/**
- * Create SDK / Checkout Order payload
- */
-export const createSdkOrder = async ({
-  orderId,
-  amount,
-  userId,
-  user,
-  redirectUrl,
-  callbackUrl,
-}) => {
-  const config = await getPhonePeConfig();
-  const amountInPaise = Math.round(Number(amount) * 100);
+const buildAuthHeader = (token) => `O-Bearer ${token}`;
 
-  // PhonePe requires valid HTTP/HTTPS URLs (localhost causes PR000 Bad Request on PhonePe API)
-  const sanitizeUrl = (urlStr, defaultPath) => {
-    if (!urlStr || typeof urlStr !== "string") {
-      return `https://ulov.app${defaultPath}`;
-    }
-    let cleaned = urlStr.trim();
-    if (cleaned.includes("localhost") || cleaned.includes("127.0.0.1")) {
-      cleaned = cleaned.replace(/http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, "https://ulov.app");
-    }
-    if (!cleaned.startsWith("http://") && !cleaned.startsWith("https://")) {
-      cleaned = `https://${cleaned}`;
-    }
-    return cleaned;
-  };
-
-  const validRedirectUrl = sanitizeUrl(redirectUrl, `/api/payments/phonepe/return?order_id=${encodeURIComponent(orderId)}`);
-  const validCallbackUrl = sanitizeUrl(callbackUrl, `/api/payments/phonepe/webhook`);
-
-  // PhonePe requires valid 10-digit mobile number
-  let phoneDigits = String(user?.phone || "").replace(/\D/g, "").slice(-10);
-  if (phoneDigits.length < 10) {
-    phoneDigits = "9999999999";
-  }
-
-  const payload = {
-    merchantId: config.merchantId,
-    merchantTransactionId: orderId,
-    merchantUserId: `USER_${userId}`,
-    amount: amountInPaise,
-    redirectUrl: validRedirectUrl,
-    redirectMode: "REDIRECT",
-    callbackUrl: validCallbackUrl,
-    mobileNumber: phoneDigits,
-    paymentInstrument: {
-      type: "PAY_PAGE",
-    },
-  };
-
-  const jsonString = JSON.stringify(payload);
-  const base64Payload = Buffer.from(jsonString).toString("base64");
-  const apiPath = "/pg/v1/pay";
-
-  // Calculate X-VERIFY checksum signature: SHA256(base64Payload + "/pg/v1/pay" + clientSecret) + "###" + clientVersion
-  const dataToHash = base64Payload + apiPath + config.clientSecret;
-  const hash = crypto.createHash("sha256").update(dataToHash).digest("hex");
-  const checksum = `${hash}###${config.clientVersion || "1"}`;
-
-  return {
-    base64Payload,
-    checksum,
-    apiPath,
-    payload,
-    merchantId: config.merchantId,
-    merchantTransactionId: orderId,
-    amount: Number(amount),
-    env: config.env,
-  };
-};
-
-/**
- * Initiate PhonePe payment using OAuth Bearer token & X-VERIFY signature
- */
 export const initiatePayment = async ({
   orderId,
   amount,
-  userId,
-  user,
   redirectUrl,
   callbackUrl,
 }) => {
   const config = await getPhonePeConfig();
-  let token = null;
-  
-  try {
-    token = await fetchAccessToken();
-  } catch (_tokenErr) {
-    console.warn("[PAYMENT] OAuth token fetch warning, continuing with X-VERIFY signature");
+  const token = await fetchAccessToken();
+  const amountInPaise = Math.round(Number(amount) * 100);
+
+  if (amountInPaise < 100) {
+    throw new Error("PhonePe minimum payment amount is ₹1");
   }
 
-  const sdkOrder = await createSdkOrder({
-    orderId,
-    amount,
-    userId,
-    user,
+  const validRedirectUrl = sanitizeRedirectUrl(
     redirectUrl,
-    callbackUrl,
-  });
+    `https://ulov.app/api/payments/phonepe/return?order_id=${encodeURIComponent(orderId)}`
+  );
 
-  const payUrl = `${config.baseUrl}${sdkOrder.apiPath}`;
-
-  const headers = {
-    "Content-Type": "application/json",
-    "X-VERIFY": sdkOrder.checksum,
-    "X-MERCHANT-ID": config.merchantId,
+  const payUrl = `${config.apiBaseUrl}/checkout/v2/pay`;
+  const requestBody = {
+    merchantOrderId: orderId,
+    amount: amountInPaise,
+    expireAfter: 1200,
+    paymentFlow: {
+      type: "PG_CHECKOUT",
+      message: "Ulov gold recharge",
+      merchantUrls: {
+        redirectUrl: validRedirectUrl,
+      },
+    },
+    metaInfo: {
+      udf1: orderId,
+      udf2: callbackUrl ? "webhook-configured" : "webhook-default",
+    },
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
   try {
-    const response = await axios.post(
-      payUrl,
-      { request: sdkOrder.base64Payload },
-      { headers }
-    );
+    const response = await axios.post(payUrl, requestBody, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: buildAuthHeader(token),
+        "X-MERCHANT-ID": config.merchantId,
+      },
+    });
 
-    const redirectTarget =
-      response.data?.data?.instrumentResponse?.redirectInfo?.url || null;
+    const data = response.data || {};
+    const redirectTarget = data.redirectUrl || null;
+
+    if (!redirectTarget) {
+      throw new Error(
+        data.message || "PhonePe did not return a redirect URL for checkout"
+      );
+    }
 
     return {
-      success: response.data?.success || false,
-      code: response.data?.code,
-      message: response.data?.message,
+      success: true,
       redirectUrl: redirectTarget,
-      orderToken: response.data?.data?.orderToken || orderId,
-      sdkOrder,
-      rawResponse: response.data,
+      orderToken: data.orderId || orderId,
+      phonepeOrderId: data.orderId || null,
+      state: data.state || "PENDING",
+      rawResponse: data,
     };
   } catch (error) {
     const errData = error?.response?.data || {};
     console.error(
-      `[PAYMENT] PhonePe Initiate Error (MerchantID: ${config.merchantId}, URL: ${payUrl}):`,
+      `[PAYMENT] PhonePe Initiate Error (${config.env}, URL: ${payUrl}):`,
+      error?.response?.status,
       JSON.stringify(errData) || error.message
     );
 
-    const msg = errData.message || error.message || "Failed to initiate PhonePe payment";
-    throw new Error(msg);
+    throw new Error(
+      errData.message ||
+        errData.code ||
+        error.message ||
+        "Failed to initiate PhonePe payment"
+    );
   }
 };
 
-/**
- * Fetch Order Status using OAuth Bearer Token
- * Endpoint: GET /pg/v1/status/{merchantId}/{merchantTransactionId}
- */
-export const fetchOrderStatus = async (merchantTransactionId) => {
+export const fetchOrderStatus = async (merchantOrderId) => {
   const config = await getPhonePeConfig();
-  let token = null;
-  try {
-    token = await fetchAccessToken();
-  } catch (_e) {}
-
-  const apiPath = `/pg/v1/status/${config.merchantId}/${merchantTransactionId}`;
-  const statusUrl = `${config.baseUrl}${apiPath}`;
-  const dataToHash = apiPath + config.clientSecret;
-  const hash = crypto.createHash("sha256").update(dataToHash).digest("hex");
-  const checksum = `${hash}###${config.clientVersion || "1"}`;
-
-  const headers = {
-    "Content-Type": "application/json",
-    "X-VERIFY": checksum,
-    "X-MERCHANT-ID": config.merchantId,
-  };
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  const token = await fetchAccessToken();
+  const statusUrl = `${config.apiBaseUrl}/checkout/v2/order/${encodeURIComponent(
+    merchantOrderId
+  )}/status?details=false`;
 
   try {
-    const response = await axios.get(statusUrl, { headers });
+    const response = await axios.get(statusUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: buildAuthHeader(token),
+        "X-MERCHANT-ID": config.merchantId,
+      },
+    });
 
     console.log(
-      `[PAYMENT] Gateway: PhonePe | MerchantTxn: ${merchantTransactionId} | Status: ${response.data?.code}`
+      `[PAYMENT] Gateway: PhonePe | Order: ${merchantOrderId} | State: ${response.data?.state}`
     );
 
     return response.data;
   } catch (error) {
     console.error(
-      `[PAYMENT] PhonePe Status Fetch Error for ${merchantTransactionId}:`,
+      `[PAYMENT] PhonePe Status Fetch Error for ${merchantOrderId}:`,
+      error?.response?.status,
       error?.response?.data || error.message
     );
     throw error;
   }
 };
 
-/**
- * Verify Webhook Signature using Webhook Secret or HMAC
- */
-export const verifyWebhook = async ({ rawBody, headers, payload }) => {
+export const verifyWebhook = async ({ rawBody, headers }) => {
   const config = await getPhonePeConfig();
 
-  if (config.webhookSecret) {
-    const signature = headers?.["x-verify"] || headers?.["x-webhook-signature"] || "";
-    if (signature) {
-      const expected = crypto
-        .createHmac("sha256", config.webhookSecret)
-        .update(typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody || {}))
-        .digest("hex");
-      if (signature.includes(expected)) {
-        return true;
-      }
-    }
+  if (!config.webhookSecret) {
+    return true;
   }
 
-  return true; // Fallback pass-through
+  const signature =
+    headers?.["x-verify"] ||
+    headers?.["x-webhook-signature"] ||
+    headers?.["authorization"] ||
+    "";
+
+  if (!signature) {
+    return false;
+  }
+
+  const payload =
+    typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody || {});
+
+  const expected = crypto
+    .createHmac("sha256", config.webhookSecret)
+    .update(payload)
+    .digest("hex");
+
+  return signature.includes(expected);
 };
 
-/**
- * Refund PhonePe Payment using OAuth Token
- */
 export const refundPayment = async ({
   originalTransactionId,
   refundId,
@@ -312,35 +325,27 @@ export const refundPayment = async ({
 }) => {
   const config = await getPhonePeConfig();
   const token = await fetchAccessToken();
-  const refundUrl = `${config.baseUrl}/pg/v1/refund`;
+  const refundUrl = `${config.apiBaseUrl}/payments/v2/refund`;
   const amountInPaise = Math.round(Number(amount) * 100);
 
-  const payload = {
-    merchantId: config.merchantId,
-    merchantTransactionId: refundId,
-    originalTransactionId,
+  const requestBody = {
+    merchantRefundId: refundId,
+    originalMerchantOrderId: originalTransactionId,
     amount: amountInPaise,
     callbackUrl: callbackUrl || "",
   };
 
-  const base64Payload = Buffer.from(JSON.stringify(payload)).toString("base64");
-
-  const response = await axios.post(
-    refundUrl,
-    { request: base64Payload },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "X-MERCHANT-ID": config.merchantId,
-      },
-    }
-  );
+  const response = await axios.post(refundUrl, requestBody, {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: buildAuthHeader(token),
+      "X-MERCHANT-ID": config.merchantId,
+    },
+  });
 
   return response.data;
 };
 
-// Aliases for compatibility
 export const initiatePhonePePayment = initiatePayment;
 export const fetchPhonePeTransactionStatus = fetchOrderStatus;
 export const verifyPhonePeWebhookSignature = verifyWebhook;

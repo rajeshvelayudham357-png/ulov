@@ -25,6 +25,7 @@ import {
   getPayUCheckoutHtml,
   createPhonePePaymentOrderController,
   verifyPhonePePaymentController,
+  phonepeSyncPaymentController,
   phonepeWebhook,
   phonepeReturn,
   getPhonePeCheckoutHtml,
@@ -125,6 +126,11 @@ router.post(
   "/phonepe/create-order",
   authMiddleware,
   createPhonePePaymentOrderController
+);
+
+router.get(
+  "/phonepe/sync/:orderId",
+  phonepeSyncPaymentController
 );
 
 router.get(

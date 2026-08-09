@@ -707,8 +707,6 @@ export const createPhonePePaymentOrder = async ({ userId, goldPackage, user, ord
   const phonepeResult = await initiatePhonePePayment({
     orderId,
     amount: goldPackage.price,
-    userId,
-    user,
     redirectUrl,
     callbackUrl,
   });
@@ -721,7 +719,9 @@ export const createPhonePePaymentOrder = async ({ userId, goldPackage, user, ord
     amount: goldPackage.price,
     gateway: "phonepe",
     phonepeMerchantTransactionId: orderId,
-    phonepeChecksum: phonepeResult.payData?.checksum || null,
+    phonepeMerchantOrderId: phonepeResult.phonepeOrderId || null,
+    phonepeRedirectUrl: phonepeResult.redirectUrl || null,
+    phonepeOrderToken: phonepeResult.orderToken || null,
     paymentSessionId: orderId,
     status: "CREATED",
   });
@@ -734,7 +734,8 @@ export const createPhonePePaymentOrder = async ({ userId, goldPackage, user, ord
     paymentOrder,
     gateway: "phonepe",
     phonepeRedirectUrl: phonepeResult.redirectUrl,
-    phonepePayload: phonepeResult.payData,
+    phonepePayload: phonepeResult.rawResponse,
+    phonepeOrderId: phonepeResult.phonepeOrderId,
     customerContact: normalizePhone(user?.phone),
     customerEmail: user?.email || `user${userId}@ulov.app`,
     customerName: user?.name || user?.username || "Ulov User",
@@ -758,12 +759,19 @@ export const syncPaymentOrderFromPhonePe = async (orderId) => {
 
   try {
     const statusData = await fetchPhonePeTransactionStatus(orderId);
-    const code = String(statusData?.code || "").toUpperCase();
+    const state = String(statusData?.state || "").toUpperCase();
+    const legacyCode = String(statusData?.code || "").toUpperCase();
+    const isPaid =
+      state === "COMPLETED" || legacyCode === "PAYMENT_SUCCESS";
 
-    if (code === "PAYMENT_SUCCESS") {
-      const providerTxnId = statusData?.data?.transactionId || orderId;
+    if (isPaid) {
+      const providerTxnId =
+        statusData?.paymentDetails?.[0]?.transactionId ||
+        statusData?.orderId ||
+        orderId;
       const result = await creditWalletForPayment(paymentOrder, {
-        paymentMethod: statusData?.data?.paymentInstrument?.type || "phonepe",
+        paymentMethod:
+          statusData?.paymentDetails?.[0]?.paymentMode || "phonepe",
         phonepeTransactionId: providerTxnId,
       });
 
@@ -779,9 +787,13 @@ export const syncPaymentOrderFromPhonePe = async (orderId) => {
       };
     }
 
-    if (code === "PAYMENT_ERROR" || code === "PAYMENT_DECLINED") {
+    if (state === "FAILED" || legacyCode === "PAYMENT_ERROR" || legacyCode === "PAYMENT_DECLINED") {
       paymentOrder.status = "FAILED";
-      paymentOrder.failureReason = statusData?.message || code;
+      paymentOrder.failureReason =
+        statusData?.message ||
+        statusData?.errorCode ||
+        state ||
+        legacyCode;
       await paymentOrder.save();
     }
   } catch (error) {
@@ -811,7 +823,12 @@ export const handlePhonePeWebhook = async (payload, xVerifyHeader) => {
     decoded = payload;
   }
 
-  const merchantTransactionId = decoded?.data?.merchantTransactionId || decoded?.merchantTransactionId || payload?.merchantTransactionId;
+  const merchantTransactionId =
+    decoded?.merchantOrderId ||
+    decoded?.data?.merchantTransactionId ||
+    decoded?.merchantTransactionId ||
+    payload?.merchantOrderId ||
+    payload?.merchantTransactionId;
   if (!merchantTransactionId) throw new Error("PhonePe webhook: merchantTransactionId missing");
 
   const paymentOrder = await PaymentOrder.findOne({ where: { orderId: merchantTransactionId } });

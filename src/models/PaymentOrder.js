@@ -78,6 +78,36 @@ export const PaymentOrder = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+
+    phonepeMerchantTransactionId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+
+    phonepeMerchantOrderId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+
+    phonepeTransactionId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+    },
+
+    phonepeOrderToken: {
+      type: DataTypes.STRING(512),
+      allowNull: true,
+    },
+
+    phonepeRedirectUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    phonepeStatus: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
   },
   {
     tableName: "payment_orders",
