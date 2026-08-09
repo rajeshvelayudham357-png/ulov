@@ -31,6 +31,10 @@ import {
 } from "../models/index.js";
 
 import {
+cleanupStaleActiveCalls
+} from "../services/callState.service.js";
+
+import {
     Wallet
 } from "../models/index.js";
 
@@ -1699,34 +1703,12 @@ const activeStatuses = [
 "accepted"
 ];
 
-const staleMinutes =
+await cleanupStaleActiveCalls({
+activeStaleMinutes:
 Number(
-process.env.LIVE_CALL_STALE_MINUTES || 240
-);
-
-const staleCutoff =
-new Date(
-Date.now() -
-staleMinutes *
-60 *
-1000
-);
-
-await CallHistory.update(
-{
-status:"cancelled"
-},
-{
-where:{
-status:{
-[Op.in]:activeStatuses
-},
-createdAt:{
-[Op.lt]:staleCutoff
-}
-}
-}
-);
+process.env.LIVE_CALL_STALE_MINUTES || 30
+)
+});
 
 const data =
 await CallHistory.findAll({

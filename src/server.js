@@ -27,7 +27,10 @@ purgeOldChatMessages
 import {
 findActiveCallByPair,
 findActiveCallForReceiver,
-isReceiverBusyWithOther
+isReceiverBusyWithOther,
+cleanupStaleActiveCalls,
+closeActiveCallsForUser,
+completeCallRecord
 } from "./services/callState.service.js";
 import {
 recordFemaleOnlineSessionEnd
@@ -968,6 +971,82 @@ callerSocket
 
 
 // =====================
+// END CALL (CLIENT)
+// =====================
+
+
+socket.on(
+"end-call",
+async(data)=>{
+
+try{
+
+const callerId =
+data?.callerId;
+
+const receiverId =
+data?.receiverId;
+
+if(
+!callerId ||
+!receiverId
+){
+return;
+}
+
+const duration =
+Math.max(
+0,
+Number(data?.duration ?? 0)
+);
+
+if(
+duration > 0
+){
+await completeCallRecord({
+callerId,
+receiverId,
+type:data?.type,
+duration,
+callHistoryId:data?.callHistoryId ?? data?.callId
+});
+return;
+}
+
+await updateActiveCallStatus(
+data,
+"completed"
+);
+
+const activeCall =
+await findActiveCallByPair(
+callerId,
+receiverId
+);
+
+if(
+activeCall &&
+Number(activeCall.duration) <= 0
+){
+await activeCall.update({
+duration:0,
+coinsSpent:0
+});
+}
+
+}catch(error){
+
+console.log(
+"END CALL SOCKET ERROR",
+error.message
+);
+
+}
+
+});
+
+
+// =====================
 // SUPPORT TICKET ROOMS
 // =====================
 
@@ -1105,6 +1184,11 @@ await recordFemaleOnlineSessionEnd(
 removedUser
 );
 }
+
+await closeActiveCallsForUser(
+removedUser,
+"completed"
+);
 
 io.emit(
 "user-status-changed",

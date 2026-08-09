@@ -2,7 +2,8 @@ import { Op } from "sequelize";
 
 import {
 CallHistory,
-Earning
+Earning,
+User
 } from "../models/index.js";
 import {
 normalizeCallTypeForDb
@@ -246,3 +247,198 @@ return {
 export const getChannelNameForCall =
 (callId)=>
 `call_${callId}`;
+
+export const cleanupStaleActiveCalls =
+async(
+options = {}
+)=>{
+const ringingStaleMinutes =
+Number(
+options.ringingStaleMinutes ??
+process.env.LIVE_CALL_RINGING_STALE_MINUTES ??
+3
+);
+
+const activeStaleMinutes =
+Number(
+options.activeStaleMinutes ??
+process.env.LIVE_CALL_STALE_MINUTES ??
+30
+);
+
+const ghostStaleMinutes =
+Number(
+options.ghostStaleMinutes ??
+process.env.LIVE_CALL_GHOST_STALE_MINUTES ??
+2
+);
+
+const now =
+Date.now();
+
+await CallHistory.update(
+{
+status:"cancelled",
+duration:0
+},
+{
+where:{
+status:{
+[Op.in]:[
+"live",
+"ringing"
+]
+},
+createdAt:{
+[Op.lt]:new Date(
+now -
+ringingStaleMinutes *
+60 *
+1000
+)
+}
+}
+}
+);
+
+const staleAccepted =
+await CallHistory.findAll({
+where:{
+status:{
+[Op.in]:[
+"accepted",
+"ongoing",
+"in_progress"
+]
+},
+createdAt:{
+[Op.lt]:new Date(
+now -
+activeStaleMinutes *
+60 *
+1000
+)
+}
+}
+});
+
+for(
+const call of staleAccepted
+){
+const elapsedSeconds =
+Math.max(
+0,
+Math.floor(
+(now - new Date(call.createdAt).getTime()) / 1000
+)
+);
+
+await call.update({
+status:"completed",
+duration:
+Number(call.duration) > 0
+?
+Number(call.duration)
+:
+elapsedSeconds
+});
+}
+
+const ghostCalls =
+await CallHistory.findAll({
+where:{
+status:{
+[Op.in]:ACTIVE_CALL_STATUSES
+},
+createdAt:{
+[Op.lt]:new Date(
+now -
+ghostStaleMinutes *
+60 *
+1000
+)
+},
+coinsSpent:0
+},
+include:[
+{
+model:User,
+as:"caller",
+attributes:["online"]
+},
+{
+model:User,
+as:"receiver",
+attributes:["online"]
+}
+]
+});
+
+for(
+const call of ghostCalls
+){
+const row =
+call.toJSON();
+
+if(
+Boolean(row.caller?.online) ||
+Boolean(row.receiver?.online)
+){
+continue;
+}
+
+const elapsedSeconds =
+Math.max(
+0,
+Math.floor(
+(now - new Date(row.createdAt).getTime()) / 1000
+)
+);
+
+await call.update({
+status:"completed",
+duration:
+Number(row.duration) > 0
+?
+Number(row.duration)
+:
+elapsedSeconds
+});
+}
+};
+
+export const closeActiveCallsForUser =
+async(
+userId,
+terminalStatus = "cancelled"
+)=>{
+const userIdNum =
+Number(userId);
+
+if(
+!Number.isFinite(userIdNum)
+){
+return;
+}
+
+await CallHistory.update(
+{
+status:terminalStatus
+},
+{
+where:{
+[Op.or]:[
+{
+callerId:userIdNum
+},
+{
+receiverId:userIdNum
+}
+],
+status:{
+[Op.in]:ACTIVE_CALL_STATUSES
+}
+}
+}
+);
+};
