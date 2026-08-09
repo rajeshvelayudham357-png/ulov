@@ -2,6 +2,7 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { Op } from "sequelize";
 import { Expo } from "expo-server-sdk";
 import {
 cert,
@@ -1088,6 +1089,94 @@ pushSent
 return {
 notified,
 pushSent
+};
+};
+
+export const notifySingleFemaleOnBroadcast =
+async(
+broadcast,
+userId
+)=>{
+const id =
+Number(userId);
+
+if(
+!Number.isFinite(id)
+){
+throw new Error(
+"Valid user id is required"
+);
+}
+
+const female =
+await User.findOne({
+where:{
+id,
+gender:{
+[Op.in]:[
+"Female",
+"female"
+]
+}
+},
+attributes:[
+"id",
+"username",
+"name"
+]
+});
+
+if(
+!female
+){
+throw new Error(
+"Female user not found"
+);
+}
+
+const payload = {
+id:broadcast.id,
+title:broadcast.title,
+message:broadcast.message,
+type:broadcast.type ?? "broadcast"
+};
+
+emitToUser(
+female.id,
+"broadcast-created",
+payload
+);
+
+const pushPayload = {
+title:broadcast.title,
+body:broadcast.message,
+data:{
+type:"broadcast",
+broadcastId:broadcast.id
+}
+};
+
+await sendPushToUser(
+female.id,
+pushPayload
+);
+
+await saveNotification(
+female.id,
+pushPayload
+);
+
+console.log(
+"INDIVIDUAL BROADCAST NOTIFIED",
+{
+broadcastId:broadcast.id,
+userId:female.id
+}
+);
+
+return {
+notified:1,
+userId:female.id
 };
 };
 

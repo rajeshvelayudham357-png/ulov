@@ -18,6 +18,16 @@ import {
   verifyCashfreePayment,
   verifyGatewayPayment,
   verifyRazorpayPayment,
+  createPayUPaymentOrder,
+  verifyPayUPaymentController,
+  payuWebhook,
+  payuReturn,
+  getPayUCheckoutHtml,
+  createPhonePePaymentOrderController,
+  verifyPhonePePaymentController,
+  phonepeWebhook,
+  phonepeReturn,
+  getPhonePeCheckoutHtml,
 } from "../controllers/payment.controller.js";
 
 const router = express.Router();
@@ -85,5 +95,55 @@ router.post("/razorpay/webhook", razorpayWebhook);
 router.get("/razorpay/return", razorpayReturn);
 
 router.get("/razorpay/checkout", getRazorpayCheckoutHtml);
+
+router.post(
+  "/payu/create-order",
+  authMiddleware,
+  createPayUPaymentOrder
+);
+
+router.get(
+  "/payu/verify/:orderId",
+  authMiddleware,
+  verifyPayUPaymentController
+);
+
+router.post(
+  "/payu/verify/:orderId",
+  authMiddleware,
+  verifyPayUPaymentController
+);
+
+router.post("/payu/webhook", payuWebhook);
+
+router.get("/payu/return", payuReturn);
+router.post("/payu/return", payuReturn);
+
+router.get("/payu/checkout", getPayUCheckoutHtml);
+
+router.post(
+  "/phonepe/create-order",
+  authMiddleware,
+  createPhonePePaymentOrderController
+);
+
+router.get(
+  "/phonepe/verify/:orderId",
+  authMiddleware,
+  verifyPhonePePaymentController
+);
+
+router.post(
+  "/phonepe/verify/:orderId",
+  authMiddleware,
+  verifyPhonePePaymentController
+);
+
+router.post("/phonepe/webhook", phonepeWebhook);
+
+router.get("/phonepe/return", phonepeReturn);
+router.post("/phonepe/return", phonepeReturn);
+
+router.get("/phonepe/checkout", getPhonePeCheckoutHtml);
 
 export default router;

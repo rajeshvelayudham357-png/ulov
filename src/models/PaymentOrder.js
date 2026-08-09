@@ -78,5 +78,9 @@ export const PaymentOrder = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+  },
+  {
+    tableName: "payment_orders",
+    freezeTableName: true,
   }
 );

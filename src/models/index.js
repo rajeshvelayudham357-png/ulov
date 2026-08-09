@@ -72,21 +72,6 @@ WalletTransaction.belongsTo(
 );
 
 User.hasMany(
-  PaymentOrder,
-  {
-    foreignKey: "userId",
-    as: "paymentOrders",
-  }
-);
-
-PaymentOrder.belongsTo(
-  User,
-  {
-    foreignKey: "userId",
-  }
-);
-
-User.hasMany(
   CallGiftRecord,
   {
     foreignKey: "senderId",
@@ -464,6 +449,38 @@ AccountDeletionRequest.belongsTo(
 );
 
 
+// =========================
+// USER -> PAYMENT ORDERS
+// =========================
+
+User.hasMany(
+  PaymentOrder,
+  {
+    foreignKey: "userId",
+    as: "paymentOrders",
+    constraints: false,
+  }
+);
+
+PaymentOrder.belongsTo(
+  User,
+  {
+    foreignKey: "userId",
+    as: "user",
+    constraints: false,
+  }
+);
+
+// PaymentOrder -> Wallet (via shared userId, no FK constraint)
+PaymentOrder.belongsTo(
+  Wallet,
+  {
+    foreignKey: "userId",
+    targetKey: "userId",
+    as: "wallet",
+    constraints: false,
+  }
+);
 
 
 // =========================

@@ -3,9 +3,13 @@ import {
   getPaymentOrderForUser,
   handleCashfreeWebhook,
   handleRazorpayWebhook,
+  handlePayUWebhook,
+  handlePhonePeWebhook,
   syncPaymentOrder,
   syncPaymentOrderFromCashfree,
   syncPaymentOrderFromRazorpay,
+  syncPaymentOrderFromPayU,
+  syncPaymentOrderFromPhonePe,
 } from "../services/payment.service.js";
 import {
   getCashfreeCheckoutMode,
@@ -18,6 +22,14 @@ import {
   getRazorpayCheckoutKeyId,
   verifyRazorpayWebhookSignature,
 } from "../services/razorpay.service.js";
+import {
+  getPayUCheckoutPayload,
+  verifyPayUWebhookSignature,
+} from "../services/payu.service.js";
+import {
+  initiatePhonePePayment,
+  verifyPhonePeWebhookSignature,
+} from "../services/phonepe.service.js";
 
 const buildCreateOrderResponse = async (result) => {
   const base = {
@@ -36,6 +48,27 @@ const buildCreateOrderResponse = async (result) => {
       razorpayOrderId: result.paymentOrder.razorpayOrderId,
       razorpayKeyId: result.razorpayKeyId,
       razorpayMode: result.razorpayMode,
+      customerContact: result.customerContact,
+      customerEmail: result.customerEmail,
+      customerName: result.customerName,
+    };
+  }
+
+  if (result.gateway === "payu") {
+    return {
+      ...base,
+      payuPayload: result.payuPayload,
+      customerContact: result.customerContact,
+      customerEmail: result.customerEmail,
+      customerName: result.customerName,
+    };
+  }
+
+  if (result.gateway === "phonepe") {
+    return {
+      ...base,
+      phonepeRedirectUrl: result.phonepeRedirectUrl,
+      phonepePayload: result.phonepePayload,
       customerContact: result.customerContact,
       customerEmail: result.customerEmail,
       customerName: result.customerName,
@@ -661,6 +694,302 @@ export const getRazorpayCheckoutHtml = async (req, res) => {
 
       document.getElementById("pay-btn").addEventListener("click", openCheckout);
       setTimeout(openCheckout, 300);
+    </script>
+  </body>
+</html>`);
+};
+
+export const createPayUPaymentOrder = async (req, res) => {
+  return createGatewayPaymentOrder(req, res);
+};
+
+export const getPayUCheckoutHtml = async (req, res) => {
+  const orderId = req.query.order_id || "";
+  const amount = Number(req.query.amount || 0);
+  const name = String(req.query.customer_name || "Ulov User");
+  const email = String(req.query.email || "");
+  const contact = String(req.query.contact || "").replace(/\D/g, "").slice(-10);
+  const productinfo = String(req.query.productinfo || "Ulov Coins");
+
+  if (!orderId) {
+    return res.status(400).send("order_id is required");
+  }
+
+  let payload;
+  try {
+    const publicApiBaseUrl =
+      getPublicApiBaseUrl() ||
+      `${req.protocol}://${req.get("host")}`;
+    const successUrl = `${publicApiBaseUrl}/api/payments/payu/return?order_id=${encodeURIComponent(orderId)}&status=success`;
+    const failureUrl = `${publicApiBaseUrl}/api/payments/payu/return?order_id=${encodeURIComponent(orderId)}&status=failure`;
+
+    payload = await getPayUCheckoutPayload({
+      txnid: orderId,
+      amount,
+      productinfo,
+      firstname: name,
+      email: email || `order@ulov.app`,
+      phone: contact || "9999999999",
+      udf1: orderId,
+      successUrl,
+      failureUrl,
+    });
+  } catch (error) {
+    return res.status(500).send(error.message);
+  }
+
+  const fields = Object.entries(payload)
+    .filter(([k]) => k !== "action" && k !== "env")
+    .map(([k, v]) => `<input type="hidden" name="${k}" value="${String(v || "").replace(/"/g, "&quot;")}" />`)
+    .join("\n      ");
+
+  res.setHeader("Content-Type", "text/html");
+  return res.send(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ulov Checkout</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #fff4f8; }
+      .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+      .card { text-align: center; padding: 24px; }
+      h2 { color: #ff2e73; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><div class="card">
+      <h2>Redirecting to PayU...</h2>
+      <p>Please wait while we redirect you to the secure payment page.</p>
+    </div></div>
+    <form id="payu-form" method="post" action="${payload.action}">
+      ${fields}
+    </form>
+    <script>document.getElementById("payu-form").submit();</script>
+  </body>
+</html>`);
+};
+
+export const verifyPayUPaymentController = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    const { orderId } = req.params;
+
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    await getPaymentOrderForUser({ orderId, userId });
+
+    const responseParams = {
+      ...req.body,
+      ...req.query,
+    };
+
+    const result = await syncPaymentOrderFromPayU(orderId, responseParams);
+
+    return res.json({
+      orderId: result.paymentOrder.orderId,
+      gateway: "payu",
+      status: result.paymentOrder.status,
+      coins: result.paymentOrder.coins,
+      amount: Number(result.paymentOrder.amount),
+      credited: result.credited,
+      wallet: result.wallet,
+      payuStatus: result.payuStatus,
+    });
+  } catch (error) {
+    console.error("VERIFY PAYU PAYMENT ERROR:", error.message);
+    return res.status(500).json({ message: error.message || "Failed to verify PayU payment" });
+  }
+};
+
+export const payuWebhook = async (req, res) => {
+  try {
+    const signature = req.headers["x-payu-signature"] || req.headers["x-webhook-signature"] || "";
+    const rawBody = typeof req.rawBody === "string" ? req.rawBody : JSON.stringify(req.body || {});
+
+    const valid = await verifyPayUWebhookSignature({ rawBody, signature });
+    if (!valid) {
+      return res.status(400).json({ success: false, message: "Invalid webhook signature" });
+    }
+
+    await handlePayUWebhook(req.body);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("PAYU WEBHOOK ERROR:", error.message);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const payuReturn = async (req, res) => {
+  const orderId = req.query.order_id || req.body?.txnid || "";
+  const status = req.query.status || req.body?.status || "";
+  const payuPaymentId = req.body?.mihpayid || req.query?.mihpayid || "";
+  const txnid = req.body?.txnid || req.query?.txnid || orderId;
+  const hash = req.body?.hash || req.query?.hash || "";
+
+  res.setHeader("Content-Type", "text/html");
+  return res.send(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payment Complete</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fff4f8; }
+      .card { text-align: center; padding: 24px; }
+      h1 { color: #ff2e73; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Payment ${String(status).toLowerCase() === "success" ? "Successful" : "Processed"}</h1>
+      <p>Returning to Ulov...</p>
+    </div>
+    <script>
+      const payload = {
+        type: "payu_return",
+        orderId: ${JSON.stringify(orderId)},
+        status: ${JSON.stringify(status)},
+        payu_payment_id: ${JSON.stringify(payuPaymentId)},
+        txnid: ${JSON.stringify(txnid)},
+        hash: ${JSON.stringify(hash)}
+      };
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+      setTimeout(function() {
+        window.location.href = "datingapp://payment/result?order_id=" + encodeURIComponent(${JSON.stringify(orderId)}) + "&status=" + encodeURIComponent(${JSON.stringify(status)});
+      }, 600);
+    </script>
+  </body>
+</html>`);
+};
+
+export const createPhonePePaymentOrderController = async (req, res) => {
+  return createGatewayPaymentOrder(req, res);
+};
+
+export const getPhonePeCheckoutHtml = async (req, res) => {
+  const orderId = req.query.order_id || "";
+  const amount = Number(req.query.amount || 0);
+
+  if (!orderId) {
+    return res.status(400).send("order_id is required");
+  }
+
+  let result;
+  try {
+    result = await syncPaymentOrderFromPhonePe(orderId);
+  } catch (_e) {
+    // Continue rendering
+  }
+
+  const redirectUrl = result?.phonepeRedirectUrl || req.query.redirect_url;
+
+  if (redirectUrl) {
+    return res.redirect(redirectUrl);
+  }
+
+  res.setHeader("Content-Type", "text/html");
+  return res.send(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ulov Checkout</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #fff4f8; }
+      .wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+      .card { text-align: center; padding: 24px; }
+      h2 { color: #ff2e73; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><div class="card">
+      <h2>Redirecting to PhonePe...</h2>
+      <p>Please wait while we transfer you to PhonePe secure payment.</p>
+    </div></div>
+    <script>
+      setTimeout(function() {
+        window.location.href = "/api/payments/phonepe/verify/${encodeURIComponent(orderId)}";
+      }, 1500);
+    </script>
+  </body>
+</html>`);
+};
+
+export const verifyPhonePePaymentController = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    const { orderId } = req.params;
+
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    await getPaymentOrderForUser({ orderId, userId });
+
+    const result = await syncPaymentOrderFromPhonePe(orderId);
+
+    return res.json({
+      orderId: result.paymentOrder.orderId,
+      gateway: "phonepe",
+      status: result.paymentOrder.status,
+      coins: result.paymentOrder.coins,
+      amount: Number(result.paymentOrder.amount),
+      credited: result.credited,
+      wallet: result.wallet,
+      phonepeStatus: result.phonepeStatus,
+    });
+  } catch (error) {
+    console.error("VERIFY PHONEPE PAYMENT ERROR:", error.message);
+    return res.status(500).json({ message: error.message || "Failed to verify PhonePe payment" });
+  }
+};
+
+export const phonepeWebhook = async (req, res) => {
+  try {
+    const xVerifyHeader = req.headers["x-verify"] || "";
+    const result = await handlePhonePeWebhook(req.body, xVerifyHeader);
+    return res.json({ success: true, responseCode: "SUCCESS", data: result });
+  } catch (error) {
+    console.error("PHONEPE WEBHOOK ERROR:", error.message);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const phonepeReturn = async (req, res) => {
+  const orderId = req.query.order_id || req.body?.merchantTransactionId || req.body?.transactionId || "";
+  const code = req.query.code || req.body?.code || "";
+
+  res.setHeader("Content-Type", "text/html");
+  return res.send(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payment Complete</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fff4f8; }
+      .card { text-align: center; padding: 24px; }
+      h1 { color: #ff2e73; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Payment ${String(code).toUpperCase() === "PAYMENT_SUCCESS" ? "Successful" : "Processed"}</h1>
+      <p>Returning to Ulov...</p>
+    </div>
+    <script>
+      const payload = {
+        type: "phonepe_return",
+        orderId: ${JSON.stringify(orderId)},
+        code: ${JSON.stringify(code)}
+      };
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      }
+      setTimeout(function() {
+        window.location.href = "datingapp://payment/result?order_id=" + encodeURIComponent(${JSON.stringify(orderId)});
+      }, 600);
     </script>
   </body>
 </html>`);

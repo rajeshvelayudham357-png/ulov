@@ -35,6 +35,12 @@ const normalizeGateway = (value) => {
   if (gateway === "apple_iap") {
     return "apple_iap";
   }
+  if (gateway === "payu") {
+    return "payu";
+  }
+  if (gateway === "phonepe") {
+    return "phonepe";
+  }
 
   return "cashfree";
 };
@@ -114,6 +120,23 @@ export const getPaymentSettings = async () => {
   const googlePlayApiEnabled = Boolean(row.googlePlayApiEnabled);
   const googlePlayNotes = row.googlePlayNotes || "";
 
+  const payuMerchantKey = row.payuMerchantKey || process.env.PAYU_MERCHANT_KEY || "";
+  const payuMerchantSalt = row.payuMerchantSalt || process.env.PAYU_MERCHANT_SALT || "";
+  const payuMerchantId = row.payuMerchantId || process.env.PAYU_MERCHANT_ID || "";
+  const payuEnv = (row.payuEnv || process.env.PAYU_ENV || "test").toLowerCase();
+  const payuWebhookSecret = row.payuWebhookSecret || process.env.PAYU_WEBHOOK_SECRET || "";
+  const payuSuccessUrl = row.payuSuccessUrl || "";
+  const payuFailureUrl = row.payuFailureUrl || "";
+
+  const phonepeMerchantId = row.phonepeMerchantId || process.env.PHONEPE_MERCHANT_ID || "";
+  const phonepeClientId = row.phonepeClientId || process.env.PHONEPE_CLIENT_ID || "";
+  const phonepeClientSecret = row.phonepeClientSecret || process.env.PHONEPE_CLIENT_SECRET || "";
+  const phonepeClientVersion = row.phonepeClientVersion || process.env.PHONEPE_CLIENT_VERSION || "1";
+  const phonepeEnv = (row.phonepeEnv || process.env.PHONEPE_ENV || "sandbox").toLowerCase();
+  const phonepeWebhookSecret = row.phonepeWebhookSecret || process.env.PHONEPE_WEBHOOK_SECRET || "";
+  const phonepeSuccessUrl = row.phonepeSuccessUrl || "";
+  const phonepeFailureUrl = row.phonepeFailureUrl || "";
+
   return {
     activeGateway: normalizeGateway(
       row.activeGateway || DEFAULT_SETTINGS.activeGateway
@@ -133,6 +156,21 @@ export const getPaymentSettings = async () => {
     googlePlayProjectNumber,
     googlePlayApiEnabled,
     googlePlayNotes,
+    payuMerchantKey,
+    payuMerchantSalt,
+    payuMerchantId,
+    payuEnv: payuEnv === "production" ? "production" : "test",
+    payuWebhookSecret,
+    payuSuccessUrl,
+    payuFailureUrl,
+    phonepeMerchantId,
+    phonepeClientId,
+    phonepeClientSecret,
+    phonepeClientVersion,
+    phonepeEnv: phonepeEnv === "production" ? "production" : "sandbox",
+    phonepeWebhookSecret,
+    phonepeSuccessUrl,
+    phonepeFailureUrl,
     updatedAt: row.updatedAt || null,
   };
 };
@@ -179,6 +217,23 @@ export const getAdminPaymentSettingsView = async () => {
     googlePlayProjectNumber: settings.googlePlayProjectNumber,
     googlePlayApiEnabled: settings.googlePlayApiEnabled,
     googlePlayNotes: settings.googlePlayNotes,
+    payuMerchantKey: settings.payuMerchantKey,
+    payuMerchantSaltMasked: maskSecret(settings.payuMerchantSalt),
+    payuMerchantSaltConfigured: Boolean(settings.payuMerchantSalt),
+    payuMerchantId: settings.payuMerchantId,
+    payuEnv: settings.payuEnv,
+    payuWebhookSecretConfigured: Boolean(settings.payuWebhookSecret),
+    payuSuccessUrl: settings.payuSuccessUrl,
+    payuFailureUrl: settings.payuFailureUrl,
+    phonepeMerchantId: settings.phonepeMerchantId,
+    phonepeClientId: settings.phonepeClientId,
+    phonepeClientSecretMasked: maskSecret(settings.phonepeClientSecret),
+    phonepeClientSecretConfigured: Boolean(settings.phonepeClientSecret),
+    phonepeClientVersion: settings.phonepeClientVersion,
+    phonepeEnv: settings.phonepeEnv,
+    phonepeWebhookSecretConfigured: Boolean(settings.phonepeWebhookSecret),
+    phonepeSuccessUrl: settings.phonepeSuccessUrl,
+    phonepeFailureUrl: settings.phonepeFailureUrl,
     updatedAt: settings.updatedAt,
   };
 };
@@ -254,6 +309,62 @@ export const updatePaymentSettings = async (payload = {}) => {
       payload.googlePlayNotes !== undefined
         ? String(payload.googlePlayNotes || "").trim()
         : current.googlePlayNotes,
+    payuMerchantKey:
+      payload.payuMerchantKey !== undefined
+        ? String(payload.payuMerchantKey || "").trim()
+        : current.payuMerchantKey,
+    payuMerchantSalt:
+      payload.payuMerchantSalt !== undefined && String(payload.payuMerchantSalt || "").trim() !== ""
+        ? String(payload.payuMerchantSalt).trim()
+        : current.payuMerchantSalt,
+    payuMerchantId:
+      payload.payuMerchantId !== undefined
+        ? String(payload.payuMerchantId || "").trim()
+        : current.payuMerchantId,
+    payuEnv:
+      String(payload.payuEnv ?? current.payuEnv).toLowerCase() === "production" ? "production" : "test",
+    payuWebhookSecret:
+      payload.payuWebhookSecret !== undefined && String(payload.payuWebhookSecret || "").trim() !== ""
+        ? String(payload.payuWebhookSecret).trim()
+        : current.payuWebhookSecret,
+    payuSuccessUrl:
+      payload.payuSuccessUrl !== undefined
+        ? String(payload.payuSuccessUrl || "").trim()
+        : current.payuSuccessUrl,
+    payuFailureUrl:
+      payload.payuFailureUrl !== undefined
+        ? String(payload.payuFailureUrl || "").trim()
+        : current.payuFailureUrl,
+    phonepeMerchantId:
+      payload.phonepeMerchantId !== undefined
+        ? String(payload.phonepeMerchantId || "").trim()
+        : current.phonepeMerchantId,
+    phonepeClientId:
+      payload.phonepeClientId !== undefined
+        ? String(payload.phonepeClientId || "").trim()
+        : current.phonepeClientId,
+    phonepeClientSecret:
+      payload.phonepeClientSecret !== undefined && String(payload.phonepeClientSecret || "").trim() !== ""
+        ? String(payload.phonepeClientSecret).trim()
+        : current.phonepeClientSecret,
+    phonepeClientVersion:
+      payload.phonepeClientVersion !== undefined
+        ? String(payload.phonepeClientVersion || "1").trim()
+        : current.phonepeClientVersion,
+    phonepeEnv:
+      String(payload.phonepeEnv ?? current.phonepeEnv).toLowerCase() === "production" ? "production" : "sandbox",
+    phonepeWebhookSecret:
+      payload.phonepeWebhookSecret !== undefined && String(payload.phonepeWebhookSecret || "").trim() !== ""
+        ? String(payload.phonepeWebhookSecret).trim()
+        : current.phonepeWebhookSecret,
+    phonepeSuccessUrl:
+      payload.phonepeSuccessUrl !== undefined
+        ? String(payload.phonepeSuccessUrl || "").trim()
+        : current.phonepeSuccessUrl,
+    phonepeFailureUrl:
+      payload.phonepeFailureUrl !== undefined
+        ? String(payload.phonepeFailureUrl || "").trim()
+        : current.phonepeFailureUrl,
   };
 
   await sequelize.query(
@@ -273,7 +384,22 @@ export const updatePaymentSettings = async (payload = {}) => {
          googlePlayProjectId = :googlePlayProjectId,
          googlePlayProjectNumber = :googlePlayProjectNumber,
          googlePlayApiEnabled = :googlePlayApiEnabled,
-         googlePlayNotes = :googlePlayNotes
+         googlePlayNotes = :googlePlayNotes,
+         payuMerchantKey = :payuMerchantKey,
+         payuMerchantSalt = :payuMerchantSalt,
+         payuMerchantId = :payuMerchantId,
+         payuEnv = :payuEnv,
+         payuWebhookSecret = :payuWebhookSecret,
+         payuSuccessUrl = :payuSuccessUrl,
+         payuFailureUrl = :payuFailureUrl,
+         phonepeMerchantId = :phonepeMerchantId,
+         phonepeClientId = :phonepeClientId,
+         phonepeClientSecret = :phonepeClientSecret,
+         phonepeClientVersion = :phonepeClientVersion,
+         phonepeEnv = :phonepeEnv,
+         phonepeWebhookSecret = :phonepeWebhookSecret,
+         phonepeSuccessUrl = :phonepeSuccessUrl,
+         phonepeFailureUrl = :phonepeFailureUrl
      WHERE id = 1`,
     {
       replacements: next,

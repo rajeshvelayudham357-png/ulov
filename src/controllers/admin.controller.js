@@ -6400,7 +6400,7 @@ export const getAnalyticsCreators = async (req, res) => {
       sequelize.query(
         `SELECT users.id, users.name, users.avatar, COALESCE(SUM(earnings.amount), 0) AS totalEarnedAmount, COUNT(call_histories.id) AS totalCalls
          FROM users
-         LEFT JOIN earnings ON users.id = earnings.userId
+         LEFT JOIN earnings earnings ON users.id = earnings.userId
          LEFT JOIN call_histories ON users.id = call_histories.receiverId AND call_histories.status IN ('completed', 'ended')
          WHERE users.gender = 'Female'
          GROUP BY users.id, users.name, users.avatar
@@ -6502,7 +6502,7 @@ export const getAnalyticsRankings = async (req, res) => {
       sequelize.query(
         `SELECT users.id, users.name, users.publicUserId, users.avatar, COALESCE(SUM(earnings.amount), 0) AS earningsAmount
          FROM users
-         JOIN earnings ON users.id = earnings.userId
+         JOIN earnings earnings ON users.id = earnings.userId
          WHERE users.gender = 'Female'
          GROUP BY users.id, users.name, users.publicUserId, users.avatar
          ORDER BY earningsAmount DESC
@@ -6651,21 +6651,27 @@ export const revenueRecharges = async (req, res) => {
       include: [
         {
           model: User,
-          attributes: ['id', 'publicUserId', 'name', 'nickname', 'username', 'phone', 'gender'],
-        },
-        {
-          model: Wallet,
-          as: 'wallet',
-          attributes: ['balance'],
-          required: false,
+          as: "user",
+          attributes: ["id", "publicUserId", "name", "nickname", "username", "phone", "gender"],
         },
       ],
-      order: [['updatedAt', 'DESC']],
+      order: [["updatedAt", "DESC"]],
       limit: search ? 5000 : limit + offset + 100,
     });
 
-    // Collect unique userIds for coins-used query
+    // Collect unique userIds for coins-used and wallet balance queries
     const userIds = [...new Set(allOrders.map((o) => o.userId))];
+
+    let walletMap = {};
+    if (userIds.length > 0) {
+      const wallets = await Wallet.findAll({
+        where: { userId: userIds },
+        attributes: ["userId", "balance"],
+      });
+      wallets.forEach((wallet) => {
+        walletMap[wallet.userId] = Number(wallet.balance) || 0;
+      });
+    }
 
     // Get coins used per user (sum of negative wallet transactions)
     let coinsUsedMap = {};
@@ -6683,7 +6689,7 @@ export const revenueRecharges = async (req, res) => {
     let rows = allOrders.map((order) => {
       const data = order.toJSON();
       const { gstAmount, baseRevenue } = splitInclusiveGst(Number(data.amount) || 0, gstPercent);
-      const walletBalance = data.wallet?.balance ?? 0;
+      const walletBalance = walletMap[data.userId] ?? 0;
       const coinsUsed = coinsUsedMap[data.userId] || 0;
       const displayName = getDisplayName(data.user);
 
@@ -6802,14 +6808,14 @@ export const revenueSummary = async (req, res) => {
 
     // Approved payouts
     const [approvedPayoutRow] = await sequelize.query(
-      `SELECT SUM(amount) AS total FROM Withdraws WHERE status='approved'`,
+      `SELECT SUM(amount) AS total FROM withdraws WHERE status='approved'`,
       { type: QueryTypes.SELECT }
     );
     const approvedPayout = Number(approvedPayoutRow?.total) || 0;
 
     // Pending payouts
     const [pendingPayoutRow] = await sequelize.query(
-      `SELECT SUM(amount) AS total FROM Withdraws WHERE status='pending'`,
+      `SELECT SUM(amount) AS total FROM withdraws WHERE status='pending'`,
       { type: QueryTypes.SELECT }
     );
     const pendingPayout = Number(pendingPayoutRow?.total) || 0;
@@ -6821,9 +6827,17 @@ export const revenueSummary = async (req, res) => {
     const avgRevenuePerUser = maleUsersRecharged > 0 ? totalNetRevenue / maleUsersRecharged : 0;
 
     // Gateway pie data
-    const allGateways = ['cashfree', 'razorpay', 'google_play'];
+    const allGateways = ['cashfree', 'razorpay', 'payu', 'phonepe', 'google_play'];
+    const gatewayLabel = (gw) => {
+      if (gw === 'google_play') return 'Google Play';
+      if (gw === 'razorpay') return 'Razorpay';
+      if (gw === 'payu') return 'PayU';
+      if (gw === 'phonepe') return 'PhonePe';
+      return 'Cashfree';
+    };
+
     const gatewayPie = allGateways.map((gw) => ({
-      name: gw === 'google_play' ? 'Google Play' : gw === 'razorpay' ? 'Razorpay' : 'Cashfree',
+      name: gatewayLabel(gw),
       value: gatewayAmounts[gw] || 0,
       count: gatewayCounts[gw] || 0,
       percentage: totalAmount > 0 ? (((gatewayAmounts[gw] || 0) / totalAmount) * 100).toFixed(1) : '0.0',
@@ -6972,7 +6986,7 @@ export const revenueAnalytics = async (req, res) => {
     const currentWalletCoins = Number(walletRow?.total) || 0;
 
     // Creator pending payout
-    const [pendingRow] = await sequelize.query(`SELECT SUM(amount) AS total FROM Withdraws WHERE status='pending'`, { type: QueryTypes.SELECT });
+    const [pendingRow] = await sequelize.query(`SELECT SUM(amount) AS total FROM withdraws WHERE status='pending'`, { type: QueryTypes.SELECT });
     const creatorPendingPayout = Number(pendingRow?.total) || 0;
 
     // Gateway pie
@@ -6982,7 +6996,7 @@ export const revenueAnalytics = async (req, res) => {
     );
     const totalGwAmt = gwRows.reduce((s, r) => s + (Number(r.amt) || 0), 0);
     const gatewayPie = gwRows.map((r) => ({
-      name: r.gateway === 'google_play' ? 'Google Play' : r.gateway === 'razorpay' ? 'Razorpay' : 'Cashfree',
+      name: r.gateway === 'google_play' ? 'Google Play' : r.gateway === 'razorpay' ? 'Razorpay' : r.gateway === 'payu' ? 'PayU' : r.gateway === 'phonepe' ? 'PhonePe' : 'Cashfree',
       value: Number(r.amt) || 0,
       count: Number(r.cnt) || 0,
       percentage: totalGwAmt > 0 ? (((Number(r.amt) || 0) / totalGwAmt) * 100).toFixed(1) : '0.0',
@@ -7003,7 +7017,7 @@ export const revenueAnalytics = async (req, res) => {
 
     // Payout trend (approved withdrawals by day in period)
     const payoutTrend = await sequelize.query(
-      `SELECT DATE(updatedAt) AS date, SUM(amount) AS payout FROM Withdraws WHERE status='approved' AND updatedAt >= :f AND updatedAt <= :t GROUP BY DATE(updatedAt) ORDER BY date ASC`,
+      `SELECT DATE(updatedAt) AS date, SUM(amount) AS payout FROM withdraws WHERE status='approved' AND updatedAt >= :f AND updatedAt <= :t GROUP BY DATE(updatedAt) ORDER BY date ASC`,
       { replacements: { f: fromDate, t: toDate }, type: QueryTypes.SELECT }
     );
     const payoutMap = {};

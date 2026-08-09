@@ -41,6 +41,11 @@ import { sequelize } from "../config/database.js";
    active:{
    type:DataTypes.BOOLEAN,
    defaultValue:true
+   },
+
+   targetUserId:{
+   type:DataTypes.INTEGER,
+   allowNull:true
    }
    
    

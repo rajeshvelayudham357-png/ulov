@@ -136,6 +136,10 @@ async()=>{
 
 try{
 
+console.log("Running database migrations...");
+await runDatabaseMigrations();
+console.log("Database migrations completed");
+
 console.log("Starting HTTP server...");
 
 server.listen(
@@ -149,18 +153,6 @@ console.log(
 );
 
 startChatRetention();
-
-console.log("Running database migrations in background...");
-runDatabaseMigrations()
-.then(()=>{
-console.log("Background migrations finished");
-})
-.catch((error)=>{
-console.error(
-"DATABASE MIGRATION FAILED",
-error
-);
-});
 
 }catch(error){
 

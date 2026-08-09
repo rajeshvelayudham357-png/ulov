@@ -63,6 +63,10 @@ import { sequelize } from "../config/database.js";
    }
    
    
+   },
+   {
+    tableName: "withdraws",
+    freezeTableName: true,
    }
    );
    

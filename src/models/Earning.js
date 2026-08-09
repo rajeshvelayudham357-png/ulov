@@ -82,6 +82,8 @@ defaultValue:"pending"
 
 },
 {
+ tableName: "earnings",
+ freezeTableName: true,
  indexes:[
   {
    unique:true,

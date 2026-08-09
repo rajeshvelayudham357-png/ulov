@@ -66,6 +66,39 @@ export const ensurePaymentDatabaseSchemas = async () => {
     await ensureColumn("admin_payment_settings", "googlePlayApiEnabled", "TINYINT(1) NOT NULL DEFAULT 0");
     await ensureColumn("admin_payment_settings", "googlePlayNotes", "TEXT NULL");
 
+    // PayU payment settings columns
+    await ensureColumn("admin_payment_settings", "payuMerchantKey", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "payuMerchantSalt", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "payuMerchantId", "VARCHAR(100) NULL");
+    await ensureColumn("admin_payment_settings", "payuEnv", "VARCHAR(20) NOT NULL DEFAULT 'test'");
+    await ensureColumn("admin_payment_settings", "payuWebhookSecret", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "payuSuccessUrl", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "payuFailureUrl", "TEXT NULL");
+
+    // PayU payment_orders columns
+    await ensureColumn("payment_orders", "payuTxnId", "VARCHAR(120) NULL");
+    await ensureColumn("payment_orders", "payuPaymentId", "VARCHAR(120) NULL");
+    await ensureColumn("payment_orders", "payuStatus", "VARCHAR(50) NULL");
+    await ensureColumn("payment_orders", "payuHash", "VARCHAR(255) NULL");
+
+    // PhonePe payment settings columns (PhonePe Standard Checkout OAuth API)
+    await ensureColumn("admin_payment_settings", "phonepeMerchantId", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "phonepeClientId", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "phonepeClientSecret", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "phonepeClientVersion", "VARCHAR(20) NOT NULL DEFAULT '1'");
+    await ensureColumn("admin_payment_settings", "phonepeEnv", "VARCHAR(20) NOT NULL DEFAULT 'sandbox'");
+    await ensureColumn("admin_payment_settings", "phonepeWebhookSecret", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "phonepeSuccessUrl", "TEXT NULL");
+    await ensureColumn("admin_payment_settings", "phonepeFailureUrl", "TEXT NULL");
+
+    // PhonePe payment_orders columns
+    await ensureColumn("payment_orders", "phonepeOrderToken", "VARCHAR(512) NULL");
+    await ensureColumn("payment_orders", "phonepePaymentId", "VARCHAR(120) NULL");
+    await ensureColumn("payment_orders", "phonepeMerchantTransactionId", "VARCHAR(120) NULL");
+    await ensureColumn("payment_orders", "phonepeMerchantOrderId", "VARCHAR(120) NULL");
+    await ensureColumn("payment_orders", "phonepeStatus", "VARCHAR(50) NULL");
+    await ensureColumn("payment_orders", "phonepeRedirectUrl", "TEXT NULL");
+
     // 2. Ensure payment_products table
     await sequelize.query(
       `CREATE TABLE IF NOT EXISTS payment_products (

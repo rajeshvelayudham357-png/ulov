@@ -119,7 +119,9 @@ import {
 
 getBroadcasts,
 
-createBroadcast
+createBroadcast,
+listBroadcastFemales,
+createIndividualBroadcast
 
 } from "../controllers/broadcast.controller.js";
 
@@ -616,6 +618,18 @@ requirePageAccess("broadcast"),
 
 createBroadcast
 
+);
+
+router.get(
+"/broadcast/females",
+requirePageAccess("broadcast"),
+listBroadcastFemales
+);
+
+router.post(
+"/broadcast/individual",
+requirePageAccess("broadcast"),
+createIndividualBroadcast
 );
 
 router.get(

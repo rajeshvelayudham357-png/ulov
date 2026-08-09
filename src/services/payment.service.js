@@ -22,6 +22,17 @@ import {
   getRazorpayCheckoutKeyId,
   verifyRazorpayPaymentSignature,
 } from "./razorpay.service.js";
+import {
+  getPayUCheckoutPayload,
+  verifyPayUPayment as verifyPayUPaymentSignature,
+  fetchPayUTransactionStatus,
+} from "./payu.service.js";
+import {
+  initiatePhonePePayment,
+  fetchPhonePeTransactionStatus,
+  verifyPhonePeWebhookSignature,
+  refundPhonePePayment as executePhonePeRefund,
+} from "./phonepe.service.js";
 
 const PAID_STATUSES = new Set(["PAID", "SUCCESS", "CAPTURED"]);
 const FAILED_STATUSES = new Set([
@@ -80,6 +91,15 @@ export const ensurePaymentOrderColumns = async () => {
     "razorpayPaymentId",
     "VARCHAR(120) NULL"
   );
+  await ensureColumn("payment_orders", "payuTxnId", "VARCHAR(120) NULL");
+  await ensureColumn("payment_orders", "payuPaymentId", "VARCHAR(120) NULL");
+  await ensureColumn("payment_orders", "payuStatus", "VARCHAR(50) NULL");
+  await ensureColumn("payment_orders", "payuHash", "VARCHAR(255) NULL");
+
+  await ensureColumn("payment_orders", "phonepeTransactionId", "VARCHAR(120) NULL");
+  await ensureColumn("payment_orders", "phonepeMerchantTransactionId", "VARCHAR(120) NULL");
+  await ensureColumn("payment_orders", "phonepeStatus", "VARCHAR(50) NULL");
+  await ensureColumn("payment_orders", "phonepeChecksum", "VARCHAR(255) NULL");
 
   paymentOrderColumnsReady = true;
 };
@@ -186,6 +206,49 @@ const createRazorpayPaymentOrder = async ({
   };
 };
 
+const createPayUPaymentOrder = async ({ userId, goldPackage, user, orderId }) => {
+  const settings = await getPaymentSettings();
+  const publicApiBaseUrl = getPublicApiBaseUrl();
+  const successUrl = settings.payuSuccessUrl ||
+    `${publicApiBaseUrl}/api/payments/payu/return?order_id=${encodeURIComponent(orderId)}&status=success`;
+  const failureUrl = settings.payuFailureUrl ||
+    `${publicApiBaseUrl}/api/payments/payu/return?order_id=${encodeURIComponent(orderId)}&status=failure`;
+
+  const payload = await getPayUCheckoutPayload({
+    txnid: orderId,
+    amount: goldPackage.price,
+    productinfo: `${goldPackage.coins} Ulov Coins`,
+    firstname: user.name || user.username || "UlovUser",
+    email: user.email || `user${userId}@ulov.app`,
+    phone: normalizePhone(user.phone),
+    udf1: String(userId),
+    successUrl,
+    failureUrl,
+  });
+
+  const paymentOrder = await PaymentOrder.create({
+    orderId,
+    userId,
+    packageId: goldPackage.id,
+    coins: goldPackage.coins,
+    amount: goldPackage.price,
+    gateway: "payu",
+    payuTxnId: orderId,
+    payuHash: payload.hash,
+    paymentSessionId: orderId,
+    status: "CREATED",
+  });
+
+  return {
+    paymentOrder,
+    gateway: "payu",
+    payuPayload: payload,
+    customerContact: normalizePhone(user?.phone),
+    customerEmail: user?.email || `user${userId}@ulov.app`,
+    customerName: user?.name || user?.username || "Ulov User",
+  };
+};
+
 export const createPaymentOrder = async ({ userId, packageId }) => {
   await ensurePaymentOrderColumns();
 
@@ -213,6 +276,14 @@ export const createPaymentOrder = async ({ userId, packageId }) => {
     });
   }
 
+  if (settings.activeGateway === "payu") {
+    return createPayUPaymentOrder({ userId, goldPackage, user, orderId });
+  }
+
+  if (settings.activeGateway === "phonepe") {
+    return createPhonePePaymentOrder({ userId, goldPackage, user, orderId });
+  }
+
   return createCashfreePaymentOrder({
     userId,
     goldPackage,
@@ -227,6 +298,8 @@ export const creditWalletForPayment = async (
     paymentMethod = null,
     cashfreePaymentId = null,
     razorpayPaymentId = null,
+    payuPaymentId = null,
+    phonepeTransactionId = null,
   } = {}
 ) => {
   if (paymentOrder.status === "PAID") {
@@ -305,6 +378,16 @@ export const creditWalletForPayment = async (
 
     if (razorpayPaymentId) {
       lockedOrder.razorpayPaymentId = razorpayPaymentId;
+    }
+
+    if (payuPaymentId) {
+      lockedOrder.payuPaymentId = payuPaymentId;
+      lockedOrder.payuStatus = "PAID";
+    }
+
+    if (phonepeTransactionId) {
+      lockedOrder.phonepeTransactionId = phonepeTransactionId;
+      lockedOrder.phonepeStatus = "PAID";
     }
 
     await lockedOrder.save({ transaction });
@@ -478,6 +561,62 @@ export const syncPaymentOrderFromRazorpay = async (
   };
 };
 
+export const syncPaymentOrderFromPayU = async (orderId, responseParams = {}) => {
+  await ensurePaymentOrderColumns();
+
+  const paymentOrder = await PaymentOrder.findOne({ where: { orderId } });
+  if (!paymentOrder) throw new Error("Payment order not found");
+
+  // If we have response params, verify the hash
+  if (responseParams.hash && responseParams.status) {
+    const verification = await verifyPayUPaymentSignature(responseParams);
+    if (!verification.valid) {
+      throw new Error("Invalid PayU payment hash");
+    }
+    const status = String(responseParams.status || "").toLowerCase();
+    if (status === "success" || status === "captured") {
+      const result = await creditWalletForPayment(paymentOrder, {
+        paymentMethod: "payu",
+        payuPaymentId: verification.payuPaymentId,
+      });
+      return {
+        paymentOrder: result.paymentOrder,
+        wallet: result.wallet,
+        payuStatus: "PAID",
+        credited: !result.alreadyPaid,
+      };
+    }
+  }
+
+  // Fallback: query PayU API
+  try {
+    const apiStatus = await fetchPayUTransactionStatus(orderId);
+    const txnDetails = apiStatus?.transaction_details?.[orderId];
+    const txnStatus = String(txnDetails?.status || "").toLowerCase();
+    if (txnStatus === "success" || txnStatus === "captured") {
+      const result = await creditWalletForPayment(paymentOrder, {
+        paymentMethod: "payu",
+        payuPaymentId: txnDetails?.mihpayid || orderId,
+      });
+      return {
+        paymentOrder: result.paymentOrder,
+        wallet: result.wallet,
+        payuStatus: "PAID",
+        credited: !result.alreadyPaid,
+      };
+    }
+  } catch (_err) {
+    // API query failed, return current state
+  }
+
+  return {
+    paymentOrder,
+    wallet: await Wallet.findOne({ where: { userId: paymentOrder.userId } }),
+    payuStatus: paymentOrder.status,
+    credited: false,
+  };
+};
+
 export const syncPaymentOrder = async (
   orderId,
   options = {}
@@ -494,6 +633,14 @@ export const syncPaymentOrder = async (
 
   if (paymentOrder.gateway === "razorpay") {
     return syncPaymentOrderFromRazorpay(orderId, options);
+  }
+
+  if (paymentOrder.gateway === "payu") {
+    return syncPaymentOrderFromPayU(orderId, options);
+  }
+
+  if (paymentOrder.gateway === "phonepe") {
+    return syncPaymentOrderFromPhonePe(orderId, options);
   }
 
   return syncPaymentOrderFromCashfree(orderId);
@@ -538,6 +685,163 @@ export const handleRazorpayWebhook = async (payload) => {
     razorpayPaymentId:
       payload?.payload?.payment?.entity?.id || null,
   });
+};
+
+export const handlePayUWebhook = async (payload) => {
+  const txnid = payload?.txnid || payload?.mihpayid;
+  if (!txnid) throw new Error("PayU webhook: txnid missing");
+
+  const paymentOrder = await PaymentOrder.findOne({ where: { orderId: txnid } });
+  if (!paymentOrder) throw new Error("Payment order not found for PayU webhook");
+
+  return syncPaymentOrderFromPayU(txnid, payload);
+};
+
+export const createPhonePePaymentOrder = async ({ userId, goldPackage, user, orderId }) => {
+  const settings = await getPaymentSettings();
+  const publicApiBaseUrl = getPublicApiBaseUrl();
+  const redirectUrl = settings.phonepeSuccessUrl ||
+    `${publicApiBaseUrl}/api/payments/phonepe/return?order_id=${encodeURIComponent(orderId)}`;
+  const callbackUrl = `${publicApiBaseUrl}/api/payments/phonepe/webhook`;
+
+  const phonepeResult = await initiatePhonePePayment({
+    orderId,
+    amount: goldPackage.price,
+    userId,
+    user,
+    redirectUrl,
+    callbackUrl,
+  });
+
+  const paymentOrder = await PaymentOrder.create({
+    orderId,
+    userId,
+    packageId: goldPackage.id,
+    coins: goldPackage.coins,
+    amount: goldPackage.price,
+    gateway: "phonepe",
+    phonepeMerchantTransactionId: orderId,
+    phonepeChecksum: phonepeResult.payData?.checksum || null,
+    paymentSessionId: orderId,
+    status: "CREATED",
+  });
+
+  console.log(
+    `[PAYMENT] Gateway: PhonePe | Order: ${orderId} | MerchantTxn: ${orderId} | Amount: ${goldPackage.price} | Status: CREATED`
+  );
+
+  return {
+    paymentOrder,
+    gateway: "phonepe",
+    phonepeRedirectUrl: phonepeResult.redirectUrl,
+    phonepePayload: phonepeResult.payData,
+    customerContact: normalizePhone(user?.phone),
+    customerEmail: user?.email || `user${userId}@ulov.app`,
+    customerName: user?.name || user?.username || "Ulov User",
+  };
+};
+
+export const syncPaymentOrderFromPhonePe = async (orderId) => {
+  await ensurePaymentOrderColumns();
+
+  const paymentOrder = await PaymentOrder.findOne({ where: { orderId } });
+  if (!paymentOrder) throw new Error("Payment order not found");
+
+  if (paymentOrder.status === "PAID") {
+    return {
+      paymentOrder,
+      wallet: await Wallet.findOne({ where: { userId: paymentOrder.userId } }),
+      phonepeStatus: "PAID",
+      credited: false,
+    };
+  }
+
+  try {
+    const statusData = await fetchPhonePeTransactionStatus(orderId);
+    const code = String(statusData?.code || "").toUpperCase();
+
+    if (code === "PAYMENT_SUCCESS") {
+      const providerTxnId = statusData?.data?.transactionId || orderId;
+      const result = await creditWalletForPayment(paymentOrder, {
+        paymentMethod: statusData?.data?.paymentInstrument?.type || "phonepe",
+        phonepeTransactionId: providerTxnId,
+      });
+
+      console.log(
+        `[PAYMENT] Gateway: PhonePe | Order: ${orderId} | Status: PAID | Credited: ${!result.alreadyPaid}`
+      );
+
+      return {
+        paymentOrder: result.paymentOrder,
+        wallet: result.wallet,
+        phonepeStatus: "PAID",
+        credited: !result.alreadyPaid,
+      };
+    }
+
+    if (code === "PAYMENT_ERROR" || code === "PAYMENT_DECLINED") {
+      paymentOrder.status = "FAILED";
+      paymentOrder.failureReason = statusData?.message || code;
+      await paymentOrder.save();
+    }
+  } catch (error) {
+    console.error(`[PAYMENT] Gateway: PhonePe | Order: ${orderId} | Status Sync Failed:`, error.message);
+  }
+
+  return {
+    paymentOrder,
+    wallet: await Wallet.findOne({ where: { userId: paymentOrder.userId } }),
+    phonepeStatus: paymentOrder.status,
+    credited: false,
+  };
+};
+
+export const handlePhonePeWebhook = async (payload, xVerifyHeader) => {
+  const base64Response = payload?.response;
+  let decoded = {};
+  
+  if (base64Response) {
+    try {
+      const jsonStr = Buffer.from(base64Response, "base64").toString("utf-8");
+      decoded = JSON.parse(jsonStr);
+    } catch (_e) {
+      decoded = payload;
+    }
+  } else {
+    decoded = payload;
+  }
+
+  const merchantTransactionId = decoded?.data?.merchantTransactionId || decoded?.merchantTransactionId || payload?.merchantTransactionId;
+  if (!merchantTransactionId) throw new Error("PhonePe webhook: merchantTransactionId missing");
+
+  const paymentOrder = await PaymentOrder.findOne({ where: { orderId: merchantTransactionId } });
+  if (!paymentOrder) throw new Error("Payment order not found for PhonePe webhook");
+
+  // Prevent duplicate wallet credits if already paid
+  if (paymentOrder.status === "PAID") {
+    console.log(`[PAYMENT] Gateway: PhonePe | Order: ${merchantTransactionId} | Webhook ignored (Already PAID)`);
+    return { alreadyPaid: true, paymentOrder };
+  }
+
+  const valid = await verifyPhonePeWebhookSignature({ rawBody: payload, xVerifyHeader, payload: decoded });
+  if (!valid) throw new Error("Invalid PhonePe webhook signature");
+
+  return syncPaymentOrderFromPhonePe(merchantTransactionId);
+};
+
+export const refundPhonePePayment = async ({ orderId, amount }) => {
+  await ensurePaymentOrderColumns();
+  const paymentOrder = await PaymentOrder.findOne({ where: { orderId } });
+  if (!paymentOrder) throw new Error("Payment order not found");
+
+  const refundId = `REFUND_${orderId}_${Date.now()}`;
+  const result = await executePhonePeRefund({
+    originalTransactionId: paymentOrder.phonepeTransactionId || orderId,
+    refundId,
+    amount: amount || paymentOrder.amount,
+  });
+
+  return result;
 };
 
 export const getPaymentOrderForUser = async ({
