@@ -162,6 +162,12 @@ const ALERT_COOLDOWN_MS =
 const NOTIFICATION_CHANNEL_ID =
 "dating-app-alerts";
 
+const INCOMING_CALL_CHANNEL_ID =
+"dating-app-calls-v2";
+
+const INCOMING_CALL_SOUND =
+"incoming_call";
+
 let ioRef =
 null;
 
@@ -326,12 +332,12 @@ const messages =
 validTokens.map(
 token=>({
 to:token,
-sound:"default",
+sound:payload.sound ?? "default",
 title:payload.title,
 body:payload.body,
 data:payload.data ?? {},
 priority:"high",
-channelId:NOTIFICATION_CHANNEL_ID,
+channelId:payload.androidChannelId ?? NOTIFICATION_CHANNEL_ID,
 ttl:payload.ttlSeconds ?? 3600,
 badge:1
 })
@@ -410,10 +416,10 @@ android:{
 priority:"high",
 ttl:Number(payload.ttlSeconds ?? 3600) * 1000,
 notification:{
-channelId:NOTIFICATION_CHANNEL_ID,
-sound:"default",
+channelId:payload.androidChannelId ?? NOTIFICATION_CHANNEL_ID,
+sound:payload.sound ?? "default",
 priority:"high",
-defaultSound:true,
+defaultSound:!(payload.sound),
 defaultVibrateTimings:true,
 visibility:"public"
 }
@@ -500,8 +506,8 @@ time_to_live:payload.ttlSeconds ?? 3600,
 notification:{
 title:payload.title,
 body:payload.body,
-sound:"default",
-android_channel_id:NOTIFICATION_CHANNEL_ID
+sound:payload.sound ?? "default",
+android_channel_id:payload.androidChannelId ?? NOTIFICATION_CHANNEL_ID
 },
 data:{
 ...toFcmData(payload.data),
@@ -1482,6 +1488,8 @@ title:
 body:
 `${callerName} is calling you (${callType})`,
 ttlSeconds:60,
+sound:INCOMING_CALL_SOUND,
+androidChannelId:INCOMING_CALL_CHANNEL_ID,
 data:{
 type:"incoming_call",
 callerId:String(callerId),
