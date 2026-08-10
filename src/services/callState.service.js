@@ -107,19 +107,6 @@ callHistoryId
 const normalizedType =
 normalizeCallTypeForDb(type);
 
-const normalizedDuration =
-Math.max(
-0,
-Number(duration ?? 0)
-);
-
-const billing =
-await calculateCallBilling({
-duration:normalizedDuration,
-type:normalizedType,
-receiverId
-});
-
 let history =
 null;
 
@@ -127,6 +114,29 @@ if(callHistoryId){
  history =
  await CallHistory.findByPk(callHistoryId);
 }
+
+if(!history){
+ history =
+ await findActiveCallByPair(
+ callerId,
+ receiverId
+ );
+}
+
+const normalizedDuration =
+Math.max(
+0,
+Number(duration ?? 0),
+Number(history?.duration ?? 0)
+);
+
+const billing =
+await calculateCallBilling({
+duration:normalizedDuration,
+type:normalizedType || history?.type,
+receiverId,
+callerId
+});
 
 if(
 history &&
@@ -139,20 +149,51 @@ TERMINAL_CALL_STATUSES.includes(history.status)
   }
  });
 
+ if(
+ existingEarning ||
+ billing.femaleEarn <= 0
+ ){
+  return {
+   history,
+   earning:existingEarning,
+   billing,
+   alreadyCompleted:true
+  };
+ }
+
+ await history.update({
+ type:normalizedType || history.type,
+ duration:normalizedDuration,
+ coinsSpent:billing.maleCost,
+ status:"completed"
+ });
+
+ const [
+ backfilledEarning
+ ]=
+ await Earning.findOrCreate({
+
+ where:{
+  callId:history.id
+ },
+
+ defaults:{
+  userId:receiverId,
+  coins:billing.femaleEarn,
+  amount:billing.femaleAmount,
+  duration:billing.minutes,
+  status:"pending"
+ }
+
+ });
+
  return {
   history,
-  earning:existingEarning,
+  earning:backfilledEarning,
   billing,
-  alreadyCompleted:true
+  alreadyCompleted:false,
+  backfilled:true
  };
-}
-
-if(!history){
- history =
- await findActiveCallByPair(
- callerId,
- receiverId
- );
 }
 
 if(history){
@@ -330,18 +371,25 @@ Math.max(
 0,
 Math.floor(
 (now - new Date(call.createdAt).getTime()) / 1000
-)
+),
+Number(call.duration) || 0
 );
 
-await call.update({
-status:"completed",
-duration:
-Number(call.duration) > 0
-?
-Number(call.duration)
-:
-elapsedSeconds
+try{
+await completeCallRecord({
+callerId:call.callerId,
+receiverId:call.receiverId,
+type:call.type,
+duration:elapsedSeconds,
+callHistoryId:call.id
 });
+}catch(error){
+console.log(
+"CLEANUP STALE CALL BILLING ERROR",
+call.id,
+error.message
+);
+}
 }
 
 const ghostCalls =
@@ -392,18 +440,25 @@ Math.max(
 0,
 Math.floor(
 (now - new Date(row.createdAt).getTime()) / 1000
-)
+),
+Number(row.duration) || 0
 );
 
-await call.update({
-status:"completed",
-duration:
-Number(row.duration) > 0
-?
-Number(row.duration)
-:
-elapsedSeconds
+try{
+await completeCallRecord({
+callerId:row.callerId,
+receiverId:row.receiverId,
+type:row.type,
+duration:elapsedSeconds,
+callHistoryId:row.id
 });
+}catch(error){
+console.log(
+"CLEANUP GHOST CALL BILLING ERROR",
+row.id,
+error.message
+);
+}
 }
 };
 
