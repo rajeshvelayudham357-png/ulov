@@ -90,6 +90,20 @@ export const fetchRazorpayPayment = async (paymentId) => {
   return response.data;
 };
 
+export const fetchRazorpayOrderPayments = async (razorpayOrderId) => {
+  const { keyId, keySecret, baseUrl } =
+    await getRazorpayConfig();
+
+  const response = await axios.get(
+    `${baseUrl}/orders/${razorpayOrderId}/payments`,
+    {
+      headers: razorpayAuthHeader(keyId, keySecret),
+    }
+  );
+
+  return response.data?.items || [];
+};
+
 export const verifyRazorpayPaymentSignature = async ({
   razorpayOrderId,
   razorpayPaymentId,

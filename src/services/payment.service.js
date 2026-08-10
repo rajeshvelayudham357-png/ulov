@@ -18,6 +18,7 @@ import { getPaymentSettings } from "./paymentSettings.service.js";
 import {
   createRazorpayOrder,
   fetchRazorpayOrder,
+  fetchRazorpayOrderPayments,
   fetchRazorpayPayment,
   getRazorpayCheckoutKeyId,
   verifyRazorpayPaymentSignature,
@@ -431,6 +432,86 @@ const mapRazorpayStatus = (orderStatus) => {
   return "FAILED";
 };
 
+const RAZORPAY_SUCCESS_PAYMENT_STATUSES = new Set([
+  "captured",
+  "authorized",
+]);
+
+const isSuccessfulRazorpayPayment = (
+  payment,
+  expectedAmountRupees
+) => {
+  if (!payment?.id) {
+    return false;
+  }
+
+  const status = String(payment.status || "").toLowerCase();
+
+  if (!RAZORPAY_SUCCESS_PAYMENT_STATUSES.has(status)) {
+    return false;
+  }
+
+  const expectedPaise = Math.round(
+    Number(expectedAmountRupees) * 100
+  );
+  const paidPaise = Number(payment.amount);
+
+  return (
+    Number.isFinite(expectedPaise) &&
+    expectedPaise > 0 &&
+    paidPaise >= expectedPaise
+  );
+};
+
+const resolveCapturedRazorpayPayment = async ({
+  paymentOrder,
+  razorpayPaymentId = null,
+}) => {
+  if (razorpayPaymentId) {
+    try {
+      const payment = await fetchRazorpayPayment(
+        razorpayPaymentId
+      );
+
+      if (
+        isSuccessfulRazorpayPayment(
+          payment,
+          paymentOrder.amount
+        )
+      ) {
+        return payment;
+      }
+    } catch (error) {
+      console.log(
+        "[RAZORPAY] fetch payment failed:",
+        error.message
+      );
+    }
+  }
+
+  try {
+    const payments = await fetchRazorpayOrderPayments(
+      paymentOrder.razorpayOrderId
+    );
+
+    return (
+      payments.find((payment) =>
+        isSuccessfulRazorpayPayment(
+          payment,
+          paymentOrder.amount
+        )
+      ) || null
+    );
+  } catch (error) {
+    console.log(
+      "[RAZORPAY] fetch order payments failed:",
+      error.message
+    );
+
+    return null;
+  }
+};
+
 export const syncPaymentOrderFromCashfree = async (orderId) => {
   await ensurePaymentOrderColumns();
 
@@ -496,6 +577,16 @@ export const syncPaymentOrderFromRazorpay = async (
     throw new Error("Payment order not found");
   }
 
+  if (paymentOrder.status === "PAID") {
+    return {
+      paymentOrder,
+      wallet: await Wallet.findOne({
+        where: { userId: paymentOrder.userId },
+      }),
+      credited: false,
+    };
+  }
+
   if (!paymentOrder.razorpayOrderId) {
     throw new Error("Razorpay order id missing on payment order");
   }
@@ -517,25 +608,28 @@ export const syncPaymentOrderFromRazorpay = async (
   );
   const mappedStatus = mapRazorpayStatus(razorpayOrder.status);
 
-  if (mappedStatus === "PAID") {
-    let paymentMethod = "razorpay";
-    let resolvedPaymentId = razorpayPaymentId;
+  const capturedPayment = await resolveCapturedRazorpayPayment({
+    paymentOrder,
+    razorpayPaymentId,
+  });
 
-    if (resolvedPaymentId) {
-      try {
-        const payment = await fetchRazorpayPayment(
-          resolvedPaymentId
-        );
-        paymentMethod = payment.method || paymentMethod;
-      } catch {
-        // Keep default method if payment fetch fails.
-      }
-    }
+  const shouldCredit =
+    mappedStatus === "PAID" || Boolean(capturedPayment);
+
+  if (shouldCredit) {
+    const resolvedPaymentId =
+      capturedPayment?.id || razorpayPaymentId || null;
+    const paymentMethod =
+      capturedPayment?.method || "razorpay";
 
     const result = await creditWalletForPayment(paymentOrder, {
       paymentMethod,
       razorpayPaymentId: resolvedPaymentId,
     });
+
+    console.log(
+      `[PAYMENT] Razorpay credited | Order: ${orderId} | Payment: ${resolvedPaymentId || "n/a"} | Gateway order: ${razorpayOrder.status}`
+    );
 
     return {
       paymentOrder: result.paymentOrder,

@@ -394,6 +394,20 @@ export const razorpayReturn = async (req, res) => {
   const razorpayOrderId = req.query.razorpay_order_id || "";
   const razorpaySignature = req.query.razorpay_signature || "";
 
+  if (orderId) {
+    try {
+      await syncPaymentOrderFromRazorpay(orderId, {
+        razorpayPaymentId,
+        razorpaySignature,
+      });
+    } catch (error) {
+      console.log(
+        "RAZORPAY RETURN SYNC ERROR:",
+        error.message
+      );
+    }
+  }
+
   res.setHeader("Content-Type", "text/html");
   return res.send(`<!DOCTYPE html>
 <html>
