@@ -56,8 +56,16 @@ import {
     users,
 
     maleUsers,
+
+    getMaleWalletCreditPackagesConfig,
+
+    lookupMaleWalletCreditUser,
+
+    createMaleWalletCredit,
     
     calls,
+
+    maleCallHistory,
 
     liveCalls,
     
@@ -355,9 +363,37 @@ maleUsers
 
 
 router.get(
+"/male-wallet-credit/packages",
+requirePageAccess("male-wallet-credit"),
+getMaleWalletCreditPackagesConfig
+);
+
+
+router.get(
+"/male-wallet-credit/lookup",
+requirePageAccess("male-wallet-credit"),
+lookupMaleWalletCreditUser
+);
+
+
+router.post(
+"/male-wallet-credit",
+requirePageAccess("male-wallet-credit"),
+createMaleWalletCredit
+);
+
+
+router.get(
 "/calls",
 requirePageAccess("calls"),
 calls
+);
+
+
+router.get(
+"/male-call-history",
+requirePageAccess("calls"),
+maleCallHistory
 );
 
 

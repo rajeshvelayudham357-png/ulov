@@ -107,6 +107,11 @@ getMasterFemaleTasks,
 updateMasterFemaleTask
 } from "../services/femaleTask.service.js";
 import {
+getMaleWalletCreditPackages,
+lookupMaleUserForWalletCredit,
+creditMaleUserWallet,
+} from "../services/adminWalletCredit.service.js";
+import {
 notifyKycApproved,
 notifyFemaleAccountApproved
 } from "../services/notificationPush.service.js";
@@ -145,6 +150,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"dashboard", label:"Dashboard", path:"/dashboard" },
 { key:"users", label:"Users", path:"/users" },
 { key:"male-users", label:"Male Users", path:"/male-users" },
+{ key:"male-wallet-credit", label:"Male Wallet Credit", path:"/male-wallet-credit" },
 { key:"calls", label:"Calls", path:"/calls" },
 { key:"live-calls", label:"Live Calls", path:"/live-calls" },
 { key:"call-rates", label:"Call Rates", path:"/call-rates" },
@@ -2513,6 +2519,171 @@ message:error.message
 
 
 // ===================================
+// MALE WALLET CREDIT
+// ===================================
+
+
+export const getMaleWalletCreditPackagesConfig =
+async(
+req,
+res
+)=>{
+
+
+try{
+
+
+return res.json(
+getMaleWalletCreditPackages()
+);
+
+
+}catch(error){
+
+
+return res.status(500).json({
+message:error.message
+});
+
+
+}
+
+
+};
+
+
+export const lookupMaleWalletCreditUser =
+async(
+req,
+res
+)=>{
+
+
+try{
+
+
+const phone =
+String(
+req.query.phone || ""
+).trim();
+
+
+const user =
+await lookupMaleUserForWalletCredit(
+phone
+);
+
+
+if(!user){
+
+
+return res.status(404).json({
+message:"Male user not found for this phone number"
+});
+
+
+}
+
+
+return res.json(
+user
+);
+
+
+}catch(error){
+
+
+return res.status(400).json({
+message:error.message
+});
+
+
+}
+
+
+};
+
+
+export const createMaleWalletCredit =
+async(
+req,
+res
+)=>{
+
+
+try{
+
+
+const {
+phone,
+userId,
+coins,
+amount,
+packageId,
+recordRecharge,
+gateway,
+razorpayOrderId,
+razorpayPaymentId,
+paymentMethod,
+note,
+}=req.body;
+
+
+const result =
+await creditMaleUserWallet({
+
+phone,
+
+userId,
+
+coins,
+
+amount,
+
+packageId,
+
+recordRecharge:Boolean(
+recordRecharge
+),
+
+gateway,
+
+razorpayOrderId,
+
+razorpayPaymentId,
+
+paymentMethod,
+
+note,
+
+});
+
+
+return res.json({
+success:true,
+message:
+result.mode === "recharge"
+? "Wallet credited and recharge record created"
+: "Wallet credited successfully",
+result,
+});
+
+
+}catch(error){
+
+
+return res.status(400).json({
+message:error.message
+});
+
+
+}
+
+
+};
+
+
+// ===================================
 // CALL HISTORY
 // ===================================
 
@@ -2760,6 +2931,575 @@ message:error.message
 
 
 
+
+
+export const maleCallHistory =
+async(
+req,
+res
+)=>{
+
+
+try{
+
+
+const page =
+Math.max(
+1,
+parseInt(req.query.page,10) || 1
+);
+
+
+const limit =
+Math.min(
+50,
+Math.max(
+1,
+parseInt(req.query.limit,10) || 25
+)
+);
+
+
+const offset =
+(page - 1) * limit;
+
+
+const search =
+String(
+req.query.search || ""
+).trim();
+
+
+const date =
+String(req.query.date || "").trim();
+
+
+const userId =
+req.query.userId
+? Number(req.query.userId)
+:null;
+
+
+const requestedType =
+String(req.query.type ?? "all").toLowerCase();
+
+
+const andConditions = [];
+
+
+if(
+userId &&
+Number.isFinite(userId)
+){
+
+
+andConditions.push({
+callerId:userId
+});
+
+
+}else{
+
+
+andConditions.push({
+
+callerId:{
+
+[Op.in]:sequelize.literal(
+"(SELECT id FROM users WHERE gender IN ('Male', 'male'))"
+)
+
+}
+
+});
+
+
+}
+
+
+if(date){
+
+
+const start =
+new Date(`${date}T00:00:00`);
+
+
+const end =
+new Date(start);
+
+
+end.setDate(
+end.getDate() + 1
+);
+
+
+andConditions.push({
+
+createdAt:{
+
+[Op.gte]:start,
+
+[Op.lt]:end
+
+}
+
+});
+
+
+}
+
+
+if(
+requestedType === "audio" ||
+requestedType === "voice"
+){
+
+
+andConditions.push({
+
+type:{
+
+[Op.in]:[
+"voice",
+"audio"
+]
+
+}
+
+});
+
+
+}else if(
+requestedType === "video"
+){
+
+
+andConditions.push({
+type:"video"
+});
+
+
+}
+
+
+if(search){
+
+
+const matchingUsers =
+await User.findAll({
+
+
+where:{
+
+[Op.or]:[
+
+{ name:{ [Op.like]:`%${search}%` } },
+
+{ nickname:{ [Op.like]:`%${search}%` } },
+
+{ username:{ [Op.like]:`%${search}%` } },
+
+{ publicUserId:{ [Op.like]:`%${search}%` } },
+
+{ phone:{ [Op.like]:`%${search}%` } },
+
+{ gender:{ [Op.like]:`%${search}%` } }
+
+]
+
+},
+
+
+attributes:[
+"id"
+]
+
+
+});
+
+
+const userIds =
+matchingUsers.map(
+(user)=>user.id
+);
+
+
+if(userIds.length === 0){
+
+
+return res.json({
+
+summary:{
+
+totalCalls:0,
+
+totalCoinsSpent:0,
+
+totalDurationSecs:0
+
+},
+
+rows:[],
+
+page,
+
+limit,
+
+total:0,
+
+hasMore:false
+
+});
+
+
+}
+
+
+andConditions.push({
+
+[Op.or]:[
+
+{ callerId:{ [Op.in]:userIds } },
+
+{ receiverId:{ [Op.in]:userIds } }
+
+]
+
+});
+
+
+}
+
+
+const where =
+andConditions.length === 1
+? andConditions[0]
+: {
+
+[Op.and]:andConditions
+
+};
+
+
+const callerInclude = {
+
+model:User,
+
+as:"caller",
+
+required:true,
+
+attributes:[
+
+"id",
+
+"name",
+
+"nickname",
+
+"username",
+
+"phone",
+
+"publicUserId",
+
+"gender"
+
+]
+
+};
+
+
+const receiverInclude = {
+
+model:User,
+
+as:"receiver",
+
+required:false,
+
+attributes:[
+
+"id",
+
+"name",
+
+"nickname",
+
+"username",
+
+"phone",
+
+"publicUserId",
+
+"gender"
+
+]
+
+};
+
+
+const earningInclude = {
+
+model:Earning,
+
+as:"earning",
+
+required:false,
+
+attributes:[
+
+"coins",
+
+"amount"
+
+]
+
+};
+
+
+const listQueryOptions = {
+
+where,
+
+include:[
+callerInclude,
+receiverInclude,
+earningInclude
+]
+
+};
+
+
+const [
+rows,
+total,
+summaryRow
+]=
+await Promise.all([
+
+CallHistory.findAll({
+
+...listQueryOptions,
+
+order:[
+[
+"createdAt",
+"DESC"
+]
+],
+
+limit,
+offset
+
+}),
+
+CallHistory.count({
+where
+}),
+
+CallHistory.findOne({
+
+where,
+
+attributes:[
+
+[
+fn(
+"COUNT",
+col("call_histories.id")
+),
+"totalCalls"
+],
+
+[
+fn(
+"SUM",
+col("call_histories.coinsSpent")
+),
+"totalCoinsSpent"
+],
+
+[
+fn(
+"SUM",
+col("call_histories.duration")
+),
+"totalDurationSecs"
+]
+
+],
+
+raw:true
+
+})
+
+]);
+
+
+const formatCallDuration =
+(seconds)=>{
+
+
+const totalSecs =
+Number(seconds) || 0;
+
+
+const mins =
+Math.floor(
+totalSecs / 60
+);
+
+
+const secs =
+totalSecs % 60;
+
+
+return `${String(mins).padStart(2,"0")}:${String(secs).padStart(2,"0")}`;
+
+
+};
+
+
+const formattedRows =
+rows.map(
+(call)=>{
+
+
+const row =
+call.toJSON();
+
+
+const caller =
+row.caller ||
+{};
+
+
+const receiver =
+row.receiver ||
+{};
+
+
+const coins =
+Number(
+row.coinsSpent ||
+row.earning?.coins ||
+0
+);
+
+
+const earning =
+Number(
+row.earning?.amount ??
+Math.floor(
+coins * 0.5
+)
+);
+
+
+return {
+
+id:row.id,
+
+callerId:row.callerId,
+
+receiverId:row.receiverId,
+
+maleName:getDisplayName(
+caller
+),
+
+malePhone:caller.phone || "—",
+
+malePublicId:caller.publicUserId || "—",
+
+femaleName:getDisplayName(
+receiver
+),
+
+femalePhone:receiver.phone || "—",
+
+femalePublicId:receiver.publicUserId || "—",
+
+type:row.type ||
+"video",
+
+status:row.status ||
+"completed",
+
+duration:formatCallDuration(
+row.duration
+),
+
+durationSeconds:Number(
+row.duration || 0
+),
+
+coinsSpent:coins,
+
+creatorEarning:earning,
+
+startedAt:row.createdAt,
+
+createdAt:row.createdAt
+
+};
+
+
+}
+);
+
+
+res.json({
+
+summary:{
+
+totalCalls:Number(
+summaryRow?.totalCalls || 0
+),
+
+totalCoinsSpent:Number(
+summaryRow?.totalCoinsSpent || 0
+),
+
+totalDurationSecs:Number(
+summaryRow?.totalDurationSecs || 0
+)
+
+},
+
+rows:formattedRows,
+
+page,
+
+limit,
+
+total,
+
+hasMore:
+offset + formattedRows.length < total
+
+});
+
+
+
+
+}catch(error){
+
+
+res.status(500)
+.json({
+
+message:error.message
+
+});
+
+
+}
+
+
+
+};
 
 
 // ===================================
