@@ -668,6 +668,25 @@ data
 
 }
 
+const receiverSocket =
+onlineUsers.get(
+String(
+data?.receiverId
+)
+);
+
+if(
+receiverSocket
+){
+io.to(
+receiverSocket
+)
+.emit(
+"call-accepted",
+data
+);
+}
+
 
 
 });
