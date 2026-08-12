@@ -1173,17 +1173,30 @@ if(
 user &&
 Boolean(user.online)
 ){
-await user.update({
-online:false
-});
+const isFemaleCreator =
+String(user.gender || "")
+.toLowerCase() === "female";
 
-if(
-user.gender === "Female"
-){
+if(isFemaleCreator){
+// Female creators stay available until they manually turn offline.
+// App kill / socket drop only removes live socket; push delivers calls.
 await recordFemaleOnlineSessionEnd(
 removedUser
 );
-}
+
+await closeActiveCallsForUser(
+removedUser,
+"completed"
+);
+
+console.log(
+"FEMALE SOCKET DISCONNECTED - STAYING ONLINE:",
+removedUser
+);
+}else{
+await user.update({
+online:false
+});
 
 await closeActiveCallsForUser(
 removedUser,
@@ -1203,6 +1216,7 @@ console.log(
 "USER MARKED OFFLINE IN DB:",
 removedUser
 );
+}
 }
 }catch(error){
 console.log(
