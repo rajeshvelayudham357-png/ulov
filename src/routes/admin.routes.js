@@ -67,6 +67,8 @@ import {
 
     maleCallHistory,
 
+    repairCallEarnings,
+
     liveCalls,
     
     creators,
@@ -407,6 +409,13 @@ router.get(
 "/male-call-history",
 requirePageAccess("calls"),
 maleCallHistory
+);
+
+
+router.post(
+"/repair-call-earnings",
+requirePageAccess("calls"),
+repairCallEarnings
 );
 
 

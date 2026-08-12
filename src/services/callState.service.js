@@ -138,6 +138,74 @@ receiverId,
 callerId
 });
 
+const upsertCallEarning =
+async(
+callId,
+femaleUserId
+)=>{
+ if(
+ !callId ||
+ billing.femaleEarn <= 0
+ ){
+  return null;
+ }
+
+ const [
+ earning,
+ created
+ ]=
+ await Earning.findOrCreate({
+
+ where:{
+  callId
+ },
+
+ defaults:{
+  userId:femaleUserId,
+  coins:billing.femaleEarn,
+  amount:billing.femaleAmount,
+  duration:billing.minutes,
+  status:"pending"
+ }
+
+ });
+
+ if(!created){
+  const existingCoins =
+  Number(earning.coins || 0);
+
+  const existingAmount =
+  Number(earning.amount || 0);
+
+  const nextCoins =
+  Math.max(
+  existingCoins,
+  billing.femaleEarn
+  );
+
+  const nextAmount =
+  Math.max(
+  existingAmount,
+  billing.femaleAmount
+  );
+
+  if(
+  nextCoins !== existingCoins ||
+  nextAmount !== existingAmount ||
+  Number(earning.duration || 0) !==
+  Number(billing.minutes || 0)
+  ){
+   await earning.update({
+   coins:nextCoins,
+   amount:nextAmount,
+   duration:billing.minutes
+   });
+  }
+ }
+
+ return earning;
+};
+
 if(
 history &&
 TERMINAL_CALL_STATUSES.includes(history.status)
@@ -149,10 +217,23 @@ TERMINAL_CALL_STATUSES.includes(history.status)
   }
  });
 
- if(
- existingEarning ||
- billing.femaleEarn <= 0
- ){
+ const storedCoinsSpent =
+ Number(history.coinsSpent || 0);
+
+ const shouldRefresh =
+ billing.maleCost > storedCoinsSpent ||
+ (
+  billing.femaleEarn > 0 &&
+  (
+   !existingEarning ||
+   billing.femaleEarn >
+   Number(existingEarning.coins || 0) ||
+   billing.femaleAmount >
+   Number(existingEarning.amount || 0)
+  )
+ );
+
+ if(!shouldRefresh){
   return {
    history,
    earning:existingEarning,
@@ -164,35 +245,25 @@ TERMINAL_CALL_STATUSES.includes(history.status)
  await history.update({
  type:normalizedType || history.type,
  duration:normalizedDuration,
- coinsSpent:billing.maleCost,
+ coinsSpent:Math.max(
+  storedCoinsSpent,
+  billing.maleCost
+ ),
  status:"completed"
  });
 
- const [
- backfilledEarning
- ]=
- await Earning.findOrCreate({
-
- where:{
-  callId:history.id
- },
-
- defaults:{
-  userId:receiverId,
-  coins:billing.femaleEarn,
-  amount:billing.femaleAmount,
-  duration:billing.minutes,
-  status:"pending"
- }
-
- });
+ const earning =
+ await upsertCallEarning(
+ history.id,
+ receiverId
+ );
 
  return {
   history,
-  earning:backfilledEarning,
+  earning,
   billing,
   alreadyCompleted:false,
-  backfilled:true
+  refreshed:true
  };
 }
 
@@ -204,83 +275,144 @@ if(history){
  status:"completed"
  });
 }else{
- const recentCompleted =
- await CallHistory.findOne({
-
- where:{
-  callerId,
-  receiverId,
-  status:"completed",
-  updatedAt:{
-   [Op.gte]:new Date(
-   Date.now() -
-   3 *
-   60 *
-   1000
-   )
-  }
- },
-
- order:[
-  ["updatedAt","DESC"]
- ]
-
+ history =
+ await CallHistory.create({
+ callerId,
+ receiverId,
+ type:normalizedType,
+ duration:normalizedDuration,
+ coinsSpent:billing.maleCost,
+ status:"completed"
  });
-
- if(recentCompleted){
-  history =
-  recentCompleted;
-
-  await history.update({
-  type:normalizedType || history.type,
-  duration:normalizedDuration,
-  coinsSpent:billing.maleCost
-  });
- }else{
-  history =
-  await CallHistory.create({
-  callerId,
-  receiverId,
-  type:normalizedType,
-  duration:normalizedDuration,
-  coinsSpent:billing.maleCost,
-  status:"completed"
-  });
- }
 }
 
-let earning =
-null;
-
-if(billing.femaleEarn > 0){
- const [
- createdEarning
- ]=
- await Earning.findOrCreate({
-
- where:{
-  callId:history.id
- },
-
- defaults:{
-  userId:receiverId,
-  coins:billing.femaleEarn,
-  amount:billing.femaleAmount,
-  duration:billing.minutes,
-  status:"pending"
- }
-
- });
-
- earning =
- createdEarning;
-}
+const earning =
+await upsertCallEarning(
+history.id,
+receiverId
+);
 
 return {
  history,
  earning,
  billing,
  alreadyCompleted:false
+};
+
+};
+
+export const repairMissingCallEarnings =
+async({
+callerId = null,
+receiverId = null,
+sinceHours = 48
+} = {})=>{
+
+const since =
+new Date(
+Date.now() -
+Number(sinceHours || 48) *
+60 *
+60 *
+1000
+);
+
+const where = {
+ status:"completed",
+ coinsSpent:{
+  [Op.gt]:0
+ },
+ updatedAt:{
+  [Op.gte]:since
+ }
+};
+
+if(
+callerId &&
+Number.isFinite(Number(callerId))
+){
+ where.callerId =
+ Number(callerId);
+}
+
+if(
+receiverId &&
+Number.isFinite(Number(receiverId))
+){
+ where.receiverId =
+ Number(receiverId);
+}
+
+const calls =
+await CallHistory.findAll({
+ where,
+ order:[
+  ["updatedAt","DESC"]
+ ]
+});
+
+const results = [];
+
+for(
+const call of calls
+){
+ const existing =
+ await Earning.findOne({
+  where:{
+   callId:call.id
+  }
+ });
+
+ const duration =
+ Math.max(
+ 0,
+ Number(call.duration || 0)
+ );
+
+ const billing =
+ await calculateCallBilling({
+ duration,
+ type:call.type,
+ receiverId:call.receiverId,
+ callerId:call.callerId
+ });
+
+ if(
+ existing &&
+ Number(existing.coins || 0) >=
+ billing.femaleEarn &&
+ Number(existing.amount || 0) >=
+ billing.femaleAmount
+ ){
+  continue;
+ }
+
+ const {
+ earning
+ }=
+ await completeCallRecord({
+ callerId:call.callerId,
+ receiverId:call.receiverId,
+ type:call.type,
+ duration,
+ callHistoryId:call.id
+ });
+
+ results.push({
+ callId:call.id,
+ callerId:call.callerId,
+ receiverId:call.receiverId,
+ coinsSpent:Number(call.coinsSpent || 0),
+ femaleCoins:Number(earning?.coins || 0),
+ femaleAmount:Number(earning?.amount || 0),
+ repaired:Boolean(earning)
+ });
+}
+
+return {
+ scanned:calls.length,
+ repaired:results.length,
+ results
 };
 
 };

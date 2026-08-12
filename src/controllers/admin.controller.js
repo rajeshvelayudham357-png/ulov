@@ -3388,14 +3388,18 @@ row.earning?.coins ||
 0
 );
 
+const hasEarning =
+Boolean(row.earning);
 
 const earning =
-Number(
-row.earning?.amount ??
-Math.floor(
-coins * 0.5
-)
-);
+hasEarning
+? Number(row.earning.amount || 0)
+: 0;
+
+const earningCoins =
+hasEarning
+? Number(row.earning.coins || 0)
+: 0;
 
 
 return {
@@ -3439,6 +3443,10 @@ row.duration || 0
 coinsSpent:coins,
 
 creatorEarning:earning,
+
+creatorCoins:earningCoins,
+
+earningMissing:!hasEarning && coins > 0,
 
 startedAt:row.createdAt,
 
@@ -3499,6 +3507,51 @@ message:error.message
 }
 
 
+
+};
+
+
+
+export const repairCallEarnings =
+async(
+req,
+res
+)=>{
+try{
+
+const {
+callerId,
+receiverId,
+sinceHours
+}=
+req.body ?? {};
+
+const {
+repairMissingCallEarnings
+}=
+await import(
+"../services/callState.service.js"
+);
+
+const result =
+await repairMissingCallEarnings({
+callerId,
+receiverId,
+sinceHours
+});
+
+return res.json({
+success:true,
+...result
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
 
 };
 
