@@ -8,7 +8,9 @@
 
     import {
     notifyFemalesOnBroadcast,
-    notifySingleFemaleOnBroadcast
+    notifyMalesOnBroadcast,
+    notifyAllUsersOnBroadcast,
+    notifySingleUserOnBroadcast
     } from "../services/notificationPush.service.js";
     
     
@@ -41,6 +43,31 @@
     
     warning:"alert"
     
+    };
+
+
+    const AUDIENCE_LABELS = {
+    female:"All Females",
+    male:"All Males",
+    all:"All Users",
+    individual:"Individual"
+    };
+
+
+    const normalizeAudience =
+    (value)=>{
+    const audience =
+    String(value || "female").trim().toLowerCase();
+
+    if(
+    audience === "male" ||
+    audience === "all" ||
+    audience === "female"
+    ){
+    return audience;
+    }
+
+    return "female";
     };
 
 
@@ -107,7 +134,17 @@
 
     recipientPhone:recipient?.phone || null,
 
-    scope:data.targetUserId ? "individual" : "all",
+    scope:data.targetUserId ?
+    "individual" :
+    (data.targetAudience || "female"),
+
+    audience:data.targetUserId ?
+    "individual" :
+    normalizeAudience(data.targetAudience),
+
+    audienceLabel:data.targetUserId ?
+    AUDIENCE_LABELS.individual :
+    (AUDIENCE_LABELS[normalizeAudience(data.targetAudience)] || AUDIENCE_LABELS.female),
 
     createdAt:data.createdAt,
 
@@ -310,7 +347,8 @@
     const {
     title,
     message,
-    type
+    type,
+    audience
     }=req.body;
 
 
@@ -333,6 +371,9 @@
     TYPE_TO_DB[type] ||
     "info";
 
+    const targetAudience =
+    normalizeAudience(audience);
+
 
     const msg =
     await Broadcast.create({
@@ -345,12 +386,21 @@
 
     active:true,
 
-    targetUserId:null
+    targetUserId:null,
+
+    targetAudience
 
     });
 
 
-    notifyFemalesOnBroadcast(
+    const notifyHandler =
+    targetAudience === "male"
+    ? notifyMalesOnBroadcast
+    : targetAudience === "all"
+    ? notifyAllUsersOnBroadcast
+    : notifyFemalesOnBroadcast;
+
+    notifyHandler(
     formatBroadcast(msg)
     ).catch(
     error=>{
@@ -383,7 +433,7 @@
     };
 
 
-    export const listBroadcastFemales =
+    export const listBroadcastUsers =
     async(req,res)=>{
 
     try{
@@ -392,12 +442,15 @@
     String(req.query.search || "")
     .trim();
 
+    const genderFilter =
+    String(req.query.gender || "female").trim().toLowerCase();
+
     const where = {
     gender:{
-    [Op.in]:[
-    "Female",
-    "female"
-    ]
+    [Op.in]:
+    genderFilter === "male"
+    ? ["Male","male"]
+    : ["Female","female"]
     }
     };
 
@@ -413,8 +466,7 @@
     { email:{ [Op.like]:`%${search}%` } }
     ]
     }
-    ]
-    ;
+    ];
     }
 
     const users =
@@ -429,7 +481,8 @@
     "phone",
     "email",
     "accountStatus",
-    "online"
+    "online",
+    "gender"
     ],
     order:[
     ["name","ASC"],
@@ -450,7 +503,8 @@
     phone:data.phone,
     email:data.email,
     accountStatus:data.accountStatus,
-    online:Boolean(data.online)
+    online:Boolean(data.online),
+    gender:data.gender
     };
     })
     );
@@ -464,6 +518,20 @@
 
     }
 
+    };
+
+
+    export const listBroadcastFemales =
+    async(req,res)=>{
+    req.query.gender = "female";
+    return listBroadcastUsers(req,res);
+    };
+
+
+    export const listBroadcastMales =
+    async(req,res)=>{
+    req.query.gender = "male";
+    return listBroadcastUsers(req,res);
     };
 
 
@@ -497,7 +565,31 @@
     ){
     return res.status(400)
     .json({
-    message:"Please select a female user"
+    message:"Please select a user"
+    });
+    }
+
+    const user =
+    await User.findByPk(
+    targetUserId,
+    {
+    attributes:[
+    "id",
+    "name",
+    "nickname",
+    "username",
+    "phone",
+    "gender"
+    ]
+    }
+    );
+
+    if(
+    !user
+    ){
+    return res.status(404)
+    .json({
+    message:"User not found"
     });
     }
 
@@ -511,36 +603,24 @@
     message:message.trim(),
     type:dbType,
     active:true,
-    targetUserId
+    targetUserId,
+    targetAudience:"individual"
     });
 
     const notifyResult =
-    await notifySingleFemaleOnBroadcast(
+    await notifySingleUserOnBroadcast(
     formatBroadcast(msg),
     targetUserId
     );
 
     const recipient =
-    await User.findByPk(
-    targetUserId,
-    {
-    attributes:[
-    "id",
-    "name",
-    "nickname",
-    "username",
-    "phone"
-    ]
-    }
-    );
+    user.toJSON();
 
     res.status(201)
     .json({
     ...formatBroadcast(
     msg,
-    recipient ?
-    recipient.toJSON() :
-    null
+    recipient
     ),
     notified:notifyResult.notified
     });
@@ -548,7 +628,7 @@
     }catch(error){
 
     const status =
-    error.message === "Female user not found" ?
+    error.message === "User not found" ?
     404 :
     500;
 

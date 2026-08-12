@@ -1102,6 +1102,16 @@ export const notifySingleFemaleOnBroadcast =
 async(
 broadcast,
 userId
+)=>
+notifySingleUserOnBroadcast(
+broadcast,
+userId
+);
+
+export const notifySingleUserOnBroadcast =
+async(
+broadcast,
+userId
 )=>{
 const id =
 Number(userId);
@@ -1114,29 +1124,24 @@ throw new Error(
 );
 }
 
-const female =
-await User.findOne({
-where:{
+const user =
+await User.findByPk(
 id,
-gender:{
-[Op.in]:[
-"Female",
-"female"
-]
-}
-},
+{
 attributes:[
 "id",
 "username",
-"name"
+"name",
+"gender"
 ]
-});
+}
+);
 
 if(
-!female
+!user
 ){
 throw new Error(
-"Female user not found"
+"User not found"
 );
 }
 
@@ -1148,7 +1153,7 @@ type:broadcast.type ?? "broadcast"
 };
 
 emitToUser(
-female.id,
+user.id,
 "broadcast-created",
 payload
 );
@@ -1163,12 +1168,12 @@ broadcastId:broadcast.id
 };
 
 await sendPushToUser(
-female.id,
+user.id,
 pushPayload
 );
 
 await saveNotification(
-female.id,
+user.id,
 pushPayload
 );
 
@@ -1176,24 +1181,53 @@ console.log(
 "INDIVIDUAL BROADCAST NOTIFIED",
 {
 broadcastId:broadcast.id,
-userId:female.id
+userId:user.id,
+gender:user.gender
 }
 );
 
 return {
 notified:1,
-userId:female.id
+userId:user.id
 };
 };
 
-export const notifyFemalesOnBroadcast =
+const GENDER_FILTERS = {
+female:{
+[Op.in]:[
+"Female",
+"female"
+]
+},
+male:{
+[Op.in]:[
+"Male",
+"male"
+]
+},
+all:{
+[Op.in]:[
+"Female",
+"female",
+"Male",
+"male"
+]
+}
+};
+
+const notifyUsersOnBroadcast =
 async(
-broadcast
+broadcast,
+audience = "female"
 )=>{
-const females =
+const genderFilter =
+GENDER_FILTERS[audience] ||
+GENDER_FILTERS.female;
+
+const users =
 await User.findAll({
 where:{
-gender:"Female"
+gender:genderFilter
 },
 attributes:["id","username","name"]
 });
@@ -1209,12 +1243,12 @@ let notified =
 0;
 
 for(
-const female of females
+const user of users
 ){
 notified++;
 
 emitToUser(
-female.id,
+user.id,
 "broadcast-created",
 payload
 );
@@ -1229,17 +1263,20 @@ broadcastId:broadcast.id
 };
 
 await sendPushToUser(
-female.id,
+user.id,
 pushPayload
 );
 
 await saveNotification(
-female.id,
+user.id,
 pushPayload
 );
 }
 
-if(ioRef){
+if(
+ioRef &&
+audience === "female"
+){
 ioRef.emit(
 "broadcast-message",
 payload
@@ -1250,14 +1287,43 @@ console.log(
 "BROADCAST NOTIFIED",
 {
 broadcastId:broadcast.id,
+audience,
 notified
 }
 );
 
 return {
-notified
+notified,
+audience
 };
 };
+
+export const notifyFemalesOnBroadcast =
+async(
+broadcast
+)=>
+notifyUsersOnBroadcast(
+broadcast,
+"female"
+);
+
+export const notifyMalesOnBroadcast =
+async(
+broadcast
+)=>
+notifyUsersOnBroadcast(
+broadcast,
+"male"
+);
+
+export const notifyAllUsersOnBroadcast =
+async(
+broadcast
+)=>
+notifyUsersOnBroadcast(
+broadcast,
+"all"
+);
 
 export const notifyKycApproved =
 async(

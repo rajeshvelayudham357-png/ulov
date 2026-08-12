@@ -33,6 +33,9 @@ import {
 ensureUserSchema
 } from "../services/userSchema.service.js";
 import {
+logUserCameOnline
+} from "../services/userOnlineLog.service.js";
+import {
 resolveMaleAvatarForProfile,
 } from "../services/maleAvatar.service.js";
 import {
@@ -697,6 +700,20 @@ await user.update({
 online:isOnline
 
 });
+
+if(
+isOnline &&
+!wasOnline
+){
+try{
+await logUserCameOnline(user);
+}catch(logError){
+console.log(
+"ONLINE LOG ERROR",
+logError.message
+);
+}
+}
 
 
 

@@ -129,6 +129,8 @@ getBroadcasts,
 
 createBroadcast,
 listBroadcastFemales,
+listBroadcastMales,
+listBroadcastUsers,
 createIndividualBroadcast
 
 } from "../controllers/broadcast.controller.js";
@@ -138,6 +140,10 @@ import {
   sendAdminNotify,
   listAdminNotifyHistory,
 } from "../controllers/adminNotify.controller.js";
+
+import {
+getUserOnlineActivity
+} from "../controllers/onlineActivity.controller.js";
 
 import {
 adminGetTicket,
@@ -352,6 +358,13 @@ router.get(
 "/users",
 requirePageAccess("users"),
 users
+);
+
+
+router.get(
+"/online-activity",
+requirePageAccess("online-activity"),
+getUserOnlineActivity
 );
 
 
@@ -660,6 +673,12 @@ router.get(
 "/broadcast/females",
 requirePageAccess("broadcast"),
 listBroadcastFemales
+);
+
+router.get(
+"/broadcast/males",
+requirePageAccess("broadcast"),
+listBroadcastMales
 );
 
 router.post(

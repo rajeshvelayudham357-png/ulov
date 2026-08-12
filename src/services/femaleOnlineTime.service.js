@@ -1,6 +1,8 @@
 import { QueryTypes } from "sequelize";
 
 import { sequelize } from "../config/database.js";
+import { User } from "../models/index.js";
+import { logUserCameOnline } from "./userOnlineLog.service.js";
 
 let dailyTableReady = false;
 let totalTableReady = false;
@@ -395,6 +397,18 @@ export const recordFemaleOnlineSessionStart = async (userId) => {
     lastSessionStartedAt: now,
     lastHeartbeatAt: now,
   });
+
+  try {
+    const user = await User.findByPk(userId, {
+      attributes: ["id", "gender", "name", "nickname", "username", "phone", "publicUserId"],
+    });
+
+    if (user) {
+      await logUserCameOnline(user);
+    }
+  } catch (error) {
+    console.log("FEMALE ONLINE LOG ERROR", error.message);
+  }
 
   return getFemaleOnlineTimeStats(userId);
 };

@@ -28,6 +28,7 @@ import { Block } from "./Block.js";
 import { PaymentOrder } from "./PaymentOrder.js";
 import { CallGiftRecord } from "./CallGiftRecord.js";
 import { AccountDeletionRequest } from "./AccountDeletionRequest.js";
+import { UserOnlineLog } from "./UserOnlineLog.js";
 
 // =========================
 // USER -> WALLET
@@ -515,6 +516,17 @@ CallRating,
 Block,
 PaymentOrder,
 CallGiftRecord,
-AccountDeletionRequest
+AccountDeletionRequest,
+UserOnlineLog
 
 };
+
+User.hasMany(UserOnlineLog, {
+  foreignKey: "userId",
+  as: "onlineLogs",
+});
+
+UserOnlineLog.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});

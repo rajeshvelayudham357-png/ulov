@@ -25,6 +25,8 @@ import { ensureFemaleOnlineTimeTables } from "./femaleOnlineTime.service.js";
 import { ensureSupportTables } from "./support.service.js";
 import { ensureUserSchema } from "./userSchema.service.js";
 import { ensurePaymentOrderColumns } from "./payment.service.js";
+import { ensureBroadcastSchema } from "./broadcastSchema.service.js";
+import { ensureUserOnlineLogSchema } from "./userOnlineLog.service.js";
 
 const safeModelSync = async (model, label) => {
   try {
@@ -136,6 +138,8 @@ export const runDatabaseMigrations = async () => {
   await safeModelSync(CallHistory, "CallHistory");
   await safeModelSync(PaymentOrder, "PaymentOrder");
   await safeModelSync(Broadcast, "Broadcast");
+  await ensureBroadcastSchema();
+  await ensureUserOnlineLogSchema();
   console.log("Core analytics tables ready");
 
   await safeModelSync(DeviceToken, "DeviceToken");

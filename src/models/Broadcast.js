@@ -46,6 +46,12 @@ import { sequelize } from "../config/database.js";
    targetUserId:{
    type:DataTypes.INTEGER,
    allowNull:true
+   },
+
+   targetAudience:{
+   type:DataTypes.STRING(20),
+   allowNull:true,
+   defaultValue:"female"
    }
    
    
