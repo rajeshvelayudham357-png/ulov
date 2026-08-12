@@ -168,6 +168,58 @@ const INCOMING_CALL_CHANNEL_ID =
 const INCOMING_CALL_SOUND =
 "incoming_call";
 
+const DEFAULT_OUTSIDE_APP_TTL_SECONDS =
+86400;
+
+const buildOutsideAppPushPayload =
+({
+title,
+body,
+data = {},
+ttlSeconds = DEFAULT_OUTSIDE_APP_TTL_SECONDS,
+sound = "default",
+androidChannelId = NOTIFICATION_CHANNEL_ID
+})=>{
+const cleanTitle =
+String(title || "").trim();
+
+const cleanBody =
+String(body || "").trim();
+
+const normalizedData = {};
+
+for(
+const [key,value] of Object.entries(data)
+){
+if(
+value === undefined ||
+value === null
+){
+continue;
+}
+
+normalizedData[key] =
+typeof value === "string"
+?
+value
+:
+String(value);
+}
+
+return {
+title:cleanTitle,
+body:cleanBody,
+sound,
+androidChannelId,
+ttlSeconds,
+data:{
+...normalizedData,
+title:cleanTitle,
+body:cleanBody
+}
+};
+};
+
 let ioRef =
 null;
 
@@ -338,7 +390,7 @@ body:payload.body,
 data:payload.data ?? {},
 priority:"high",
 channelId:payload.androidChannelId ?? NOTIFICATION_CHANNEL_ID,
-ttl:payload.ttlSeconds ?? 3600,
+ttl:payload.ttlSeconds ?? DEFAULT_OUTSIDE_APP_TTL_SECONDS,
 badge:1
 })
 );
@@ -414,7 +466,7 @@ body:payload.body
 },
 android:{
 priority:"high",
-ttl:Number(payload.ttlSeconds ?? 3600) * 1000,
+ttl:Number(payload.ttlSeconds ?? DEFAULT_OUTSIDE_APP_TTL_SECONDS) * 1000,
 notification:{
 channelId:payload.androidChannelId ?? NOTIFICATION_CHANNEL_ID,
 sound:payload.sound ?? "default",
@@ -424,18 +476,24 @@ defaultVibrateTimings:true,
 visibility:"public"
 }
 },
-// Helps wake Android devices for closed-app delivery.
 fcmOptions:{
-analyticsLabel:"favorite_online"
+analyticsLabel:
+String(payload.data?.type || "ulov_notification")
 },
 apns:{
 headers:{
-"apns-priority":"10"
+"apns-priority":"10",
+"apns-push-type":"alert"
 },
 payload:{
 aps:{
-sound:"default",
-badge:1
+alert:{
+title:payload.title,
+body:payload.body
+},
+sound:payload.sound ?? "default",
+badge:1,
+"content-available":1
 }
 }
 }
@@ -502,7 +560,8 @@ await axios.post(
 to:token,
 priority:"high",
 content_available:true,
-time_to_live:payload.ttlSeconds ?? 3600,
+mutable_content:true,
+time_to_live:payload.ttlSeconds ?? DEFAULT_OUTSIDE_APP_TTL_SECONDS,
 notification:{
 title:payload.title,
 body:payload.body,
@@ -865,7 +924,8 @@ maleId,
 payload
 );
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title:
 `${displayName} is online`,
 body:
@@ -876,9 +936,8 @@ femaleId:String(femaleId),
 userId:String(femaleId),
 status:"online"
 },
-// Keep closed-app / tray notifications alive longer.
 ttlSeconds:7200
-};
+});
 
 // Push for closed / background male apps (FCM + Expo).
 const pushResult =
@@ -1010,7 +1069,8 @@ userId,
 payload
 );
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title,
 body:message,
 data:{
@@ -1034,8 +1094,6 @@ closable !== false
 :
 "false",
 popup:"true",
-title,
-message,
 templateKey:
 templateKey
 ?
@@ -1061,7 +1119,7 @@ String(emoji)
 :
 ""
 }
-};
+});
 
 const pushResult =
 await sendPushToUser(
@@ -1158,14 +1216,15 @@ user.id,
 payload
 );
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title:broadcast.title,
 body:broadcast.message,
 data:{
 type:"broadcast",
-broadcastId:broadcast.id
+broadcastId:String(broadcast.id)
 }
-};
+});
 
 await sendPushToUser(
 user.id,
@@ -1242,6 +1301,9 @@ type:broadcast.type ?? "broadcast"
 let notified =
 0;
 
+let pushSent =
+0;
+
 for(
 const user of users
 ){
@@ -1253,19 +1315,25 @@ user.id,
 payload
 );
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title:broadcast.title,
 body:broadcast.message,
 data:{
 type:"broadcast",
-broadcastId:broadcast.id
+broadcastId:String(broadcast.id)
 }
-};
+});
 
+const pushResult =
 await sendPushToUser(
 user.id,
 pushPayload
 );
+
+pushSent +=
+Number(pushResult?.expoSent || 0) +
+Number(pushResult?.fcmSent || 0);
 
 await saveNotification(
 user.id,
@@ -1288,12 +1356,14 @@ console.log(
 {
 broadcastId:broadcast.id,
 audience,
-notified
+notified,
+pushSent
 }
 );
 
 return {
 notified,
+pushSent,
 audience
 };
 };
@@ -1340,17 +1410,18 @@ notified:false
 };
 }
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title:
 "Bank account verified",
 body:
 "Your KYC is approved. You can now withdraw your earnings.",
 data:{
 type:"kyc_approved",
-userId:id,
+userId:String(id),
 screen:"/female/withdraw"
 }
-};
+});
 
  // Persist first so Notifications screen always has it.
 const saved =
@@ -1418,17 +1489,18 @@ notified:false
 };
 }
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title:
 "Profile approved",
 body:
 "Your account is approved. Go online and start earning by receiving calls.",
 data:{
 type:"account_approved",
-userId:id,
+userId:String(id),
 screen:"/female/dashboard"
 }
-};
+});
 
 const saved =
 await saveNotification(
@@ -1548,14 +1620,12 @@ callerName;
 const callType =
 String(data.callType || data.type || "voice").toLowerCase();
 
-const pushPayload = {
+const pushPayload =
+buildOutsideAppPushPayload({
 title:
 "Incoming call",
 body:
 `${callerName} is calling you (${callType})`,
-ttlSeconds:60,
-sound:INCOMING_CALL_SOUND,
-androidChannelId:INCOMING_CALL_CHANNEL_ID,
 data:{
 type:"incoming_call",
 callerId:String(callerId),
@@ -1574,8 +1644,11 @@ uid:String(data.uid ?? ""),
 callId:String(data.callId ?? ""),
 avatar:String(data.avatar || ""),
 screen:"/female/incoming-call"
-}
-};
+},
+ttlSeconds:60,
+sound:INCOMING_CALL_SOUND,
+androidChannelId:INCOMING_CALL_CHANNEL_ID
+});
 
 const pushResult =
 await sendPushToUser(

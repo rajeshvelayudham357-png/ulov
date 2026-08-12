@@ -14,6 +14,10 @@ const normalizeGender = (value) => {
     return "Female";
   }
 
+  if (gender === "all") {
+    return "all";
+  }
+
   return null;
 };
 
@@ -49,14 +53,21 @@ const resolveTargetUsers = async ({ mode, gender, userIds, search }) => {
     throw new Error("Valid gender is required for bulk notify");
   }
 
-  const where = {
-    gender: {
-      [Op.in]:
-        normalizedGender === "Male"
-          ? ["Male", "male"]
-          : ["Female", "female"],
-    },
-  };
+  const where =
+    normalizedGender === "all"
+      ? {
+          gender: {
+            [Op.in]: ["Male", "male", "Female", "female"],
+          },
+        }
+      : {
+          gender: {
+            [Op.in]:
+              normalizedGender === "Male"
+                ? ["Male", "male"]
+                : ["Female", "female"],
+          },
+        };
 
   const query = String(search || "").trim();
 
@@ -88,16 +99,23 @@ export const listNotifyUsers = async (req, res) => {
 
     if (!gender) {
       return res.status(400).json({
-        message: "gender query must be Male or Female",
+        message: "gender query must be Male, Female, or all",
       });
     }
 
-    const where = {
-      gender: {
-        [Op.in]:
-          gender === "Male" ? ["Male", "male"] : ["Female", "female"],
-      },
-    };
+    const where =
+      gender === "all"
+        ? {
+            gender: {
+              [Op.in]: ["Male", "male", "Female", "female"],
+            },
+          }
+        : {
+            gender: {
+              [Op.in]:
+                gender === "Male" ? ["Male", "male"] : ["Female", "female"],
+            },
+          };
 
     if (search) {
       where[Op.and] = [
