@@ -141,6 +141,7 @@ import {
   listNotifyUsers,
   sendAdminNotify,
   listAdminNotifyHistory,
+  deleteAdminNotify,
 } from "../controllers/adminNotify.controller.js";
 
 import {
@@ -712,6 +713,12 @@ router.post(
   "/notify",
   requirePageAccess("user-notify"),
   sendAdminNotify
+);
+
+router.delete(
+  "/notify/:id",
+  requirePageAccess("user-notify"),
+  deleteAdminNotify
 );
 
 router.get(

@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 
-import { AdminNotify, User } from "../models/index.js";
+import { AdminNotify, NotificationRecord, User } from "../models/index.js";
 import { notifyUsersAdminMessage } from "../services/notificationPush.service.js";
 
 const normalizeGender = (value) => {
@@ -352,6 +352,48 @@ export const listAdminNotifyHistory = async (req, res) => {
         };
       })
     );
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+export const deleteAdminNotify = async (req, res) => {
+  try {
+    const notifyId = Number(req.params.id);
+
+    if (!Number.isFinite(notifyId) || notifyId <= 0) {
+      return res.status(400).json({
+        message: "Valid notification id is required",
+      });
+    }
+
+    const record = await AdminNotify.findByPk(notifyId);
+
+    if (!record) {
+      return res.status(404).json({
+        message: "Notification not found",
+      });
+    }
+
+    const removedNotifications = await NotificationRecord.destroy({
+      where: {
+        type: "admin_notify",
+        [Op.or]: [
+          { data: { adminNotifyId: notifyId } },
+          { data: { adminNotifyId: String(notifyId) } },
+        ],
+      },
+    });
+
+    await record.destroy();
+
+    return res.json({
+      message: "Notification deleted",
+      id: notifyId,
+      removedNotifications,
+    });
   } catch (error) {
     return res.status(500).json({
       message: error.message,
