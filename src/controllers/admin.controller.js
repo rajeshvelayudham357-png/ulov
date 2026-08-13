@@ -91,6 +91,14 @@ updateGstSettings,
 splitInclusiveGst,
 } from "../services/gstSettings.service.js";
 import {
+  IST_DATE_SQL,
+  addIstDays,
+  getIstMonthStartUtc,
+  getIstYearStartUtc,
+  getRevenueAnalyticsPeriodBounds,
+  istDateKeyToUtcRange,
+} from "../services/adminRevenueTime.service.js";
+import {
 getGiftSettings,
 updateGiftSettings,
 } from "../services/giftSettings.service.js";
@@ -7416,13 +7424,11 @@ export const revenueRecharges = async (req, res) => {
     }
     if (startDate) {
       where.updatedAt = where.updatedAt || {};
-      where.updatedAt[Op.gte] = new Date(`${startDate}T00:00:00`);
+      where.updatedAt[Op.gte] = istDateKeyToUtcRange(startDate).start;
     }
     if (endDate) {
       where.updatedAt = where.updatedAt || {};
-      const ed = new Date(`${endDate}T00:00:00`);
-      ed.setDate(ed.getDate() + 1);
-      where.updatedAt[Op.lt] = ed;
+      where.updatedAt[Op.lte] = istDateKeyToUtcRange(endDate).end;
     }
     if (minAmount > 0) where.amount = { ...(where.amount || {}), [Op.gte]: minAmount };
     if (maxAmount > 0) where.amount = { ...(where.amount || {}), [Op.lte]: maxAmount };
@@ -7663,53 +7669,33 @@ export const revenueAnalytics = async (req, res) => {
     const successStatuses = ['PAID','SUCCESS','CAPTURED','credited'];
 
     const now = new Date();
-    let fromDate, toDate;
+    const { fromUtc, toUtc, todayKey } = getRevenueAnalyticsPeriodBounds({
+      period,
+      customFrom,
+      customTo,
+      now,
+    });
+    const { start: todayStart, end: todayEnd } = istDateKeyToUtcRange(todayKey);
 
-    if (period === 'today') {
-      fromDate = new Date(now); fromDate.setHours(0,0,0,0);
-      toDate = new Date(fromDate); toDate.setDate(toDate.getDate() + 1);
-    } else if (period === 'yesterday') {
-      toDate = new Date(now); toDate.setHours(0,0,0,0);
-      fromDate = new Date(toDate); fromDate.setDate(fromDate.getDate() - 1);
-    } else if (period === '7d') {
-      toDate = new Date(now); toDate.setHours(23,59,59,999);
-      fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 6); fromDate.setHours(0,0,0,0);
-    } else if (period === '30d') {
-      toDate = new Date(now); toDate.setHours(23,59,59,999);
-      fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 29); fromDate.setHours(0,0,0,0);
-    } else if (period === 'thisMonth') {
-      fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    } else if (period === 'lastMonth') {
-      fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      toDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    } else if (period === 'thisYear') {
-      fromDate = new Date(now.getFullYear(), 0, 1);
-      toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-    } else if (period === 'custom' && customFrom && customTo) {
-      fromDate = new Date(`${customFrom}T00:00:00`);
-      toDate = new Date(`${customTo}T23:59:59`);
-    } else {
-      toDate = new Date(now); toDate.setHours(23,59,59,999);
-      fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 29); fromDate.setHours(0,0,0,0);
-    }
-
-    const fmt = (d) => d.toISOString().slice(0, 10);
-    const fromStr = fmt(fromDate);
-    const toStr = fmt(toDate);
-
-    // Daily chart data
+    // Daily chart data (grouped by IST calendar date)
     const dailyRows = await sequelize.query(
-      `SELECT DATE(updatedAt) AS date,
+      `SELECT ${IST_DATE_SQL} AS date,
               COUNT(*) AS count,
               SUM(amount) AS totalAmount,
               SUM(coins) AS totalCoins
        FROM payment_orders
        WHERE status IN (:statuses)
-         AND updatedAt >= :from AND updatedAt <= :to
-       GROUP BY DATE(updatedAt)
+         AND updatedAt >= :fromUtc AND updatedAt <= :toUtc
+       GROUP BY ${IST_DATE_SQL}
        ORDER BY date ASC`,
-      { replacements: { statuses: successStatuses, from: fromStr, to: toStr + ' 23:59:59' }, type: QueryTypes.SELECT }
+      {
+        replacements: {
+          statuses: successStatuses,
+          fromUtc: fromUtc,
+          toUtc: toUtc,
+        },
+        type: QueryTypes.SELECT,
+      }
     );
 
     const daily = dailyRows.map((r) => {
@@ -7725,34 +7711,36 @@ export const revenueAnalytics = async (req, res) => {
       };
     });
 
-    // KPI: today
-    const todayStart = new Date(now); todayStart.setHours(0,0,0,0);
-    const todayEnd = new Date(now); todayEnd.setHours(23,59,59,999);
+    // KPI: today (IST midnight → end of IST day)
     const [todayRow] = await sequelize.query(
       `SELECT COUNT(*) AS count, SUM(amount) AS amount, SUM(coins) AS coins FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f AND updatedAt <= :t`,
-      { replacements: { s: successStatuses, f: todayStart, t: todayEnd }, type: QueryTypes.SELECT }
+      {
+        replacements: { s: successStatuses, f: todayStart, t: todayEnd },
+        type: QueryTypes.SELECT,
+      }
     );
     const todayAmt = Number(todayRow?.amount) || 0;
     const { gstAmount: todayGst, baseRevenue: todayRevenue } = splitInclusiveGst(todayAmt, gstPercent);
 
-    // Weekly KPI
-    const weekStart = new Date(now); weekStart.setDate(weekStart.getDate() - 6); weekStart.setHours(0,0,0,0);
+    // Weekly KPI (last 7 IST days including today)
+    const weekStartKey = addIstDays(todayKey, -6);
+    const weekStart = istDateKeyToUtcRange(weekStartKey).start;
     const [weekRow] = await sequelize.query(
       `SELECT SUM(amount) AS amount FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f`,
       { replacements: { s: successStatuses, f: weekStart }, type: QueryTypes.SELECT }
     );
     const weeklyRevenue = splitInclusiveGst(Number(weekRow?.amount) || 0, gstPercent).baseRevenue;
 
-    // Monthly KPI
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Monthly KPI (IST month start → now)
+    const monthStart = getIstMonthStartUtc(todayKey);
     const [monthRow] = await sequelize.query(
       `SELECT SUM(amount) AS amount FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f`,
       { replacements: { s: successStatuses, f: monthStart }, type: QueryTypes.SELECT }
     );
     const monthlyRevenue = splitInclusiveGst(Number(monthRow?.amount) || 0, gstPercent).baseRevenue;
 
-    // Yearly KPI
-    const yearStart = new Date(now.getFullYear(), 0, 1);
+    // Yearly KPI (IST year start → now)
+    const yearStart = getIstYearStartUtc(todayKey);
     const [yearRow] = await sequelize.query(
       `SELECT SUM(amount) AS amount FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f`,
       { replacements: { s: successStatuses, f: yearStart }, type: QueryTypes.SELECT }
@@ -7774,7 +7762,7 @@ export const revenueAnalytics = async (req, res) => {
     // Gateway pie
     const gwRows = await sequelize.query(
       `SELECT gateway, COUNT(*) AS cnt, SUM(amount) AS amt FROM payment_orders WHERE status IN (:s) AND updatedAt >= :f AND updatedAt <= :t GROUP BY gateway`,
-      { replacements: { s: successStatuses, f: fromDate, t: toDate }, type: QueryTypes.SELECT }
+      { replacements: { s: successStatuses, f: fromUtc, t: toUtc }, type: QueryTypes.SELECT }
     );
     const totalGwAmt = gwRows.reduce((s, r) => s + (Number(r.amt) || 0), 0);
     const gatewayPie = gwRows.map((r) => ({
@@ -7794,13 +7782,13 @@ export const revenueAnalytics = async (req, res) => {
        GROUP BY po.userId
        ORDER BY totalAmount DESC
        LIMIT 10`,
-      { replacements: { s: successStatuses, f: fromDate, t: toDate }, type: QueryTypes.SELECT }
+      { replacements: { s: successStatuses, f: fromUtc, t: toUtc }, type: QueryTypes.SELECT }
     );
 
-    // Payout trend (approved withdrawals by day in period)
+    // Payout trend (approved withdrawals by IST day in period)
     const payoutTrend = await sequelize.query(
-      `SELECT DATE(updatedAt) AS date, SUM(amount) AS payout FROM withdraws WHERE status='approved' AND updatedAt >= :f AND updatedAt <= :t GROUP BY DATE(updatedAt) ORDER BY date ASC`,
-      { replacements: { f: fromDate, t: toDate }, type: QueryTypes.SELECT }
+      `SELECT DATE(DATE_ADD(updatedAt, INTERVAL 330 MINUTE)) AS date, SUM(amount) AS payout FROM withdraws WHERE status='approved' AND updatedAt >= :f AND updatedAt <= :t GROUP BY DATE(DATE_ADD(updatedAt, INTERVAL 330 MINUTE)) ORDER BY date ASC`,
+      { replacements: { f: fromUtc, t: toUtc }, type: QueryTypes.SELECT }
     );
     const payoutMap = {};
     payoutTrend.forEach((r) => { payoutMap[r.date] = Number(r.payout) || 0; });
