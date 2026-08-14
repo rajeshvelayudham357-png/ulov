@@ -177,6 +177,10 @@ export const User = sequelize.define(
       type: DataTypes.DATE,
     },
 
+    lastLoginAt: {
+      type: DataTypes.DATE,
+    },
+
 
     // MATCHING
 

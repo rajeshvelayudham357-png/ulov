@@ -115,3 +115,7 @@ export const getRevenueAnalyticsPeriodBounds = ({
 
 /** MySQL expression: calendar date in IST for a UTC datetime column. */
 export const IST_DATE_SQL = "DATE(DATE_ADD(updatedAt, INTERVAL 330 MINUTE))";
+
+/** MySQL expression: hour-of-day (0-23) in IST for a datetime column. */
+export const istHourSql = (column = "createdAt") =>
+  `HOUR(DATE_ADD(${column}, INTERVAL 330 MINUTE))`;

@@ -97,6 +97,8 @@ import {
   getIstYearStartUtc,
   getRevenueAnalyticsPeriodBounds,
   istDateKeyToUtcRange,
+  istHourSql,
+  toIstDateKey,
 } from "../services/adminRevenueTime.service.js";
 import {
 getGiftSettings,
@@ -160,6 +162,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"online-activity", label:"Online Activity", path:"/online-activity" },
 { key:"female-online", label:"Female Online Control", path:"/female-online" },
 { key:"male-users", label:"Male Users", path:"/male-users" },
+{ key:"male-last-login", label:"Male Last Login", path:"/male-last-login" },
 { key:"male-wallet-credit", label:"Male Wallet Credit", path:"/male-wallet-credit" },
 { key:"calls", label:"Calls", path:"/calls" },
 { key:"live-calls", label:"Live Calls", path:"/live-calls" },
@@ -2707,34 +2710,35 @@ res
 
 try{
 
-const date =
+const rawDate =
 String(req.query.date || "").trim();
 
-const where = {};
+const targetDateStr =
+/^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+? rawDate
+: toIstDateKey(new Date());
 
-if(date){
+const startDate =
+istDateKeyToUtcRange(targetDateStr).start;
 
-const start =
-new Date(`${date}T00:00:00`);
-const end =
-new Date(start);
-end.setDate(
-end.getDate() + 1
-);
+const endDate =
+istDateKeyToUtcRange(
+addIstDays(targetDateStr, 1)
+).start;
 
-where.createdAt = {
-[Op.gte]:start,
-[Op.lt]:end
-};
-
+const where = {
+createdAt:{
+[Op.gte]:startDate,
+[Op.lt]:endDate
 }
+};
 
 
 const data =
 await CallHistory.findAll({
 
 
-limit:100,
+limit:500,
 
 where,
 
@@ -4856,17 +4860,18 @@ export const peakCallHoursAnalytics = async (req, res) => {
     if (rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
       targetDateStr = rawDate;
     } else {
-      const now = new Date();
-      targetDateStr = now.toISOString().slice(0, 10);
+      targetDateStr = toIstDateKey(new Date());
     }
 
-    const startDate = new Date(`${targetDateStr}T00:00:00.000Z`);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 1);
+    const startDate = istDateKeyToUtcRange(targetDateStr).start;
+    const endDate = istDateKeyToUtcRange(
+      addIstDays(targetDateStr, 1)
+    ).start;
+    const istHour = istHourSql("createdAt");
 
     const rows = await sequelize.query(
       `SELECT 
-        HOUR(createdAt) AS hourNum,
+        ${istHour} AS hourNum,
         COUNT(*) AS totalCalls,
         SUM(COALESCE(coinsSpent, 0)) AS totalCoinsSpent,
         SUM(COALESCE(duration, 0)) AS totalDurationSeconds,
@@ -4874,7 +4879,7 @@ export const peakCallHoursAnalytics = async (req, res) => {
       FROM call_histories
       WHERE createdAt >= :startDate AND createdAt < :endDate
         AND (status IN ('completed', 'ended') OR (duration > 0 AND status NOT IN ('missed', 'rejected', 'busy', 'cancelled', 'failed')))
-      GROUP BY HOUR(createdAt)
+      GROUP BY ${istHour}
       ORDER BY hourNum ASC`,
       {
         replacements: { startDate, endDate },
@@ -4963,6 +4968,7 @@ export const peakCallHoursAnalytics = async (req, res) => {
 
     return res.json({
       date: targetDateStr,
+      timezone: "Asia/Kolkata (IST)",
       summary: {
         peakHourLabel,
         peakCalls,

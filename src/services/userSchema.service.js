@@ -103,6 +103,7 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
   await ensureColumn("users", "devicePlatform", "VARCHAR(20) NULL");
   await ensureColumn("users", "appVersion", "VARCHAR(20) NULL");
   await ensureColumn("users", "lastSeen", "DATETIME NULL");
+  await ensureColumn("users", "lastLoginAt", "DATETIME NULL");
 
   try {
     await sequelize.query(

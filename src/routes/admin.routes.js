@@ -145,6 +145,10 @@ import {
 } from "../controllers/adminNotify.controller.js";
 
 import {
+  listMaleLoginActivity,
+} from "../controllers/maleLoginActivity.controller.js";
+
+import {
   listFemaleOnlineStatus,
   offlineFemaleCreator,
   offlineAllFemaleCreators,
@@ -727,6 +731,12 @@ router.delete(
   "/notify/:id",
   requirePageAccess("user-notify"),
   deleteAdminNotify
+);
+
+router.get(
+  "/male-last-login",
+  requirePageAccess("male-last-login"),
+  listMaleLoginActivity
 );
 
 router.get(

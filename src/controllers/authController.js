@@ -43,6 +43,13 @@ const validatePhone = (phone) => {
 };
 
 const completePhoneAuth = async (res, user) => {
+  const now = new Date();
+
+  await user.update({
+    lastLoginAt: now,
+    lastSeen: now,
+  });
+
   const token = issueAuthToken(user);
 
   return res.json({
@@ -848,6 +855,12 @@ message: error.message,
   
   
   const user = await findOrCreateUserByPhone(normalizedPhone);
+
+  const now = new Date();
+  await user.update({
+    lastLoginAt: now,
+    lastSeen: now,
+  });
 
   const token = issueAuthToken(user);
   
