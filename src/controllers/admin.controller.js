@@ -158,6 +158,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"dashboard", label:"Dashboard", path:"/dashboard" },
 { key:"users", label:"Users", path:"/users" },
 { key:"online-activity", label:"Online Activity", path:"/online-activity" },
+{ key:"female-online", label:"Female Online Control", path:"/female-online" },
 { key:"male-users", label:"Male Users", path:"/male-users" },
 { key:"male-wallet-credit", label:"Male Wallet Credit", path:"/male-wallet-credit" },
 { key:"calls", label:"Calls", path:"/calls" },

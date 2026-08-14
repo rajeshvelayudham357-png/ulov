@@ -37,6 +37,7 @@ recordFemaleOnlineSessionEnd
 } from "./services/femaleOnlineTime.service.js";
 import { setSocketInstance as setAppSettingsSocketInstance } from "./services/appSettings.service.js";
 import { setSocketInstance as setGoogleBillingSocketInstance } from "./services/googleBilling.service.js";
+import { setFemaleOfflineSocketInstance } from "./services/femaleOffline.service.js";
 
 
 
@@ -87,6 +88,11 @@ const onlineUsers =
 new Map();
 
 initNotificationPush(
+io,
+onlineUsers
+);
+
+setFemaleOfflineSocketInstance(
 io,
 onlineUsers
 );

@@ -145,6 +145,14 @@ import {
 } from "../controllers/adminNotify.controller.js";
 
 import {
+  listFemaleOnlineStatus,
+  offlineFemaleCreator,
+  offlineAllFemaleCreators,
+  offlineStaleFemaleCreators,
+  previewStaleFemaleCreators,
+} from "../controllers/femaleOnlineAdmin.controller.js";
+
+import {
 getUserOnlineActivity
 } from "../controllers/onlineActivity.controller.js";
 
@@ -719,6 +727,36 @@ router.delete(
   "/notify/:id",
   requirePageAccess("user-notify"),
   deleteAdminNotify
+);
+
+router.get(
+  "/female-online",
+  requirePageAccess("female-online"),
+  listFemaleOnlineStatus
+);
+
+router.get(
+  "/female-online/stale-preview",
+  requirePageAccess("female-online"),
+  previewStaleFemaleCreators
+);
+
+router.post(
+  "/female-online/offline-all",
+  requirePageAccess("female-online"),
+  offlineAllFemaleCreators
+);
+
+router.post(
+  "/female-online/offline-stale",
+  requirePageAccess("female-online"),
+  offlineStaleFemaleCreators
+);
+
+router.post(
+  "/female-online/:id/offline",
+  requirePageAccess("female-online"),
+  offlineFemaleCreator
 );
 
 router.get(
