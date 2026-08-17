@@ -159,6 +159,75 @@ export const GROWTH_METRIC_DEFINITIONS = {
   },
 };
 
+/**
+ * Sequential funnel comparability for Growth user / revenue funnels.
+ * Counts are unchanged — this only governs whether conversion percentages are shown.
+ */
+export const GROWTH_FUNNEL_STAGE_SEMANTICS = {
+  registration: {
+    populationDefinition:
+      "Users whose createdAt falls within the selected IST period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  profile_completed: {
+    populationDefinition:
+      "Users registered in the selected IST period with profileCompleted = 1.",
+    subsetOfPrevious: true,
+    subsetOfRegistration: true,
+  },
+  chat_started: {
+    populationDefinition:
+      "Distinct users who sent at least one chat message in the period (any user, not limited to the registration cohort).",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  first_recharge: {
+    populationDefinition:
+      "Users whose first-ever successful payment updatedAt falls within the selected IST period (any user, not limited to chat starters).",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  repeat_recharge: {
+    populationDefinition:
+      "Users with 2+ lifetime successful payments who also made at least one payment in the selected period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  paying_users: {
+    populationDefinition:
+      "Distinct users with at least one successful payment updatedAt in the selected period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  first_time_payers: {
+    populationDefinition:
+      "Users whose first-ever successful payment updatedAt falls within the selected period.",
+    subsetOfPrevious: true,
+    subsetOfRegistration: false,
+  },
+  repeat_payers: {
+    populationDefinition:
+      "Users with 2+ lifetime successful payments who also paid in the selected period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  recharge_transactions: {
+    populationDefinition:
+      "Count of successful payment_orders rows in the selected period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+};
+
+/** Call-event funnel stages are progressive filters on the same call population. */
+export const GROWTH_CALL_FUNNEL_SEMANTICS = {
+  subsetOfPrevious: true,
+  subsetOfRegistration: false,
+  populationDefinition:
+    "All call_histories rows in the selected IST period, progressively filtered by call outcome/duration.",
+};
+
 export const GROWTH_ACTIVITY_DEFINITION = {
   dau: "Users whose lastSeen falls within the IST calendar day.",
   wau: "Users whose lastSeen falls within the last 7 IST days ending on the period end date.",

@@ -1,6 +1,9 @@
 import { QueryTypes } from "sequelize";
 
-import { GROWTH_METRIC_DEFINITIONS } from "../constants/growthMetricDefinitions.js";
+import {
+  GROWTH_FUNNEL_STAGE_SEMANTICS,
+  GROWTH_METRIC_DEFINITIONS,
+} from "../constants/growthMetricDefinitions.js";
 import { sequelize } from "../config/database.js";
 import { getGstSettings, splitInclusiveGst } from "./gstSettings.service.js";
 import {
@@ -409,6 +412,74 @@ export const getExecutiveSummary = async ({ current, previous }) => {
   };
 };
 
+const evaluateFunnelConversion = ({
+  stage,
+  previousStage = null,
+  registrationStage = null,
+  semantics = {},
+}) => {
+  const {
+    subsetOfPrevious = false,
+    subsetOfRegistration = false,
+    populationDefinition = null,
+  } = semantics;
+
+  const result = {
+    populationDefinition,
+    conversionComparable: false,
+    conversionFromPrevious: null,
+    conversionFromRegistration: null,
+    dropOffFromRegistration: null,
+    conversionUnavailableReason: null,
+  };
+
+  if (previousStage?.available) {
+    if (previousStage.unit !== stage.unit) {
+      result.conversionUnavailableReason = `Previous stage is ${previousStage.unit} while this stage is ${stage.unit}.`;
+    } else if (!subsetOfPrevious) {
+      result.conversionUnavailableReason =
+        "Stages use different population definitions.";
+    } else if (Number(stage.count) > Number(previousStage.count)) {
+      result.conversionUnavailableReason =
+        "Current stage exceeds previous stage; populations are not a sequential subset.";
+    } else {
+      result.conversionComparable = true;
+      result.conversionFromPrevious = safeRate(
+        stage.count,
+        previousStage.count
+      );
+    }
+  }
+
+  if (registrationStage?.available && registrationStage.unit === stage.unit) {
+    if (!subsetOfRegistration) {
+      result.conversionFromRegistration = null;
+      result.dropOffFromRegistration = null;
+    } else if (Number(stage.count) > Number(registrationStage.count)) {
+      result.conversionFromRegistration = null;
+      result.dropOffFromRegistration = null;
+    } else {
+      result.conversionFromRegistration = safeRate(
+        stage.count,
+        registrationStage.count
+      );
+      if (result.conversionFromRegistration !== null) {
+        result.dropOffFromRegistration = Number(
+          (100 - result.conversionFromRegistration).toFixed(1)
+        );
+      }
+    }
+  } else if (
+    registrationStage?.available &&
+    registrationStage.unit !== stage.unit
+  ) {
+    result.conversionFromRegistration = null;
+    result.dropOffFromRegistration = null;
+  }
+
+  return result;
+};
+
 const buildFunnelStage = ({
   id,
   label,
@@ -418,6 +489,7 @@ const buildFunnelStage = ({
   reason = null,
   previousStage = null,
   registrationStage = null,
+  semantics = GROWTH_FUNNEL_STAGE_SEMANTICS[id] || {},
 }) => {
   const stage = {
     id,
@@ -426,6 +498,7 @@ const buildFunnelStage = ({
     unit,
     available,
     reason,
+    populationDefinition: semantics.populationDefinition || null,
     conversionComparable: false,
     conversionFromPrevious: null,
     conversionFromRegistration: null,
@@ -437,38 +510,17 @@ const buildFunnelStage = ({
     return stage;
   }
 
-  if (previousStage?.available) {
-    if (previousStage.unit === unit) {
-      stage.conversionFromPrevious = safeRate(stage.count, previousStage.count);
-      stage.conversionComparable = true;
-    } else {
-      stage.conversionUnavailableReason = `Previous stage is ${previousStage.unit} while this stage is ${unit}.`;
-    }
-  }
+  const conversion = evaluateFunnelConversion({
+    stage,
+    previousStage,
+    registrationStage,
+    semantics,
+  });
 
-  if (
-    registrationStage?.available &&
-    registrationStage.unit === unit &&
-    Number(registrationStage.count) > 0
-  ) {
-    stage.conversionFromRegistration = safeRate(
-      stage.count,
-      registrationStage.count
-    );
-    if (stage.conversionFromRegistration !== null) {
-      stage.dropOffFromRegistration = Number(
-        (100 - stage.conversionFromRegistration).toFixed(1)
-      );
-    }
-  } else if (
-    registrationStage?.available &&
-    registrationStage.unit !== unit
-  ) {
-    stage.conversionFromRegistration = null;
-    stage.dropOffFromRegistration = null;
-  }
-
-  return stage;
+  return {
+    ...stage,
+    ...conversion,
+  };
 };
 
 const buildTrackedStage = (config) =>
@@ -581,12 +633,19 @@ export const getGrowthFunnel = async (bounds) => {
       unit: "users",
       reason: "Not tracked",
     }),
-    { id: "registration", label: "Registration", count: registrations, unit: "users" },
+    {
+      id: "registration",
+      label: "Registration",
+      count: registrations,
+      unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.registration,
+    },
     {
       id: "profile_completed",
       label: "Profile Completed",
       count: profileCompleted,
       unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.profile_completed,
     },
     buildTrackedStage({
       id: "creator_viewed",
@@ -594,18 +653,26 @@ export const getGrowthFunnel = async (bounds) => {
       unit: "users",
       reason: "Not tracked",
     }),
-    { id: "chat_started", label: "Chat Started", count: chatStarted, unit: "users" },
+    {
+      id: "chat_started",
+      label: "Chat Started",
+      count: chatStarted,
+      unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.chat_started,
+    },
     {
       id: "first_recharge",
       label: "First Recharge",
       count: firstRecharge,
       unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.first_recharge,
     },
     {
       id: "repeat_recharge",
       label: "Repeat Recharge",
       count: repeatRecharge,
       unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.repeat_recharge,
     },
   ];
 
@@ -632,9 +699,36 @@ export const getGrowthFunnel = async (bounds) => {
   }
 
   const callStageDefs = [
-    { id: "call_started", label: "Call Started", count: callStarted, unit: "calls" },
-    { id: "call_connected", label: "Call Connected", count: callConnected, unit: "calls" },
-    { id: "call_gt_30_sec", label: "Call > 30 Seconds", count: call30, unit: "calls" },
+    {
+      id: "call_started",
+      label: "Call Started",
+      count: callStarted,
+      unit: "calls",
+      semantics: { subsetOfPrevious: false, subsetOfRegistration: false },
+    },
+    {
+      id: "call_connected",
+      label: "Call Connected",
+      count: callConnected,
+      unit: "calls",
+      semantics: {
+        subsetOfPrevious: true,
+        subsetOfRegistration: false,
+        populationDefinition:
+          "Calls in period that connected (duration > 0 or connected status).",
+      },
+    },
+    {
+      id: "call_gt_30_sec",
+      label: "Call > 30 Seconds",
+      count: call30,
+      unit: "calls",
+      semantics: {
+        subsetOfPrevious: true,
+        subsetOfRegistration: false,
+        populationDefinition: "Connected calls in period with duration >= 30 seconds.",
+      },
+    },
   ];
 
   const callStages = [];
@@ -655,24 +749,28 @@ export const getGrowthFunnel = async (bounds) => {
       label: "Paying Users",
       count: payments.payingUsers,
       unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.paying_users,
     },
     {
       id: "first_time_payers",
       label: "First-Time Payers",
       count: payments.firstTimePayers,
       unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.first_time_payers,
     },
     {
       id: "repeat_payers",
       label: "Repeat Payers",
       count: payments.repeatPayers,
       unit: "users",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.repeat_payers,
     },
     {
       id: "recharge_transactions",
       label: "Recharge Transactions",
       count: payments.transactionCount,
       unit: "transactions",
+      semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.recharge_transactions,
     },
   ];
 
@@ -717,7 +815,7 @@ export const getGrowthFunnel = async (bounds) => {
       chatStarted:
         "Distinct users who sent at least one chat message in the period (not necessarily first-ever chat).",
     },
-    note: "User, call, and revenue funnels use separate units. Conversions are only calculated between compatible stages.",
+    note: "User, call, and revenue funnels use separate units. Conversions require the same unit and a true sequential subset population definition.",
   };
 };
 
@@ -725,4 +823,5 @@ export {
   roundMoney,
   periodReplacements,
   buildFunnelStage,
+  evaluateFunnelConversion,
 };

@@ -2,12 +2,14 @@ import { QueryTypes } from "sequelize";
 
 import { sequelize } from "../config/database.js";
 import {
+  buildFunnelStage,
   callAcceptedSql,
   callConnectedSql,
   callFailedSql,
   periodReplacements,
   safeRate,
 } from "./adminGrowthMetrics.service.js";
+import { GROWTH_CALL_FUNNEL_SEMANTICS } from "../constants/growthMetricDefinitions.js";
 import { getGrowthThresholds } from "./adminGrowthThresholds.service.js";
 
 const durationBucketSql = `
@@ -144,7 +146,7 @@ export const getCallFunnel = async (bounds) => {
   const quality = await getCallQualityMetrics(bounds);
   const m = quality.metrics;
 
-  const stages = [
+  const stageDefs = [
     { id: "started", label: "Call Started", count: m.totalCalls, unit: "calls" },
     { id: "accepted", label: "Accepted", count: m.acceptedCalls, unit: "calls" },
     { id: "connected", label: "Connected", count: m.connectedCalls, unit: "calls" },
@@ -153,27 +155,33 @@ export const getCallFunnel = async (bounds) => {
     { id: "gt_5min", label: "5 Minutes", count: m.callsGt5Min, unit: "calls" },
   ];
 
+  const callSemantics = {
+    ...GROWTH_CALL_FUNNEL_SEMANTICS,
+    subsetOfPrevious: false,
+  };
+
+  const stages = [];
   let previous = null;
+  for (const def of stageDefs) {
+    const semantics =
+      previous === null
+        ? callSemantics
+        : GROWTH_CALL_FUNNEL_SEMANTICS;
+    const stage = buildFunnelStage({
+      ...def,
+      available: true,
+      previousStage: previous,
+      registrationStage: null,
+      semantics,
+    });
+    stages.push(stage);
+    previous = stage;
+  }
+
   return {
     title: "Call Funnel",
     unit: "calls",
-    stages: stages.map((stage) => {
-      const conversionComparable =
-        previous !== null && previous.unit === stage.unit;
-      const item = {
-        ...stage,
-        available: true,
-        conversionComparable,
-        conversionFromPrevious:
-          conversionComparable ? safeRate(stage.count, previous.count) : null,
-        conversionUnavailableReason:
-          previous !== null && !conversionComparable
-            ? `Previous stage is ${previous.unit} while this stage is ${stage.unit}.`
-            : null,
-      };
-      previous = stage;
-      return item;
-    }),
+    stages,
   };
 };
 
