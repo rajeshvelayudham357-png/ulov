@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate": "node src/scripts/runMigrations.js"
+    "migrate": "node src/scripts/runMigrations.js",
+    "test": "node --test src/services/__tests__/*.test.js"
   },
   "keywords": [],
   "author": "",

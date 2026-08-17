@@ -174,10 +174,19 @@ getMaleUserSpinWheelSettings,
 updateMaleUserSpinWheelSettings
 } from "../controllers/spinWheel.controller.js";
 
+import {
+  getGrowthBootstrap,
+  getGrowthCalls,
+  getGrowthCreators,
+  getGrowthMonetization,
+  getGrowthRevenue,
+  getGrowthRetention,
+  getGrowthActivity,
+  getGrowthHealth,
+  getGrowthInsights,
+} from "../controllers/adminGrowth.controller.js";
 
-
-const router =
-express.Router();
+const router = express.Router();
 
 
 router.post(
@@ -530,6 +539,60 @@ router.get(
   "/analytics/system",
   requirePageAccess("analytics"),
   getAnalyticsSystem
+);
+
+router.get(
+  "/analytics/growth/bootstrap",
+  requirePageAccess("analytics"),
+  getGrowthBootstrap
+);
+
+router.get(
+  "/analytics/growth/calls",
+  requirePageAccess("analytics"),
+  getGrowthCalls
+);
+
+router.get(
+  "/analytics/growth/creators",
+  requirePageAccess("analytics"),
+  getGrowthCreators
+);
+
+router.get(
+  "/analytics/growth/monetization",
+  requirePageAccess("analytics"),
+  getGrowthMonetization
+);
+
+router.get(
+  "/analytics/growth/revenue",
+  requirePageAccess("analytics"),
+  getGrowthRevenue
+);
+
+router.get(
+  "/analytics/growth/retention",
+  requirePageAccess("analytics"),
+  getGrowthRetention
+);
+
+router.get(
+  "/analytics/growth/activity",
+  requirePageAccess("analytics"),
+  getGrowthActivity
+);
+
+router.get(
+  "/analytics/growth/health",
+  requirePageAccess("analytics"),
+  getGrowthHealth
+);
+
+router.get(
+  "/analytics/growth/insights",
+  requirePageAccess("analytics"),
+  getGrowthInsights
 );
 
 
