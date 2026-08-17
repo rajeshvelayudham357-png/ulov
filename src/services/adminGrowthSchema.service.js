@@ -2,6 +2,7 @@ import { QueryTypes } from "sequelize";
 
 import { sequelize } from "../config/database.js";
 import { ensureAdminGrowthThresholdsTable } from "./adminGrowthThresholds.service.js";
+import { ensureGrowthEventSchema } from "./growthEventSchema.service.js";
 
 let indexesReady = false;
 
@@ -70,6 +71,7 @@ export const ensureGrowthAnalyticsIndexes = async () => {
   }
 
   await ensureAdminGrowthThresholdsTable();
+  await ensureGrowthEventSchema();
 
   await ensureIndex(
     "call_histories",

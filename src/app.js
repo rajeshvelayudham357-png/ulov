@@ -74,6 +74,9 @@ from "./routes/adminAccountDeletion.routes.js";
 import appSettingsRoutes
 from "./routes/appSettings.routes.js";
 
+import growthEventsRoutes
+from "./routes/growthEvents.routes.js";
+
 /* 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -237,6 +240,11 @@ app.use(
                     app.use(
                       "/api/app",
                       appSettingsRoutes
+                      );
+
+                    app.use(
+                      "/api/events",
+                      growthEventsRoutes
                       );
 
                    

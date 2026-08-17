@@ -12,10 +12,12 @@ import {
 } from "../services/adminGrowthCalls.service.js";
 import { getCreatorAnalyticsBundle } from "../services/adminGrowthCreators.service.js";
 import { getMonetizationBundle } from "../services/adminGrowthMonetization.service.js";
+import { getRevenueBundle } from "../services/adminGrowthRevenue.service.js";
 import {
-  getRevenueBundle,
-  getAcquisitionPlaceholder,
-} from "../services/adminGrowthRevenue.service.js";
+  getAcquisitionAnalytics,
+  getAcquisitionDashboardPayload,
+} from "../services/adminGrowthAcquisition.service.js";
+import { getAttributionAnalytics } from "../services/adminGrowthAttribution.service.js";
 import { getRetentionBundle } from "../services/adminGrowthRetention.service.js";
 import { getLiveHealthStatus } from "../services/adminGrowthHealth.service.js";
 import { getInsightsBundle } from "../services/adminGrowthInsights.service.js";
@@ -114,11 +116,12 @@ export const getGrowthMonetization = async (req, res) => {
     await ensureGrowthAnalyticsIndexes();
     const context = parseGrowthRequest(req);
     const data = await getMonetizationBundle(context.current);
+    const acquisition = await getAcquisitionDashboardPayload(context.current);
 
     return res.json({
       ...context.meta,
       ...data,
-      acquisition: getAcquisitionPlaceholder(),
+      acquisition,
     });
   } catch (error) {
     return handleGrowthError(res, error, "GROWTH MONETIZATION");
@@ -189,13 +192,44 @@ export const getGrowthInsights = async (req, res) => {
     await ensureGrowthAnalyticsIndexes();
     const context = parseGrowthRequest(req);
     const data = await getInsightsBundle(context);
+    const acquisition = await getAcquisitionDashboardPayload(context.current);
 
     return res.json({
       ...context.meta,
       ...data,
-      acquisition: getAcquisitionPlaceholder(),
+      acquisition,
     });
   } catch (error) {
     return handleGrowthError(res, error, "GROWTH INSIGHTS");
+  }
+};
+
+export const getGrowthAcquisition = async (req, res) => {
+  try {
+    await ensureGrowthAnalyticsIndexes();
+    const context = parseGrowthRequest(req);
+    const acquisition = await getAcquisitionAnalytics(context.current);
+
+    return res.json({
+      ...context.meta,
+      acquisition,
+    });
+  } catch (error) {
+    return handleGrowthError(res, error, "GROWTH ACQUISITION");
+  }
+};
+
+export const getGrowthAttribution = async (req, res) => {
+  try {
+    await ensureGrowthAnalyticsIndexes();
+    const context = parseGrowthRequest(req);
+    const attribution = await getAttributionAnalytics(context.current);
+
+    return res.json({
+      ...context.meta,
+      attribution,
+    });
+  } catch (error) {
+    return handleGrowthError(res, error, "GROWTH ATTRIBUTION");
   }
 };

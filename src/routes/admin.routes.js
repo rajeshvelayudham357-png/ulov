@@ -184,6 +184,8 @@ import {
   getGrowthActivity,
   getGrowthHealth,
   getGrowthInsights,
+  getGrowthAcquisition,
+  getGrowthAttribution,
 } from "../controllers/adminGrowth.controller.js";
 
 const router = express.Router();
@@ -593,6 +595,18 @@ router.get(
   "/analytics/growth/insights",
   requirePageAccess("analytics"),
   getGrowthInsights
+);
+
+router.get(
+  "/analytics/growth/acquisition",
+  requirePageAccess("analytics"),
+  getGrowthAcquisition
+);
+
+router.get(
+  "/analytics/growth/attribution",
+  requirePageAccess("analytics"),
+  getGrowthAttribution
 );
 
 

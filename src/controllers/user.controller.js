@@ -42,6 +42,8 @@ import {
 isFallbackOtp,
 verifyMsg91AccessToken,
 } from "../services/msg91.service.js";
+import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
+import { trackGrowthEventAsync } from "../services/growthEvents.service.js";
 
 const ensureVerificationAudioColumns =
 ensureUserSchema;
@@ -231,6 +233,7 @@ ensureUserSchema;
     });
     
     
+    const wasProfileCompleted = Boolean(user.profileCompleted);
     
     
     await user.update({
@@ -303,6 +306,15 @@ ensureUserSchema;
      
      });
     
+    if (!wasProfileCompleted) {
+      trackGrowthEventAsync({
+        eventName: GROWTH_EVENT_NAMES.PROFILE_COMPLETED,
+        userId: user.id,
+        metadata: {
+          gender: user.gender,
+        },
+      });
+    }
     
     
     

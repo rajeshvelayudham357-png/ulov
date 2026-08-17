@@ -1,6 +1,7 @@
-import { QueryTypes } from "sequelize";
+import { QueryTypes, Op } from "sequelize";
 
 import { getGoldPackageById } from "../constants/goldPackages.js";
+import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { sequelize } from "../config/database.js";
 import {
   PaymentOrder,
@@ -34,8 +35,10 @@ import {
   verifyPhonePeWebhookSignature,
   refundPhonePePayment as executePhonePeRefund,
 } from "./phonepe.service.js";
+import { trackGrowthEventAsync } from "./growthEvents.service.js";
 
 const PAID_STATUSES = new Set(["PAID", "SUCCESS", "CAPTURED"]);
+const PAID_STATUS_LIST = [...PAID_STATUSES];
 const FAILED_STATUSES = new Set([
   "FAILED",
   "EXPIRED",
@@ -293,6 +296,30 @@ export const createPaymentOrder = async ({ userId, packageId }) => {
   });
 };
 
+const emitPaymentGrowthEvents = (paymentOrder, { isFirstPayment = false } = {}) => {
+  const basePayload = {
+    userId: paymentOrder.userId,
+    metadata: {
+      paymentOrderId: paymentOrder.id,
+      orderId: paymentOrder.orderId,
+      amount: paymentOrder.amount,
+      coins: paymentOrder.coins,
+    },
+  };
+
+  trackGrowthEventAsync({
+    ...basePayload,
+    eventName: GROWTH_EVENT_NAMES.RECHARGE_COMPLETED,
+  });
+
+  trackGrowthEventAsync({
+    ...basePayload,
+    eventName: isFirstPayment
+      ? GROWTH_EVENT_NAMES.FIRST_RECHARGE
+      : GROWTH_EVENT_NAMES.REPEAT_RECHARGE,
+  });
+};
+
 export const creditWalletForPayment = async (
   paymentOrder,
   {
@@ -338,6 +365,15 @@ export const creditWalletForPayment = async (
         paymentOrder: lockedOrder,
       };
     }
+
+    const priorPaidCount = await PaymentOrder.count({
+      where: {
+        userId: lockedOrder.userId,
+        status: { [Op.in]: PAID_STATUS_LIST },
+        id: { [Op.ne]: lockedOrder.id },
+      },
+      transaction,
+    });
 
     let wallet = await Wallet.findOne({
       where: { userId: lockedOrder.userId },
@@ -397,7 +433,15 @@ export const creditWalletForPayment = async (
       alreadyPaid: false,
       wallet,
       paymentOrder: lockedOrder,
+      isFirstPayment: priorPaidCount === 0,
     };
+  }).then((result) => {
+    if (!result.alreadyPaid) {
+      emitPaymentGrowthEvents(result.paymentOrder, {
+        isFirstPayment: result.isFirstPayment,
+      });
+    }
+    return result;
   });
 };
 

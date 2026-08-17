@@ -25,6 +25,9 @@ normalizePin,
 PIN_LENGTH,
 verifyPinHash,
 } from "../services/pinAuth.service.js";
+import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
+import { trackGrowthEventAsync } from "../services/growthEvents.service.js";
+import { extractGrowthAttribution } from "../utils/growthAttribution.util.js";
 
 const validatePhone = (phone) => {
   const normalizedPhone = normalizeIndianPhone(phone);
@@ -121,6 +124,8 @@ const findOrCreateUserByPhone = async (phone) => {
     },
   });
 
+  let created = false;
+
   if (!user) {
     user = await User.create({
       phone,
@@ -130,11 +135,12 @@ const findOrCreateUserByPhone = async (phone) => {
       online: false,
       profileCompleted: false,
     });
+    created = true;
   } else {
     await assignPublicUserId(user);
   }
 
-  return user;
+  return { user, created };
 };
 
 
@@ -854,13 +860,26 @@ message: error.message,
   }
   
   
-  const user = await findOrCreateUserByPhone(normalizedPhone);
+  const { user, created } = await findOrCreateUserByPhone(normalizedPhone);
 
   const now = new Date();
   await user.update({
     lastLoginAt: now,
     lastSeen: now,
   });
+
+  if (created) {
+    const attribution = extractGrowthAttribution(req);
+    trackGrowthEventAsync({
+      eventName: GROWTH_EVENT_NAMES.REGISTRATION_COMPLETED,
+      userId: user.id,
+      ...attribution,
+      metadata: {
+        phoneVerified: true,
+        authMethod: msg91Token ? "msg91" : "otp",
+      },
+    });
+  }
 
   const token = issueAuthToken(user);
   

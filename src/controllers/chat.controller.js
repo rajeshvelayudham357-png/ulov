@@ -16,6 +16,8 @@ import {
 areUsersBlocked,
 getBlockedPeerIds
 } from "../services/block.service.js";
+import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
+import { trackGrowthEventAsync } from "../services/growthEvents.service.js";
 
 const twoDaysAgo =
 ()=>
@@ -211,6 +213,17 @@ emitChatMessage(
 senderId,
 payload
 );
+
+trackGrowthEventAsync({
+  eventName: GROWTH_EVENT_NAMES.CHAT_STARTED,
+  userId: Number(senderId),
+  creatorId: Number(receiverId),
+  metadata: {
+    senderId: Number(senderId),
+    receiverId: Number(receiverId),
+    messageKey,
+  },
+});
 
 return res.status(201).json({
 success:true,

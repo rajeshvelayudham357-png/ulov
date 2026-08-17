@@ -4,7 +4,12 @@ import {
   GROWTH_FUNNEL_STAGE_SEMANTICS,
   GROWTH_METRIC_DEFINITIONS,
 } from "../constants/growthMetricDefinitions.js";
+import { FUNNEL_STAGE_EVENT_MAP, GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { sequelize } from "../config/database.js";
+import {
+  countGrowthEvents,
+  hasGrowthEventsEver,
+} from "./growthEvents.service.js";
 import { getGstSettings, splitInclusiveGst } from "./gstSettings.service.js";
 import {
   ACTIVE_CALL_STATUSES,
@@ -531,6 +536,40 @@ const buildTrackedStage = (config) =>
     reason: config.reason || "Not tracked",
   });
 
+const buildEventBackedStageDef = async (bounds, stageId, config) => {
+  const eventName = FUNNEL_STAGE_EVENT_MAP[stageId];
+
+  if (stageId === "ad_impression") {
+    return buildTrackedStage({
+      id: stageId,
+      ...config,
+      reason: "Ad integration not connected",
+    });
+  }
+
+  if (!eventName) {
+    return buildTrackedStage({ id: stageId, ...config });
+  }
+
+  const everTracked = await hasGrowthEventsEver(eventName);
+  if (!everTracked) {
+    return buildTrackedStage({ id: stageId, ...config, reason: "Not tracked" });
+  }
+
+  const count = await countGrowthEvents(bounds, {
+    eventName,
+    distinctUser: config.distinctUser,
+    distinctAnonymous: config.distinctAnonymous,
+  });
+
+  return {
+    id: stageId,
+    ...config,
+    count,
+    semantics: GROWTH_FUNNEL_STAGE_SEMANTICS[stageId],
+  };
+};
+
 export const getGrowthFunnel = async (bounds) => {
   const replacements = periodReplacements(bounds);
 
@@ -614,25 +653,36 @@ export const getGrowthFunnel = async (bounds) => {
   const firstRecharge = Number(firstRechargeRow[0]?.count) || 0;
   const repeatRecharge = Number(repeatRechargeRow[0]?.count) || 0;
 
-  const userStageDefs = [
-    buildTrackedStage({
-      id: "ad_impression",
+  const [
+    adImpressionDef,
+    storeVisitDef,
+    installDef,
+    creatorViewedDef,
+  ] = await Promise.all([
+    buildEventBackedStageDef(bounds, "ad_impression", {
       label: "Ad Impression",
       unit: "events",
-      reason: "Not tracked",
     }),
-    buildTrackedStage({
-      id: "store_visit",
+    buildEventBackedStageDef(bounds, "store_visit", {
       label: "Store Visit",
       unit: "events",
-      reason: "Not tracked",
     }),
-    buildTrackedStage({
-      id: "install",
+    buildEventBackedStageDef(bounds, "install", {
       label: "Install",
       unit: "users",
-      reason: "Not tracked",
+      distinctAnonymous: true,
     }),
+    buildEventBackedStageDef(bounds, "creator_viewed", {
+      label: "Creator Viewed",
+      unit: "users",
+      distinctUser: true,
+    }),
+  ]);
+
+  const userStageDefs = [
+    adImpressionDef,
+    storeVisitDef,
+    installDef,
     {
       id: "registration",
       label: "Registration",
@@ -647,12 +697,7 @@ export const getGrowthFunnel = async (bounds) => {
       unit: "users",
       semantics: GROWTH_FUNNEL_STAGE_SEMANTICS.profile_completed,
     },
-    buildTrackedStage({
-      id: "creator_viewed",
-      label: "Creator Viewed",
-      unit: "users",
-      reason: "Not tracked",
-    }),
+    creatorViewedDef,
     {
       id: "chat_started",
       label: "Chat Started",

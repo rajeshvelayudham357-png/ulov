@@ -144,6 +144,10 @@ export const runDatabaseMigrations = async () => {
     "./adminGrowthSchema.service.js"
   );
   await ensureGrowthAnalyticsIndexes();
+  const { ensureGrowthEventSchema } = await import(
+    "./growthEventSchema.service.js"
+  );
+  await ensureGrowthEventSchema();
   console.log("Core analytics tables ready");
 
   await safeModelSync(DeviceToken, "DeviceToken");

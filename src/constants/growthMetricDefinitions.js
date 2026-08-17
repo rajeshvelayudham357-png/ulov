@@ -164,6 +164,30 @@ export const GROWTH_METRIC_DEFINITIONS = {
  * Counts are unchanged — this only governs whether conversion percentages are shown.
  */
 export const GROWTH_FUNNEL_STAGE_SEMANTICS = {
+  ad_impression: {
+    populationDefinition:
+      "Ad impression events recorded in growth_events for the selected IST period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  store_visit: {
+    populationDefinition:
+      "Store / landing page visit events recorded in growth_events for the selected IST period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  install: {
+    populationDefinition:
+      "Distinct anonymous install identifiers with APP_INSTALL events in the selected IST period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
+  creator_viewed: {
+    populationDefinition:
+      "Distinct users with CREATOR_PROFILE_VIEWED events in the selected IST period.",
+    subsetOfPrevious: false,
+    subsetOfRegistration: false,
+  },
   registration: {
     populationDefinition:
       "Users whose createdAt falls within the selected IST period.",
