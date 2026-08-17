@@ -15,6 +15,10 @@ const AUTHENTICATED_EVENTS = new Set([
   GROWTH_EVENT_NAMES.REGISTRATION_STARTED,
 ]);
 
+const PUBLIC_ALLOWED_EVENTS = new Set([...PUBLIC_EVENTS, ...AUTHENTICATED_EVENTS]);
+
+const MAX_PUBLIC_BODY_BYTES = 16_384;
+
 const resolveUserId = (req) => {
   const fromBody = req.body?.userId;
   if (fromBody) {
@@ -28,9 +32,18 @@ const resolveUserId = (req) => {
 
 export const trackPublicGrowthEvent = async (req, res) => {
   try {
+    const bodySize = Buffer.byteLength(JSON.stringify(req.body || {}), "utf8");
+    if (bodySize > MAX_PUBLIC_BODY_BYTES) {
+      return res.status(413).json({ message: "Request body too large" });
+    }
+
     const eventName = String(req.body?.eventName || "").trim().toUpperCase();
     if (!eventName) {
       return res.status(400).json({ message: "eventName is required" });
+    }
+
+    if (!PUBLIC_ALLOWED_EVENTS.has(eventName)) {
+      return res.status(400).json({ message: "Invalid event name" });
     }
 
     const attribution = extractGrowthAttribution(req);

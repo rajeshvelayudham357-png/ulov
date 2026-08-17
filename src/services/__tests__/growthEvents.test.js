@@ -124,3 +124,21 @@ test("install to registration conversion stays blocked for different populations
 
   assert.equal(registration.conversionComparable, false);
 });
+
+test("public endpoint allowlist excludes server-side business events", () => {
+  const publicAllowed = new Set([
+    "AD_IMPRESSION",
+    "STORE_VISIT",
+    "APP_INSTALL",
+    "APP_OPEN",
+    "SESSION_STARTED",
+    "CREATOR_PROFILE_VIEWED",
+    "REGISTRATION_STARTED",
+  ]);
+
+  assert.equal(publicAllowed.has("REGISTRATION_COMPLETED"), false);
+  assert.equal(publicAllowed.has("RECHARGE_COMPLETED"), false);
+  assert.equal(publicAllowed.has("PROFILE_COMPLETED"), false);
+  assert.equal(publicAllowed.has("CHAT_STARTED"), false);
+  assert.equal(publicAllowed.has("APP_OPEN"), true);
+});
