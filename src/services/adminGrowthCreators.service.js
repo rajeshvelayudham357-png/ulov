@@ -3,8 +3,8 @@ import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
 import { istHourSql } from "./adminRevenueTime.service.js";
 import {
-  CALL_ACCEPTED_SQL,
-  CALL_CONNECTED_SQL,
+  callAcceptedSql,
+  callConnectedSql,
   periodReplacements,
   safeRate,
 } from "./adminGrowthMetrics.service.js";
@@ -42,7 +42,7 @@ export const getCreatorAvailabilitySummary = async (bounds) => {
   const [callStatsRow] = await sequelize.query(
     `SELECT
        COUNT(*) AS callsReceived,
-       SUM(CASE WHEN ${CALL_ACCEPTED_SQL} THEN 1 ELSE 0 END) AS callsAnswered
+       SUM(CASE WHEN ${callConnectedSql("ch")} THEN 1 ELSE 0 END) AS callsConnected
      FROM call_histories ch
      INNER JOIN users u ON u.id = ch.receiverId
      WHERE u.gender IN ('Female','female')
@@ -52,7 +52,7 @@ export const getCreatorAvailabilitySummary = async (bounds) => {
 
   const approved = Number(summaryRow?.approvedCreators) || 0;
   const received = Number(callStatsRow?.callsReceived) || 0;
-  const answered = Number(callStatsRow?.callsAnswered) || 0;
+  const connected = Number(callStatsRow?.callsConnected) || 0;
 
   return {
     approvedCreators: approved,
@@ -70,7 +70,9 @@ export const getCreatorAvailabilitySummary = async (bounds) => {
     totalOnlineHours: Number(
       ((Number(onlineMinutesRow?.totalOnlineMinutes) || 0) / 60).toFixed(1)
     ),
-    creatorAnswerRate: safeRate(answered, received),
+    creatorAnswerRate: safeRate(connected, received),
+    creatorInboundAnswerRateDefinition:
+      "Connected incoming creator calls / total incoming creator calls to approved female creators.",
     averageCreatorResponseTime: {
       available: false,
       value: null,
@@ -80,7 +82,7 @@ export const getCreatorAvailabilitySummary = async (bounds) => {
     callsReceivedPerCreator:
       approved > 0 ? Number((received / approved).toFixed(1)) : 0,
     callsAnsweredPerCreator:
-      approved > 0 ? Number((answered / approved).toFixed(1)) : 0,
+      approved > 0 ? Number((connected / approved).toFixed(1)) : 0,
     dataSources: [
       "users.online / users.lastSeen",
       "female_daily_activity.onlineMinutes",
@@ -156,8 +158,21 @@ export const getCreatorAvailabilityByHour = async (bounds) => {
   };
 };
 
+export const CREATOR_LEADERBOARD_SORTS = [
+  "earnings",
+  "calls",
+  "answerRate",
+  "duration",
+  "averageDuration",
+  "rating",
+  "onlineHours",
+];
+
 export const getCreatorLeaderboard = async (bounds, { sortBy = "earnings" } = {}) => {
   const replacements = periodReplacements(bounds);
+  const normalizedSort = CREATOR_LEADERBOARD_SORTS.includes(sortBy)
+    ? sortBy
+    : "earnings";
 
   const rows = await sequelize.query(
     `SELECT
@@ -168,11 +183,12 @@ export const getCreatorLeaderboard = async (bounds, { sortBy = "earnings" } = {}
        u.username,
        COALESCE(SUM(fda.onlineMinutes), 0) AS onlineMinutes,
        COUNT(ch.id) AS callsReceived,
-       SUM(CASE WHEN ${CALL_ACCEPTED_SQL} THEN 1 ELSE 0 END) AS callsAnswered,
+       SUM(CASE WHEN ${callAcceptedSql("ch")} THEN 1 ELSE 0 END) AS callsAnswered,
        SUM(CASE WHEN ch.status IN ('completed','ended') OR (COALESCE(ch.duration,0) > 0 AND ch.status NOT IN ('missed','rejected','cancelled')) THEN 1 ELSE 0 END) AS completedCalls,
        SUM(CASE WHEN COALESCE(ch.duration, 0) >= 30 THEN 1 ELSE 0 END) AS callsGt30Sec,
-       AVG(CASE WHEN ${CALL_CONNECTED_SQL} THEN COALESCE(ch.duration, 0) END) AS avgDuration,
+       AVG(CASE WHEN ${callConnectedSql("ch")} THEN COALESCE(ch.duration, 0) END) AS avgDuration,
        COALESCE(SUM(e.amount), 0) AS earnings,
+       COALESCE(SUM(e.coins), 0) AS coinsEarned,
        COALESCE(AVG(
          CASE cr.rating
            WHEN 'very_bad' THEN 1
@@ -235,6 +251,7 @@ export const getCreatorLeaderboard = async (bounds, { sortBy = "earnings" } = {}
       completedCalls: Number(row.completedCalls) || 0,
       callsGt30Sec: Number(row.callsGt30Sec) || 0,
       avgCallDurationSeconds: Math.round(Number(row.avgDuration) || 0),
+      coinsEarned: Number(row.coinsEarned) || 0,
       earnings: Number(Number(row.earnings || 0).toFixed(2)),
       rating: Number(Number(row.avgRating || 0).toFixed(2)),
       repeatCallers: Number(row.repeatCallers) || 0,
@@ -246,11 +263,12 @@ export const getCreatorLeaderboard = async (bounds, { sortBy = "earnings" } = {}
     calls: (a, b) => b.callsReceived - a.callsReceived,
     answerRate: (a, b) => (b.answerRate || 0) - (a.answerRate || 0),
     duration: (a, b) => b.avgCallDurationSeconds - a.avgCallDurationSeconds,
+    averageDuration: (a, b) => b.avgCallDurationSeconds - a.avgCallDurationSeconds,
     rating: (a, b) => b.rating - a.rating,
     onlineHours: (a, b) => b.onlineHours - a.onlineHours,
   };
 
-  creators.sort(sortKeyMap[sortBy] || sortKeyMap.earnings);
+  creators.sort(sortKeyMap[normalizedSort] || sortKeyMap.earnings);
 
   const top5 = creators.slice(0, 5);
 
@@ -271,7 +289,7 @@ export const getCreatorLeaderboard = async (bounds, { sortBy = "earnings" } = {}
     .slice(0, 5);
 
   return {
-    sortBy,
+    sortBy: normalizedSort,
     total: creators.length,
     top5,
     leaderboard: creators,

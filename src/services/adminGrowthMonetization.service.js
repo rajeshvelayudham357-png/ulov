@@ -73,6 +73,14 @@ export const getMonetizationMetrics = async (bounds) => {
       arpu,
       arppu,
     },
+    payerDefinitions: {
+      firstTimePayer:
+        "Users whose first-ever successful payment updatedAt falls within the selected IST period.",
+      repeatPayer:
+        "Users with 2+ lifetime successful payments who also made at least one payment in the selected period.",
+      payingUser:
+        "Distinct users with at least one successful payment updatedAt in the selected period.",
+    },
   };
 };
 
@@ -81,24 +89,24 @@ export const getPackagePerformance = async (bounds) => {
 
   const rows = await sequelize.query(
     `SELECT
-       amount AS packageAmount,
+       po.amount AS packageAmount,
        COUNT(*) AS purchases,
-       COALESCE(SUM(amount), 0) AS revenue,
-       COUNT(DISTINCT userId) AS uniqueUsers,
+       COALESCE(SUM(po.amount), 0) AS revenue,
+       COUNT(DISTINCT po.userId) AS uniqueUsers,
        SUM(CASE WHEN userPurchaseCounts.orderCount >= 2 THEN 1 ELSE 0 END) AS repeatPurchases
      FROM payment_orders po
      INNER JOIN (
-       SELECT userId, amount, COUNT(*) AS orderCount
-       FROM payment_orders
-       WHERE status IN (:paymentStatuses)
-       GROUP BY userId, amount
+       SELECT po_inner.userId, po_inner.amount, COUNT(*) AS orderCount
+       FROM payment_orders po_inner
+       WHERE po_inner.status IN (:paymentStatuses)
+       GROUP BY po_inner.userId, po_inner.amount
      ) userPurchaseCounts
        ON userPurchaseCounts.userId = po.userId
       AND userPurchaseCounts.amount = po.amount
      WHERE po.status IN (:paymentStatuses)
        AND po.updatedAt >= :fromUtc
        AND po.updatedAt <= :toUtc
-     GROUP BY amount
+     GROUP BY po.amount
      ORDER BY revenue DESC`,
     { replacements, type: QueryTypes.SELECT }
   );

@@ -2,22 +2,22 @@ import { QueryTypes } from "sequelize";
 
 import { sequelize } from "../config/database.js";
 import {
-  CALL_ACCEPTED_SQL,
-  CALL_CONNECTED_SQL,
-  CALL_FAILED_SQL,
+  callAcceptedSql,
+  callConnectedSql,
+  callFailedSql,
   periodReplacements,
   safeRate,
 } from "./adminGrowthMetrics.service.js";
 import { getGrowthThresholds } from "./adminGrowthThresholds.service.js";
 
 const durationBucketSql = `
-  SUM(CASE WHEN COALESCE(duration, 0) < 5 THEN 1 ELSE 0 END) AS bucket_0_5,
-  SUM(CASE WHEN duration >= 5 AND duration < 15 THEN 1 ELSE 0 END) AS bucket_5_15,
-  SUM(CASE WHEN duration >= 15 AND duration < 30 THEN 1 ELSE 0 END) AS bucket_15_30,
-  SUM(CASE WHEN duration >= 30 AND duration < 60 THEN 1 ELSE 0 END) AS bucket_30_60,
-  SUM(CASE WHEN duration >= 60 AND duration < 300 THEN 1 ELSE 0 END) AS bucket_1_5min,
-  SUM(CASE WHEN duration >= 300 AND duration < 600 THEN 1 ELSE 0 END) AS bucket_5_10min,
-  SUM(CASE WHEN duration >= 600 THEN 1 ELSE 0 END) AS bucket_10plus
+  SUM(CASE WHEN COALESCE(ch.duration, 0) < 5 THEN 1 ELSE 0 END) AS bucket_0_5,
+  SUM(CASE WHEN ch.duration >= 5 AND ch.duration < 15 THEN 1 ELSE 0 END) AS bucket_5_15,
+  SUM(CASE WHEN ch.duration >= 15 AND ch.duration < 30 THEN 1 ELSE 0 END) AS bucket_15_30,
+  SUM(CASE WHEN ch.duration >= 30 AND ch.duration < 60 THEN 1 ELSE 0 END) AS bucket_30_60,
+  SUM(CASE WHEN ch.duration >= 60 AND ch.duration < 300 THEN 1 ELSE 0 END) AS bucket_1_5min,
+  SUM(CASE WHEN ch.duration >= 300 AND ch.duration < 600 THEN 1 ELSE 0 END) AS bucket_5_10min,
+  SUM(CASE WHEN ch.duration >= 600 THEN 1 ELSE 0 END) AS bucket_10plus
 `;
 
 export const getCallQualityMetrics = async (bounds) => {
@@ -26,19 +26,19 @@ export const getCallQualityMetrics = async (bounds) => {
   const [metricsRow] = await sequelize.query(
     `SELECT
        COUNT(*) AS totalCalls,
-       SUM(CASE WHEN ${CALL_ACCEPTED_SQL} THEN 1 ELSE 0 END) AS acceptedCalls,
-       SUM(CASE WHEN ${CALL_CONNECTED_SQL} THEN 1 ELSE 0 END) AS connectedCalls,
-       SUM(CASE WHEN COALESCE(duration, 0) >= 5 THEN 1 ELSE 0 END) AS callsGt5Sec,
-       SUM(CASE WHEN COALESCE(duration, 0) >= 30 THEN 1 ELSE 0 END) AS callsGt30Sec,
-       SUM(CASE WHEN COALESCE(duration, 0) >= 60 THEN 1 ELSE 0 END) AS callsGt60Sec,
-       SUM(CASE WHEN COALESCE(duration, 0) >= 300 THEN 1 ELSE 0 END) AS callsGt5Min,
-       AVG(COALESCE(duration, 0)) AS avgDuration,
-       SUM(CASE WHEN ${CALL_FAILED_SQL} THEN 1 ELSE 0 END) AS failedCalls,
-       SUM(CASE WHEN status = 'missed' THEN 1 ELSE 0 END) AS missedCalls,
-       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejectedCalls,
-       SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelledCalls
-     FROM call_histories
-     WHERE createdAt >= :fromUtc AND createdAt <= :toUtc`,
+       SUM(CASE WHEN ${callAcceptedSql("ch")} THEN 1 ELSE 0 END) AS acceptedCalls,
+       SUM(CASE WHEN ${callConnectedSql("ch")} THEN 1 ELSE 0 END) AS connectedCalls,
+       SUM(CASE WHEN COALESCE(ch.duration, 0) >= 5 THEN 1 ELSE 0 END) AS callsGt5Sec,
+       SUM(CASE WHEN COALESCE(ch.duration, 0) >= 30 THEN 1 ELSE 0 END) AS callsGt30Sec,
+       SUM(CASE WHEN COALESCE(ch.duration, 0) >= 60 THEN 1 ELSE 0 END) AS callsGt60Sec,
+       SUM(CASE WHEN COALESCE(ch.duration, 0) >= 300 THEN 1 ELSE 0 END) AS callsGt5Min,
+       AVG(COALESCE(ch.duration, 0)) AS avgDuration,
+       SUM(CASE WHEN ${callFailedSql("ch")} THEN 1 ELSE 0 END) AS failedCalls,
+       SUM(CASE WHEN ch.status = 'missed' THEN 1 ELSE 0 END) AS missedCalls,
+       SUM(CASE WHEN ch.status = 'rejected' THEN 1 ELSE 0 END) AS rejectedCalls,
+       SUM(CASE WHEN ch.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelledCalls
+     FROM call_histories ch
+     WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc`,
     { replacements, type: QueryTypes.SELECT }
   );
 
@@ -47,39 +47,25 @@ export const getCallQualityMetrics = async (bounds) => {
   const callsGt30 = Number(metricsRow?.callsGt30Sec) || 0;
   const avgDuration = Number(metricsRow?.avgDuration) || 0;
 
+  const thresholds = await getGrowthThresholds();
+  const callSuccessRate = safeRate(callsGt30, connected);
+  const creatorAnswerRate = safeRate(connected, total);
+  const failedRate = safeRate(Number(metricsRow?.failedCalls) || 0, total);
+  const connectedGt30Rate = safeRate(callsGt30, connected);
+
   const [medianRow] = await sequelize.query(
     `SELECT AVG(duration) AS medianDuration
      FROM (
-       SELECT duration,
-              ROW_NUMBER() OVER (ORDER BY duration) AS rowNum,
+       SELECT ch.duration,
+              ROW_NUMBER() OVER (ORDER BY ch.duration) AS rowNum,
               COUNT(*) OVER () AS totalRows
-       FROM call_histories
-       WHERE createdAt >= :fromUtc AND createdAt <= :toUtc
-         AND ${CALL_CONNECTED_SQL}
+       FROM call_histories ch
+       WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc
+         AND ${callConnectedSql("ch")}
      ) ranked
      WHERE rowNum IN (FLOOR((totalRows + 1) / 2), CEIL((totalRows + 1) / 2))`,
     { replacements, type: QueryTypes.SELECT }
   );
-
-  const [creatorAnswerRow] = await sequelize.query(
-    `SELECT
-       COUNT(*) AS received,
-       SUM(CASE WHEN ${CALL_ACCEPTED_SQL} THEN 1 ELSE 0 END) AS answered
-     FROM call_histories ch
-     INNER JOIN users u ON u.id = ch.receiverId
-     WHERE u.gender IN ('Female', 'female')
-       AND ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc`,
-    { replacements, type: QueryTypes.SELECT }
-  );
-
-  const received = Number(creatorAnswerRow?.received) || 0;
-  const answered = Number(creatorAnswerRow?.answered) || 0;
-
-  const thresholds = await getGrowthThresholds();
-  const callSuccessRate = safeRate(callsGt30, connected);
-  const creatorAnswerRate = safeRate(answered, received);
-  const failedRate = safeRate(Number(metricsRow?.failedCalls) || 0, total);
-  const connectedGt30Rate = safeRate(callsGt30, connected);
 
   const warnings = [];
   if (connected > 0 && avgDuration < thresholds.minAvgCallDurationSec) {
@@ -148,8 +134,8 @@ export const getCallQualityMetrics = async (bounds) => {
     definitions: {
       callSuccessRate:
         "Calls >= 30 seconds / connected calls. Not completed/total.",
-      creatorAnswerRate:
-        "Answered incoming creator calls / total incoming creator calls.",
+      creatorAnswerRate: "Connected calls / total calls.",
+      failedCallRate: "Failed calls / total calls.",
     },
   };
 };
@@ -159,23 +145,33 @@ export const getCallFunnel = async (bounds) => {
   const m = quality.metrics;
 
   const stages = [
-    { id: "started", label: "Call Started", count: m.totalCalls },
-    { id: "accepted", label: "Accepted", count: m.acceptedCalls },
-    { id: "connected", label: "Connected", count: m.connectedCalls },
-    { id: "gt_30", label: "30 Seconds", count: m.callsGt30Sec },
-    { id: "gt_60", label: "60 Seconds", count: m.callsGt60Sec },
-    { id: "gt_5min", label: "5 Minutes", count: m.callsGt5Min },
+    { id: "started", label: "Call Started", count: m.totalCalls, unit: "calls" },
+    { id: "accepted", label: "Accepted", count: m.acceptedCalls, unit: "calls" },
+    { id: "connected", label: "Connected", count: m.connectedCalls, unit: "calls" },
+    { id: "gt_30", label: "30 Seconds", count: m.callsGt30Sec, unit: "calls" },
+    { id: "gt_60", label: "60 Seconds", count: m.callsGt60Sec, unit: "calls" },
+    { id: "gt_5min", label: "5 Minutes", count: m.callsGt5Min, unit: "calls" },
   ];
 
   let previous = null;
   return {
+    title: "Call Funnel",
+    unit: "calls",
     stages: stages.map((stage) => {
+      const conversionComparable =
+        previous !== null && previous.unit === stage.unit;
       const item = {
         ...stage,
+        available: true,
+        conversionComparable,
         conversionFromPrevious:
-          previous !== null ? safeRate(stage.count, previous) : null,
+          conversionComparable ? safeRate(stage.count, previous.count) : null,
+        conversionUnavailableReason:
+          previous !== null && !conversionComparable
+            ? `Previous stage is ${previous.unit} while this stage is ${stage.unit}.`
+            : null,
       };
-      previous = stage.count;
+      previous = stage;
       return item;
     }),
   };
@@ -188,8 +184,8 @@ export const getDurationDistribution = async (bounds) => {
     `SELECT
        COUNT(*) AS total,
        ${durationBucketSql}
-     FROM call_histories
-     WHERE createdAt >= :fromUtc AND createdAt <= :toUtc`,
+     FROM call_histories ch
+     WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc`,
     { replacements, type: QueryTypes.SELECT }
   );
 

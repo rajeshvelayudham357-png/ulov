@@ -30,6 +30,7 @@ export const computeGrowthScore = async ({
   monetization,
   retention,
   thresholds,
+  health,
 }) => {
   const registrationChange = calculatePercentageChange(
     summary.metrics.find((m) => m.key === "REGISTERED_USERS")?.current || 0,
@@ -54,8 +55,11 @@ export const computeGrowthScore = async ({
     thresholds.minCallSuccessRatePct
   );
 
+  const onlineCreatorsNow =
+    health?.metrics?.onlineCreators?.value ?? creatorSummary.onlineCreatorsNow;
+
   const creatorAvailabilityScore = scoreFromThreshold(
-    creatorSummary.onlineCreatorsNow,
+    onlineCreatorsNow,
     thresholds.minHealthyOnlineCreators
   );
 
@@ -80,6 +84,8 @@ export const computeGrowthScore = async ({
   const acquisitionScore = {
     value: null,
     available: false,
+    measured: false,
+    neutral: true,
     reason: "Google Ads / attribution not connected — neutral score applied.",
     neutralScore: 70,
   };
@@ -94,32 +100,50 @@ export const computeGrowthScore = async ({
   };
 
   const components = {
-    userGrowth: userGrowthScore,
-    callEngagement: callEngagementScore ?? 0,
-    creatorAvailability: creatorAvailabilityScore ?? 0,
-    monetization: monetizationScore ?? 0,
-    retention: retentionScore,
-    acquisition: acquisitionScore.neutralScore,
+    userGrowth: { value: userGrowthScore, measured: true },
+    callEngagement: { value: callEngagementScore ?? 0, measured: true },
+    creatorAvailability: {
+      value: creatorAvailabilityScore ?? 0,
+      measured: true,
+      snapshotSource: health?.metrics?.onlineCreators
+        ? "live_health"
+        : "period_summary",
+      snapshotValue: onlineCreatorsNow,
+    },
+    monetization: { value: monetizationScore ?? 0, measured: true },
+    retention: { value: retentionScore, measured: d7Values.length > 0 },
+    acquisition: {
+      value: acquisitionScore.neutralScore,
+      measured: false,
+      neutral: true,
+      label: "Neutral — attribution not connected",
+    },
   };
 
   const score = clampScore(
-    components.userGrowth * weights.userGrowth +
-      components.callEngagement * weights.callEngagement +
-      components.creatorAvailability * weights.creatorAvailability +
-      components.monetization * weights.monetization +
-      components.retention * weights.retention +
-      components.acquisition * weights.acquisition
+    components.userGrowth.value * weights.userGrowth +
+      components.callEngagement.value * weights.callEngagement +
+      components.creatorAvailability.value * weights.creatorAvailability +
+      components.monetization.value * weights.monetization +
+      components.retention.value * weights.retention +
+      components.acquisition.value * weights.acquisition
   );
 
   return {
     score,
     maxScore: 100,
-    components,
+    components: Object.fromEntries(
+      Object.entries(components).map(([key, item]) => [key, item.value])
+    ),
+    componentDetails: components,
     weights,
     thresholds,
     acquisition: acquisitionScore,
     explanation:
       "Weighted average of component scores. Acquisition uses neutral 70 until Google Ads is connected.",
+    healthSnapshot: health
+      ? { asOf: health.asOf, onlineCreatorsNow }
+      : null,
   };
 };
 
@@ -131,6 +155,7 @@ export const generateInsights = async ({
   creatorSummary,
   monetization,
   thresholds,
+  health,
 }) => {
   const insights = [];
   const avgDuration = callQuality.metrics.avgDurationSeconds;
@@ -138,6 +163,8 @@ export const generateInsights = async ({
   const creatorAnswerRate = callQuality.metrics.creatorAnswerRate;
   const payerConversion = monetization.rates.payerConversionRate;
   const repeatPayerRate = monetization.rates.repeatPayerRate;
+  const onlineCreatorsNow =
+    health?.metrics?.onlineCreators?.value ?? creatorSummary.onlineCreatorsNow;
 
   const netCurrent =
     summary.metrics.find((m) => m.label === "Net Revenue")?.current || 0;
@@ -186,14 +213,12 @@ export const generateInsights = async ({
     });
   }
 
-  if (
-    creatorSummary.onlineCreatorsNow < thresholds.minOnlineCreators
-  ) {
+  if (onlineCreatorsNow < thresholds.minOnlineCreators) {
     insights.push({
       id: "LOW_CREATOR_AVAILABILITY",
       severity: "critical",
       metric: "onlineCreatorsNow",
-      currentValue: creatorSummary.onlineCreatorsNow,
+      currentValue: onlineCreatorsNow,
       threshold: thresholds.minOnlineCreators,
       title: "Creator availability is low",
       description:
@@ -387,6 +412,7 @@ export const getInsightsBundle = async ({ current, previous }) => {
     monetization,
     retention,
     thresholds,
+    health,
   });
 
   const insights = await generateInsights({
@@ -397,6 +423,7 @@ export const getInsightsBundle = async ({ current, previous }) => {
     creatorSummary,
     monetization,
     thresholds,
+    health,
   });
 
   return {

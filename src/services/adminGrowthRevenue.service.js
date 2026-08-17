@@ -3,6 +3,9 @@ import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
 import { getGstSettings, splitInclusiveGst } from "./gstSettings.service.js";
 import {
+  callConnectedSql,
+  countRegisteredUsers,
+  getCallCountSummary,
   getCreatorEarningsTotal,
   getCreatorPayoutTotal,
   getPaymentAggregates,
@@ -10,8 +13,6 @@ import {
   roundMoney,
   unavailableMetric,
 } from "./adminGrowthMetrics.service.js";
-import { getCallCountSummary } from "./adminGrowthMetrics.service.js";
-import { countRegisteredUsers } from "./adminGrowthMetrics.service.js";
 
 const paymentIstDateSql = "DATE(DATE_ADD(updatedAt, INTERVAL 330 MINUTE))";
 
@@ -41,11 +42,15 @@ export const getRevenueBreakdown = async (bounds) => {
       available: true,
       value: roundMoney(earningsTotal),
       label: "Creator Earnings (accrual)",
+      definition:
+        "Total earnings accrued to creators from the earnings table in the selected period (calls, gifts, etc.). Not the same as cash withdrawn.",
     },
     creatorPayouts: {
       available: true,
       value: roundMoney(payoutTotal),
       label: "Creator Payouts (withdrawn)",
+      definition:
+        "Approved/completed creator withdrawals from the withdraws table in the selected period.",
     },
     refunds: unavailableMetric(
       "Not configured",
@@ -64,17 +69,31 @@ export const getRevenueBreakdown = async (bounds) => {
   let estimatedContribution = baseRevenue - payoutTotal;
 
   const [durationRow] = await sequelize.query(
-    `SELECT COALESCE(SUM(duration), 0) / 60 AS connectedMinutes
-     FROM call_histories
-     WHERE createdAt >= :fromUtc AND createdAt <= :toUtc
-       AND (COALESCE(duration, 0) > 0 OR status IN ('accepted','completed','ended','ongoing','in_progress'))`,
+    `SELECT COALESCE(SUM(ch.duration), 0) / 60 AS connectedMinutes
+     FROM call_histories ch
+     WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc
+       AND ${callConnectedSql("ch")}`,
     {
       replacements: periodReplacements(bounds),
       type: QueryTypes.SELECT,
     }
   );
 
-  const totalConnectedMinutes = Number(durationRow[0]?.connectedMinutes) || 0;
+  const totalConnectedMinutes = Number(durationRow?.connectedMinutes) || 0;
+
+  const revenuePerConnectedMinute =
+    totalConnectedMinutes > 0
+      ? {
+          available: true,
+          value: roundMoney(grossRevenue / totalConnectedMinutes),
+          label: "Revenue per Connected Minute",
+        }
+      : {
+          available: false,
+          value: null,
+          label: "—",
+          reason: "No connected minutes in selected period.",
+        };
 
   return {
     grossRechargeRevenue: roundMoney(grossRevenue),
@@ -101,10 +120,15 @@ export const getRevenueBreakdown = async (bounds) => {
         callSummary.totalCalls > 0
           ? roundMoney(grossRevenue / callSummary.totalCalls)
           : 0,
-      revenuePerConnectedMinute:
-        totalConnectedMinutes > 0
-          ? roundMoney(grossRevenue / totalConnectedMinutes)
-          : 0,
+      revenuePerConnectedMinute,
+    },
+    metricDefinitions: {
+      creatorEarnings:
+        "Accrued creator earnings in period (earnings table). Includes unwithdrawn balance.",
+      creatorPayouts:
+        "Cash paid out to creators via approved withdrawals in period (withdraws table).",
+      remainingRevenue:
+        "Net revenue minus creator payouts. Other costs not deducted unless configured.",
     },
     formula: {
       netRevenue: "Gross Revenue - GST (splitInclusiveGst)",

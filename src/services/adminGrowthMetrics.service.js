@@ -99,11 +99,25 @@ export const buildMetricWithComparison = ({
 const roundMoney = (value) =>
   Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
-export const CALL_CONNECTED_SQL = `(COALESCE(duration, 0) > 0 OR status IN ('accepted','completed','ended','ongoing','in_progress'))`;
+export const callAcceptedSql = (alias = "") => {
+  const prefix = alias ? `${alias}.` : "";
+  return `(${prefix}status IN ('accepted','completed','ended','ongoing','in_progress') OR COALESCE(${prefix}duration, 0) > 0)`;
+};
 
-export const CALL_ACCEPTED_SQL = `(status IN ('accepted','completed','ended','ongoing','in_progress') OR COALESCE(duration, 0) > 0)`;
+export const callConnectedSql = (alias = "") => {
+  const prefix = alias ? `${alias}.` : "";
+  return `(COALESCE(${prefix}duration, 0) > 0 OR ${prefix}status IN ('accepted','completed','ended','ongoing','in_progress'))`;
+};
 
-export const CALL_FAILED_SQL = `status IN ('missed','rejected','cancelled','failed','busy')`;
+export const callFailedSql = (alias = "") => {
+  const prefix = alias ? `${alias}.` : "";
+  return `${prefix}status IN ('missed','rejected','cancelled','failed','busy')`;
+};
+
+/** Single-table call_histories queries (no join ambiguity). */
+export const CALL_ACCEPTED_SQL = callAcceptedSql();
+export const CALL_CONNECTED_SQL = callConnectedSql();
+export const CALL_FAILED_SQL = callFailedSql();
 
 const periodReplacements = (bounds) => ({
   fromUtc: bounds.fromUtc,
@@ -399,24 +413,71 @@ const buildFunnelStage = ({
   id,
   label,
   count,
-  previousCount = null,
+  unit,
   available = true,
   reason = null,
+  previousStage = null,
+  registrationStage = null,
 }) => {
   const stage = {
     id,
     label,
     count: available ? Number(count) || 0 : null,
+    unit,
     available,
     reason,
+    conversionComparable: false,
+    conversionFromPrevious: null,
+    conversionFromRegistration: null,
+    dropOffFromRegistration: null,
+    conversionUnavailableReason: null,
   };
 
-  if (previousCount !== null && available) {
-    stage.conversionFromPrevious = safeRate(count, previousCount);
+  if (!available) {
+    return stage;
+  }
+
+  if (previousStage?.available) {
+    if (previousStage.unit === unit) {
+      stage.conversionFromPrevious = safeRate(stage.count, previousStage.count);
+      stage.conversionComparable = true;
+    } else {
+      stage.conversionUnavailableReason = `Previous stage is ${previousStage.unit} while this stage is ${unit}.`;
+    }
+  }
+
+  if (
+    registrationStage?.available &&
+    registrationStage.unit === unit &&
+    Number(registrationStage.count) > 0
+  ) {
+    stage.conversionFromRegistration = safeRate(
+      stage.count,
+      registrationStage.count
+    );
+    if (stage.conversionFromRegistration !== null) {
+      stage.dropOffFromRegistration = Number(
+        (100 - stage.conversionFromRegistration).toFixed(1)
+      );
+    }
+  } else if (
+    registrationStage?.available &&
+    registrationStage.unit !== unit
+  ) {
+    stage.conversionFromRegistration = null;
+    stage.dropOffFromRegistration = null;
   }
 
   return stage;
 };
+
+const buildTrackedStage = (config) =>
+  buildFunnelStage({
+    ...config,
+    available: false,
+    count: null,
+    reason: config.reason || "Not tracked",
+  });
 
 export const getGrowthFunnel = async (bounds) => {
   const replacements = periodReplacements(bounds);
@@ -430,6 +491,7 @@ export const getGrowthFunnel = async (bounds) => {
     call30Row,
     firstRechargeRow,
     repeatRechargeRow,
+    payments,
   ] = await Promise.all([
     sequelize.query(
       `SELECT COUNT(*) AS count FROM users
@@ -449,45 +511,46 @@ export const getGrowthFunnel = async (bounds) => {
       { replacements, type: QueryTypes.SELECT }
     ),
     sequelize.query(
-      `SELECT COUNT(*) AS count FROM call_histories
-       WHERE createdAt >= :fromUtc AND createdAt <= :toUtc`,
+      `SELECT COUNT(*) AS count FROM call_histories ch
+       WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc`,
       { replacements, type: QueryTypes.SELECT }
     ),
     sequelize.query(
-      `SELECT COUNT(*) AS count FROM call_histories
-       WHERE createdAt >= :fromUtc AND createdAt <= :toUtc
-         AND ${CALL_CONNECTED_SQL}`,
+      `SELECT COUNT(*) AS count FROM call_histories ch
+       WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc
+         AND ${callConnectedSql("ch")}`,
       { replacements, type: QueryTypes.SELECT }
     ),
     sequelize.query(
-      `SELECT COUNT(*) AS count FROM call_histories
-       WHERE createdAt >= :fromUtc AND createdAt <= :toUtc
-         AND COALESCE(duration, 0) >= 30`,
+      `SELECT COUNT(*) AS count FROM call_histories ch
+       WHERE ch.createdAt >= :fromUtc AND ch.createdAt <= :toUtc
+         AND COALESCE(ch.duration, 0) >= 30`,
       { replacements, type: QueryTypes.SELECT }
     ),
     sequelize.query(
       `SELECT COUNT(*) AS count
        FROM (
-         SELECT userId, MIN(updatedAt) AS firstPaidAt
-         FROM payment_orders
-         WHERE status IN (:paymentStatuses)
-         GROUP BY userId
+         SELECT po.userId, MIN(po.updatedAt) AS firstPaidAt
+         FROM payment_orders po
+         WHERE po.status IN (:paymentStatuses)
+         GROUP BY po.userId
        ) fp
-       WHERE firstPaidAt >= :fromUtc AND firstPaidAt <= :toUtc`,
+       WHERE fp.firstPaidAt >= :fromUtc AND fp.firstPaidAt <= :toUtc`,
       { replacements, type: QueryTypes.SELECT }
     ),
     sequelize.query(
-      `SELECT COUNT(DISTINCT userId) AS count
-       FROM payment_orders
-       WHERE status IN (:paymentStatuses)
-         AND updatedAt >= :fromUtc AND updatedAt <= :toUtc
-         AND userId IN (
-           SELECT userId FROM payment_orders
-           WHERE status IN (:paymentStatuses)
-           GROUP BY userId HAVING COUNT(*) >= 2
+      `SELECT COUNT(DISTINCT po.userId) AS count
+       FROM payment_orders po
+       WHERE po.status IN (:paymentStatuses)
+         AND po.updatedAt >= :fromUtc AND po.updatedAt <= :toUtc
+         AND po.userId IN (
+           SELECT po2.userId FROM payment_orders po2
+           WHERE po2.status IN (:paymentStatuses)
+           GROUP BY po2.userId HAVING COUNT(*) >= 2
          )`,
       { replacements, type: QueryTypes.SELECT }
     ),
+    getPaymentAggregates(bounds),
   ]);
 
   const registrations = Number(registrationRow[0]?.count) || 0;
@@ -499,107 +562,167 @@ export const getGrowthFunnel = async (bounds) => {
   const firstRecharge = Number(firstRechargeRow[0]?.count) || 0;
   const repeatRecharge = Number(repeatRechargeRow[0]?.count) || 0;
 
-  const stages = [
-    buildFunnelStage({
+  const userStageDefs = [
+    buildTrackedStage({
       id: "ad_impression",
       label: "Ad Impression",
-      count: null,
-      available: false,
+      unit: "events",
       reason: "Not tracked",
     }),
-    buildFunnelStage({
+    buildTrackedStage({
       id: "store_visit",
       label: "Store Visit",
-      count: null,
-      available: false,
+      unit: "events",
       reason: "Not tracked",
     }),
-    buildFunnelStage({
+    buildTrackedStage({
       id: "install",
       label: "Install",
-      count: null,
-      available: false,
+      unit: "users",
       reason: "Not tracked",
     }),
-    buildFunnelStage({
-      id: "registration",
-      label: "Registration",
-      count: registrations,
-    }),
-    buildFunnelStage({
+    { id: "registration", label: "Registration", count: registrations, unit: "users" },
+    {
       id: "profile_completed",
       label: "Profile Completed",
       count: profileCompleted,
-      previousCount: registrations,
-    }),
-    buildFunnelStage({
+      unit: "users",
+    },
+    buildTrackedStage({
       id: "creator_viewed",
       label: "Creator Viewed",
-      count: null,
-      available: false,
+      unit: "users",
       reason: "Not tracked",
     }),
-    buildFunnelStage({
-      id: "chat_started",
-      label: "Chat Started",
-      count: chatStarted,
-      previousCount: profileCompleted || registrations,
-    }),
-    buildFunnelStage({
-      id: "call_started",
-      label: "Call Started",
-      count: callStarted,
-      previousCount: chatStarted || profileCompleted || registrations,
-    }),
-    buildFunnelStage({
-      id: "call_connected",
-      label: "Call Connected",
-      count: callConnected,
-      previousCount: callStarted,
-    }),
-    buildFunnelStage({
-      id: "call_gt_30_sec",
-      label: "Call > 30 Seconds",
-      count: call30,
-      previousCount: callConnected,
-    }),
-    buildFunnelStage({
+    { id: "chat_started", label: "Chat Started", count: chatStarted, unit: "users" },
+    {
       id: "first_recharge",
       label: "First Recharge",
       count: firstRecharge,
-      previousCount: call30 || callConnected,
-    }),
-    buildFunnelStage({
+      unit: "users",
+    },
+    {
       id: "repeat_recharge",
       label: "Repeat Recharge",
       count: repeatRecharge,
-      previousCount: firstRecharge,
-    }),
+      unit: "users",
+    },
   ];
 
-  stages.forEach((stage) => {
-    if (stage.available && registrations > 0 && stage.count !== null) {
-      stage.overallFromRegistration = safeRate(stage.count, registrations);
-      stage.dropOffFromRegistration =
-        stage.overallFromRegistration === null
-          ? null
-          : Number((100 - stage.overallFromRegistration).toFixed(1));
+  const registrationAnchor = {
+    id: "registration",
+    label: "Registration",
+    count: registrations,
+    unit: "users",
+    available: true,
+  };
+
+  const userStages = [];
+  let prevUser = null;
+  for (const def of userStageDefs) {
+    const stage = buildFunnelStage({
+      ...def,
+      previousStage: prevUser,
+      registrationStage: registrationAnchor,
+    });
+    if (stage.available) {
+      prevUser = stage;
     }
-  });
+    userStages.push(stage);
+  }
+
+  const callStageDefs = [
+    { id: "call_started", label: "Call Started", count: callStarted, unit: "calls" },
+    { id: "call_connected", label: "Call Connected", count: callConnected, unit: "calls" },
+    { id: "call_gt_30_sec", label: "Call > 30 Seconds", count: call30, unit: "calls" },
+  ];
+
+  const callStages = [];
+  let prevCall = null;
+  for (const def of callStageDefs) {
+    const stage = buildFunnelStage({
+      ...def,
+      previousStage: prevCall,
+      registrationStage: null,
+    });
+    callStages.push(stage);
+    prevCall = stage;
+  }
+
+  const revenueStageDefs = [
+    {
+      id: "paying_users",
+      label: "Paying Users",
+      count: payments.payingUsers,
+      unit: "users",
+    },
+    {
+      id: "first_time_payers",
+      label: "First-Time Payers",
+      count: payments.firstTimePayers,
+      unit: "users",
+    },
+    {
+      id: "repeat_payers",
+      label: "Repeat Payers",
+      count: payments.repeatPayers,
+      unit: "users",
+    },
+    {
+      id: "recharge_transactions",
+      label: "Recharge Transactions",
+      count: payments.transactionCount,
+      unit: "transactions",
+    },
+  ];
+
+  const revenueStages = [];
+  let prevRevenue = null;
+  for (const def of revenueStageDefs) {
+    const stage = buildFunnelStage({
+      ...def,
+      previousStage: prevRevenue,
+      registrationStage: registrationAnchor,
+    });
+    revenueStages.push(stage);
+    if (stage.unit === "users") {
+      prevRevenue = stage;
+    } else {
+      prevRevenue = null;
+    }
+  }
 
   return {
-    stages,
-    note: "Top-of-funnel and creator-view stages require event tracking (Phase 4). Chat started counts distinct senders with messages in period.",
-    callStatusesReference: {
-      active: ACTIVE_CALL_STATUSES,
-      terminal: TERMINAL_CALL_STATUSES,
-      failed: CALL_FAILED_STATUSES,
-      accepted: CALL_ACCEPTED_STATUSES,
+    userFunnel: {
+      title: "ULOV User Growth Funnel",
+      stages: userStages,
     },
+    callFunnel: {
+      title: "Call Event Funnel",
+      note: "All stages are call counts. See Call Quality for the full call funnel.",
+      stages: callStages,
+    },
+    revenueFunnel: {
+      title: "Revenue Funnel",
+      note: "User stages and transaction counts are not mixed into one conversion chain.",
+      stages: revenueStages,
+      grossRevenue: roundMoney(payments.grossRevenue),
+    },
+    stages: userStages,
+    definitions: {
+      firstTimePayer:
+        "Users whose first-ever successful payment updatedAt falls within the selected IST period.",
+      repeatPayer:
+        "Users with 2+ lifetime successful payments who also made at least one payment in the selected period.",
+      chatStarted:
+        "Distinct users who sent at least one chat message in the period (not necessarily first-ever chat).",
+    },
+    note: "User, call, and revenue funnels use separate units. Conversions are only calculated between compatible stages.",
   };
 };
 
 export {
   roundMoney,
   periodReplacements,
+  buildFunnelStage,
 };
