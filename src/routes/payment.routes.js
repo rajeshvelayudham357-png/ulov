@@ -12,6 +12,7 @@ import {
   createGatewayPaymentOrder,
   getCashfreeCheckoutHtml,
   getPaymentConfig,
+  getPaymentPackages,
   getRazorpayCheckoutHtml,
   razorpayReturn,
   razorpayWebhook,
@@ -34,6 +35,7 @@ import {
 const router = express.Router();
 
 router.get("/config", getPaymentConfig);
+router.get("/packages", getPaymentPackages);
 router.get("/provider", getPaymentProvider);
 router.get("/products", getPaymentProductsList);
 

@@ -123,15 +123,19 @@ export const ensurePaymentDatabaseSchemas = async () => {
       { provider: "google_play", platform: "android", productId: "coins_80", coins: 80, price: 39.00, displayOrder: 2 },
       { provider: "google_play", platform: "android", productId: "coins_160", coins: 160, price: 69.00, displayOrder: 3 },
       { provider: "google_play", platform: "android", productId: "coins_320", coins: 320, price: 129.00, displayOrder: 4 },
-      { provider: "google_play", platform: "android", productId: "coins_640", coins: 640, price: 249.00, displayOrder: 5 },
-      { provider: "google_play", platform: "android", productId: "coins_1040", coins: 1040, price: 389.00, displayOrder: 6 },
-      { provider: "google_play", platform: "android", productId: "coins_2100", coins: 2100, price: 699.00, displayOrder: 7 },
-      { provider: "google_play", platform: "android", productId: "coins_5000", coins: 5000, price: 1499.00, displayOrder: 8 },
+      { provider: "google_play", platform: "android", productId: "coins_1000", coins: 1000, price: 249.00, displayOrder: 5 },
+      { provider: "google_play", platform: "android", productId: "coins_1300", coins: 1300, price: 389.00, displayOrder: 6 },
+      { provider: "google_play", platform: "android", productId: "coins_1700", coins: 1700, price: 499.00, displayOrder: 7 },
+      { provider: "google_play", platform: "android", productId: "coins_2100", coins: 2100, price: 599.00, displayOrder: 8 },
+      { provider: "google_play", platform: "android", productId: "coins_2400", coins: 2400, price: 699.00, displayOrder: 9 },
       { provider: "google_play", platform: "android", productId: "coins_100", coins: 100, price: 99.00, displayOrder: 9 },
       { provider: "google_play", platform: "android", productId: "coins_250", coins: 250, price: 249.00, displayOrder: 10 },
       { provider: "google_play", platform: "android", productId: "coins_500", coins: 500, price: 499.00, displayOrder: 11 },
       { provider: "google_play", platform: "android", productId: "coins_1000", coins: 1000, price: 999.00, displayOrder: 12 },
       { provider: "google_play", platform: "android", productId: "coins_2500", coins: 2500, price: 2499.00, displayOrder: 13 },
+      { provider: "google_play", platform: "android", productId: "coins_120", coins: 120, price: 49.00, displayOrder: 14 },
+      { provider: "google_play", platform: "android", productId: "coins_1200", coins: 1200, price: 249.00, displayOrder: 15 },
+      { provider: "google_play", platform: "android", productId: "coins_2000", coins: 2000, price: 549.00, displayOrder: 16 },
     ];
 
     for (const p of defaultProducts) {

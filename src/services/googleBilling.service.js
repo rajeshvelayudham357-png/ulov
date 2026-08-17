@@ -3,7 +3,7 @@ import { sequelize } from "../config/database.js";
 import { PaymentOrder, Wallet, WalletTransaction } from "../models/index.js";
 import { PaymentProviderFactory } from "./payment/PaymentProviderFactory.js";
 import { ensurePaymentDatabaseSchemas } from "./paymentSchema.service.js";
-import { GOLD_PACKAGES } from "../constants/goldPackages.js";
+import { GOLD_PACKAGES, getEnabledBonusPackages } from "../constants/goldPackages.js";
 
 // Helper for socket emission if socket server instance is available
 let ioInstance = null;
@@ -107,7 +107,10 @@ export const verifyAndCreditGooglePlayPurchase = async ({ productId, purchaseTok
     const coinMatch = productId.match(/^coins_(\d+)$/);
     if (coinMatch) {
       parsedCoins = Number(coinMatch[1]);
-      const pkg = GOLD_PACKAGES.find((g) => Number(g.coins) === parsedCoins);
+      const bonusPackages = await getEnabledBonusPackages();
+      const pkg =
+        GOLD_PACKAGES.find((g) => Number(g.coins) === parsedCoins) ||
+        bonusPackages.find((g) => Number(g.coins) === parsedCoins);
       parsedPrice = pkg ? Number(pkg.price) : parsedCoins;
     }
 

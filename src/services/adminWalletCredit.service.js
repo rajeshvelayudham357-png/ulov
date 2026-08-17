@@ -1,7 +1,11 @@
 import { Op } from "sequelize";
 
 import { sequelize } from "../config/database.js";
-import { GOLD_PACKAGES, getGoldPackageById } from "../constants/goldPackages.js";
+import {
+  GOLD_PACKAGES,
+  getAllPurchasablePackages,
+  resolveGoldPackageById,
+} from "../constants/goldPackages.js";
 import { User, Wallet, WalletTransaction, PaymentOrder } from "../models/index.js";
 import { creditWalletForPayment } from "./payment.service.js";
 
@@ -25,7 +29,10 @@ const getDisplayName = (user) => {
   );
 };
 
-export const getMaleWalletCreditPackages = () => GOLD_PACKAGES;
+export const getMaleWalletCreditPackages = async () => {
+  const { bonus } = await getAllPurchasablePackages();
+  return [...GOLD_PACKAGES, ...bonus];
+};
 
 export const lookupMaleUserForWalletCredit = async (phone) => {
   const normalizedPhone = normalizePhone(phone);
@@ -106,7 +113,7 @@ export const creditMaleUserWallet = async ({
   let finalPackageId = packageId != null ? Number(packageId) : null;
 
   if (finalPackageId) {
-    const goldPackage = getGoldPackageById(finalPackageId);
+    const goldPackage = await resolveGoldPackageById(finalPackageId);
 
     if (!goldPackage) {
       throw new Error("Invalid gold package selected");

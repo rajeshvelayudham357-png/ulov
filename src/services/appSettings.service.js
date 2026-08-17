@@ -1,5 +1,11 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
+import {
+  DEFAULT_FORCE_UPDATE_MESSAGE,
+  mapForceUpdateRow,
+  mergeForceUpdateSettings,
+  validateForceUpdateSettings,
+} from "../utils/appSettingsForceUpdate.util.js";
 
 let ioInstance = null;
 
@@ -14,6 +20,23 @@ const DEFAULT_SETTINGS = {
   authVerificationMode: "otp",
   femaleVerificationMethod: "audio",
   femaleUserCardLayout: 0,
+  bonusPack1Enabled: 0,
+  bonusPack1Price: 49,
+  bonusPack1Coins: 120,
+  bonusPack2Enabled: 0,
+  bonusPack2Price: 249,
+  bonusPack2Coins: 1200,
+  bonusPack3Enabled: 0,
+  bonusPack3Price: 549,
+  bonusPack3Coins: 2000,
+  forceUpdateEnabled: 0,
+  minAndroidVersionCode: null,
+  minIosBuildNumber: null,
+  latestAndroidVersionCode: null,
+  latestIosBuildNumber: null,
+  updateMessage: DEFAULT_FORCE_UPDATE_MESSAGE,
+  playStoreUrl: null,
+  appStoreUrl: null,
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -94,10 +117,40 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     "TINYINT NOT NULL DEFAULT 0"
   );
 
+  for (const [column, definition] of [
+    ["bonusPack1Enabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["bonusPack1Price", "INT NOT NULL DEFAULT 49"],
+    ["bonusPack1Coins", "INT NOT NULL DEFAULT 120"],
+    ["bonusPack2Enabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["bonusPack2Price", "INT NOT NULL DEFAULT 249"],
+    ["bonusPack2Coins", "INT NOT NULL DEFAULT 1200"],
+    ["bonusPack3Enabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["bonusPack3Price", "INT NOT NULL DEFAULT 549"],
+    ["bonusPack3Coins", "INT NOT NULL DEFAULT 2000"],
+    ["forceUpdateEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["minAndroidVersionCode", "INT NULL"],
+    ["minIosBuildNumber", "INT NULL"],
+    ["latestAndroidVersionCode", "INT NULL"],
+    ["latestIosBuildNumber", "INT NULL"],
+    ["updateMessage", "VARCHAR(500) NULL"],
+    ["playStoreUrl", "VARCHAR(512) NULL"],
+    ["appStoreUrl", "VARCHAR(512) NULL"],
+  ]) {
+    await ensureColumn("admin_app_settings", column, definition);
+  }
+
   await sequelize.query(
     `INSERT IGNORE INTO admin_app_settings
-(id, languageMatchingEnabled, welcomeOfferEnabled, welcomeOfferCoins, authVerificationMode, femaleVerificationMethod, femaleUserCardLayout)
-VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :authVerificationMode, :femaleVerificationMethod, :femaleUserCardLayout)`,
+(id, languageMatchingEnabled, welcomeOfferEnabled, welcomeOfferCoins, authVerificationMode, femaleVerificationMethod, femaleUserCardLayout,
+ bonusPack1Enabled, bonusPack1Price, bonusPack1Coins,
+ bonusPack2Enabled, bonusPack2Price, bonusPack2Coins,
+ bonusPack3Enabled, bonusPack3Price, bonusPack3Coins,
+ forceUpdateEnabled, updateMessage)
+VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :authVerificationMode, :femaleVerificationMethod, :femaleUserCardLayout,
+ :bonusPack1Enabled, :bonusPack1Price, :bonusPack1Coins,
+ :bonusPack2Enabled, :bonusPack2Price, :bonusPack2Coins,
+ :bonusPack3Enabled, :bonusPack3Price, :bonusPack3Coins,
+ :forceUpdateEnabled, :updateMessage)`,
     {
       replacements: DEFAULT_SETTINGS,
     }
@@ -117,6 +170,7 @@ export const getAppSettings = async () => {
   );
 
   const row = rows[0] || DEFAULT_SETTINGS;
+  const forceUpdate = mapForceUpdateRow(row);
 
   return {
     languageMatchingEnabled: Boolean(
@@ -134,6 +188,16 @@ export const getAppSettings = async () => {
       row.femaleVerificationMethod
     ),
     femaleUserCardLayout: Number(row.femaleUserCardLayout ?? 0),
+    bonusPack1Enabled: Boolean(Number(row.bonusPack1Enabled ?? 0)),
+    bonusPack1Price: Number(row.bonusPack1Price ?? 49) || 49,
+    bonusPack1Coins: Number(row.bonusPack1Coins ?? 120) || 120,
+    bonusPack2Enabled: Boolean(Number(row.bonusPack2Enabled ?? 0)),
+    bonusPack2Price: Number(row.bonusPack2Price ?? 249) || 249,
+    bonusPack2Coins: Number(row.bonusPack2Coins ?? 1200) || 1200,
+    bonusPack3Enabled: Boolean(Number(row.bonusPack3Enabled ?? 0)),
+    bonusPack3Price: Number(row.bonusPack3Price ?? 549) || 549,
+    bonusPack3Coins: Number(row.bonusPack3Coins ?? 2000) || 2000,
+    ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
 };
@@ -145,10 +209,46 @@ export const updateAppSettings = async ({
   authVerificationMode,
   femaleVerificationMethod,
   femaleUserCardLayout,
+  bonusPack1Enabled,
+  bonusPack1Price,
+  bonusPack1Coins,
+  bonusPack2Enabled,
+  bonusPack2Price,
+  bonusPack2Coins,
+  bonusPack3Enabled,
+  bonusPack3Price,
+  bonusPack3Coins,
+  forceUpdateEnabled,
+  minAndroidVersionCode,
+  minIosBuildNumber,
+  latestAndroidVersionCode,
+  latestIosBuildNumber,
+  updateMessage,
+  playStoreUrl,
+  appStoreUrl,
 }) => {
   await ensureAppSettingsTable();
 
   const current = await getAppSettings();
+  const nextForceUpdate = mergeForceUpdateSettings(current, {
+    forceUpdateEnabled,
+    minAndroidVersionCode,
+    minIosBuildNumber,
+    latestAndroidVersionCode,
+    latestIosBuildNumber,
+    updateMessage,
+    playStoreUrl,
+    appStoreUrl,
+  });
+
+  const validationErrors = validateForceUpdateSettings(nextForceUpdate);
+
+  if (validationErrors.length > 0) {
+    const error = new Error(validationErrors[0]);
+    error.statusCode = 400;
+    error.details = validationErrors;
+    throw error;
+  }
 
   const nextLanguageMatching =
     languageMatchingEnabled === undefined
@@ -196,6 +296,61 @@ export const updateAppSettings = async ({
         ? Math.round(parsedLayout)
         : current.femaleUserCardLayout;
 
+  const parsePositiveInt = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+  };
+
+  const nextBonusPack1Enabled =
+    bonusPack1Enabled === undefined
+      ? current.bonusPack1Enabled
+        ? 1
+        : 0
+      : bonusPack1Enabled
+        ? 1
+        : 0;
+  const nextBonusPack2Enabled =
+    bonusPack2Enabled === undefined
+      ? current.bonusPack2Enabled
+        ? 1
+        : 0
+      : bonusPack2Enabled
+        ? 1
+        : 0;
+  const nextBonusPack3Enabled =
+    bonusPack3Enabled === undefined
+      ? current.bonusPack3Enabled
+        ? 1
+        : 0
+      : bonusPack3Enabled
+        ? 1
+        : 0;
+
+  const nextBonusPack1Price =
+    bonusPack1Price === undefined
+      ? current.bonusPack1Price
+      : parsePositiveInt(bonusPack1Price, current.bonusPack1Price);
+  const nextBonusPack1Coins =
+    bonusPack1Coins === undefined
+      ? current.bonusPack1Coins
+      : parsePositiveInt(bonusPack1Coins, current.bonusPack1Coins);
+  const nextBonusPack2Price =
+    bonusPack2Price === undefined
+      ? current.bonusPack2Price
+      : parsePositiveInt(bonusPack2Price, current.bonusPack2Price);
+  const nextBonusPack2Coins =
+    bonusPack2Coins === undefined
+      ? current.bonusPack2Coins
+      : parsePositiveInt(bonusPack2Coins, current.bonusPack2Coins);
+  const nextBonusPack3Price =
+    bonusPack3Price === undefined
+      ? current.bonusPack3Price
+      : parsePositiveInt(bonusPack3Price, current.bonusPack3Price);
+  const nextBonusPack3Coins =
+    bonusPack3Coins === undefined
+      ? current.bonusPack3Coins
+      : parsePositiveInt(bonusPack3Coins, current.bonusPack3Coins);
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -203,7 +358,24 @@ welcomeOfferEnabled = :welcomeOfferEnabled,
 welcomeOfferCoins = :welcomeOfferCoins,
 authVerificationMode = :authVerificationMode,
 femaleVerificationMethod = :femaleVerificationMethod,
-femaleUserCardLayout = :femaleUserCardLayout
+femaleUserCardLayout = :femaleUserCardLayout,
+bonusPack1Enabled = :bonusPack1Enabled,
+bonusPack1Price = :bonusPack1Price,
+bonusPack1Coins = :bonusPack1Coins,
+bonusPack2Enabled = :bonusPack2Enabled,
+bonusPack2Price = :bonusPack2Price,
+bonusPack2Coins = :bonusPack2Coins,
+bonusPack3Enabled = :bonusPack3Enabled,
+bonusPack3Price = :bonusPack3Price,
+bonusPack3Coins = :bonusPack3Coins,
+forceUpdateEnabled = :forceUpdateEnabled,
+minAndroidVersionCode = :minAndroidVersionCode,
+minIosBuildNumber = :minIosBuildNumber,
+latestAndroidVersionCode = :latestAndroidVersionCode,
+latestIosBuildNumber = :latestIosBuildNumber,
+updateMessage = :updateMessage,
+playStoreUrl = :playStoreUrl,
+appStoreUrl = :appStoreUrl
 WHERE id = 1`,
     {
       replacements: {
@@ -213,6 +385,23 @@ WHERE id = 1`,
         authVerificationMode: nextAuthVerificationMode,
         femaleVerificationMethod: nextFemaleVerificationMethod,
         femaleUserCardLayout: nextFemaleUserCardLayout,
+        bonusPack1Enabled: nextBonusPack1Enabled,
+        bonusPack1Price: nextBonusPack1Price,
+        bonusPack1Coins: nextBonusPack1Coins,
+        bonusPack2Enabled: nextBonusPack2Enabled,
+        bonusPack2Price: nextBonusPack2Price,
+        bonusPack2Coins: nextBonusPack2Coins,
+        bonusPack3Enabled: nextBonusPack3Enabled,
+        bonusPack3Price: nextBonusPack3Price,
+        bonusPack3Coins: nextBonusPack3Coins,
+        forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
+        minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
+        minIosBuildNumber: nextForceUpdate.minIosBuildNumber,
+        latestAndroidVersionCode: nextForceUpdate.latestAndroidVersionCode,
+        latestIosBuildNumber: nextForceUpdate.latestIosBuildNumber,
+        updateMessage: nextForceUpdate.updateMessage,
+        playStoreUrl: nextForceUpdate.playStoreUrl,
+        appStoreUrl: nextForceUpdate.appStoreUrl,
       },
     }
   );

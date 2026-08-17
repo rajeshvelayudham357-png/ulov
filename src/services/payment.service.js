@@ -1,6 +1,6 @@
 import { QueryTypes, Op } from "sequelize";
 
-import { getGoldPackageById } from "../constants/goldPackages.js";
+import { resolveGoldPackageById } from "../constants/goldPackages.js";
 import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { sequelize } from "../config/database.js";
 import {
@@ -256,7 +256,7 @@ const createPayUPaymentOrder = async ({ userId, goldPackage, user, orderId }) =>
 export const createPaymentOrder = async ({ userId, packageId }) => {
   await ensurePaymentOrderColumns();
 
-  const goldPackage = getGoldPackageById(packageId);
+  const goldPackage = await resolveGoldPackageById(packageId);
 
   if (!goldPackage) {
     throw new Error("Invalid gold package");

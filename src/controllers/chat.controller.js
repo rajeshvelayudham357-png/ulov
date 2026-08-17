@@ -98,6 +98,22 @@ if(blocked){
 return false;
 }
 
+const senderUser =
+await User.findByPk(
+sender,
+{
+attributes:["id","gender"]
+}
+);
+
+if(!senderUser){
+return false;
+}
+
+if(senderUser.gender === "Female"){
+return true;
+}
+
 const maleToFemale =
 await Favorite.findOne({
 where:{
@@ -118,7 +134,36 @@ favoriteUserId:sender
 }
 });
 
-return Boolean(maleFavoritedFemale);
+if(maleFavoritedFemale){
+return true;
+}
+
+const receiverUser =
+await User.findByPk(
+receiver,
+{
+attributes:["id","gender"]
+}
+);
+
+if(receiverUser?.gender === "Female"){
+const femaleStartedChat =
+await ChatMessage.findOne({
+where:{
+senderId:receiver,
+receiverId:sender,
+createdAt:{
+[Op.gte]:twoDaysAgo()
+}
+}
+});
+
+if(femaleStartedChat){
+return true;
+}
+}
+
+return false;
 };
 
 export const sendMessage =

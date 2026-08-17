@@ -1068,6 +1068,40 @@ femaleVerificationMethod:
 req.body.femaleVerificationMethod,
 femaleUserCardLayout:
 req.body.femaleUserCardLayout,
+bonusPack1Enabled:
+req.body.bonusPack1Enabled,
+bonusPack1Price:
+req.body.bonusPack1Price,
+bonusPack1Coins:
+req.body.bonusPack1Coins,
+bonusPack2Enabled:
+req.body.bonusPack2Enabled,
+bonusPack2Price:
+req.body.bonusPack2Price,
+bonusPack2Coins:
+req.body.bonusPack2Coins,
+bonusPack3Enabled:
+req.body.bonusPack3Enabled,
+bonusPack3Price:
+req.body.bonusPack3Price,
+bonusPack3Coins:
+req.body.bonusPack3Coins,
+forceUpdateEnabled:
+req.body.forceUpdateEnabled,
+minAndroidVersionCode:
+req.body.minAndroidVersionCode,
+minIosBuildNumber:
+req.body.minIosBuildNumber,
+latestAndroidVersionCode:
+req.body.latestAndroidVersionCode,
+latestIosBuildNumber:
+req.body.latestIosBuildNumber,
+updateMessage:
+req.body.updateMessage,
+playStoreUrl:
+req.body.playStoreUrl,
+appStoreUrl:
+req.body.appStoreUrl,
 });
 
 return res.json({
@@ -1078,9 +1112,10 @@ settings
 }catch(error){
 
 return res
-.status(500)
+.status(error.statusCode || 500)
 .json({
-message:error.message
+message:error.message,
+details:error.details || undefined,
 });
 
 }
@@ -2547,7 +2582,7 @@ try{
 
 
 return res.json(
-getMaleWalletCreditPackages()
+await getMaleWalletCreditPackages()
 );
 
 

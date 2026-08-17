@@ -31,6 +31,7 @@ import {
   initiatePhonePePayment,
   verifyPhonePeWebhookSignature,
 } from "../services/phonepe.service.js";
+import { getAllPurchasablePackages } from "../constants/goldPackages.js";
 
 const buildCreateOrderResponse = async (result) => {
   const base = {
@@ -91,6 +92,17 @@ export const getPaymentConfig = async (_req, res) => {
   } catch (error) {
     return res.status(500).json({
       message: error.message || "Failed to load payment config",
+    });
+  }
+};
+
+export const getPaymentPackages = async (_req, res) => {
+  try {
+    const packages = await getAllPurchasablePackages();
+    return res.json(packages);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || "Failed to load gold packages",
     });
   }
 };
