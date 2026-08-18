@@ -37,6 +37,10 @@ import {
 
     updatePaymentSettingsConfig,
 
+    getAgoraSettingsConfig,
+
+    updateAgoraSettingsConfig,
+
     getGiftSettingsConfig,
 
     updateGiftSettingsConfig,
@@ -292,6 +296,20 @@ router.patch(
 "/payment-settings",
 requirePageAccess("payment-settings"),
 updatePaymentSettingsConfig
+);
+
+
+router.get(
+"/agora-settings",
+requirePageAccess("agora-settings"),
+getAgoraSettingsConfig
+);
+
+
+router.patch(
+"/agora-settings",
+requirePageAccess("agora-settings"),
+updateAgoraSettingsConfig
 );
 
 

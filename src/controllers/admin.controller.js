@@ -109,6 +109,10 @@ getAdminPaymentSettingsView,
 updatePaymentSettings,
 } from "../services/paymentSettings.service.js";
 import {
+getAdminAgoraSettingsView,
+updateAgoraSettings,
+} from "../services/agoraSettings.service.js";
+import {
 backfillPublicUserIds
 } from "../services/publicUserId.service.js";
 import {
@@ -167,6 +171,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"calls", label:"Calls", path:"/calls" },
 { key:"live-calls", label:"Live Calls", path:"/live-calls" },
 { key:"call-rates", label:"Call Rates", path:"/call-rates" },
+{ key:"agora-settings", label:"Agora Settings", path:"/agora-settings" },
 { key:"gift-master", label:"Gift Master", path:"/gift-master" },
 { key:"recharge-revenue", label:"Revenue", path:"/recharge-revenue" },
 { key:"gst-master", label:"GST Master", path:"/gst-master" },
@@ -1286,6 +1291,65 @@ req.body || {}
 
 return res.json({
 message:"Payment settings updated",
+settings
+});
+
+}catch(error){
+
+return res
+.status(400)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getAgoraSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getAdminAgoraSettingsView();
+
+return res.json(
+settings
+);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateAgoraSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updateAgoraSettings(
+req.body || {}
+);
+
+return res.json({
+message:"Agora settings updated",
 settings
 });
 

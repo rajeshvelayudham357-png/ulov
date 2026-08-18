@@ -1,4 +1,4 @@
-import { generateAgoraToken } from "../services/agora.service.js";
+import { generateAgoraToken, getAgoraAppId } from "../services/agora.service.js";
 import {
 areUsersBlocked
 } from "../services/block.service.js";
@@ -192,7 +192,7 @@ liveCall.id
 
 
 const callerToken =
-generateAgoraToken(
+await generateAgoraToken(
 channelName,
 callerUid
 );
@@ -200,10 +200,13 @@ callerUid
 
 
 const receiverToken =
-generateAgoraToken(
+await generateAgoraToken(
 channelName,
 receiverUid
 );
+
+const appId =
+await getAgoraAppId();
 
 
 
@@ -211,6 +214,9 @@ return res.json({
 
 
 success:true,
+
+
+appId,
 
 
 channelName,

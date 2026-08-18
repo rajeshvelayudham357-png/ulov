@@ -1,28 +1,29 @@
 import AgoraToken from "agora-access-token";
+import { getAgoraSettings } from "./agoraSettings.service.js";
 
 const { RtcTokenBuilder, RtcRole } = AgoraToken;
 
-export function generateAgoraToken(channelName, uid) {
+export async function generateAgoraToken(channelName, uid) {
+  const { appId, appCertificate, tokenExpirySeconds } = await getAgoraSettings();
 
-    const APP_ID = 'bfe5c7d54d67451a9a13437bd3f4143b';
-    const APP_CERTIFICATE = 'bcdf531feb854154930eef5232d08a42';
+  if (!appId || !appCertificate) {
+    throw new Error("Agora credentials are not configured.");
+  }
 
-    console.log(APP_ID);
-    console.log(APP_CERTIFICATE);
+  const currentTimestamp = Math.floor(Date.now() / 1000);
+  const privilegeExpiredTs = currentTimestamp + tokenExpirySeconds;
 
-    const expirationTime = 3600;
+  return RtcTokenBuilder.buildTokenWithUid(
+    appId,
+    appCertificate,
+    channelName,
+    uid,
+    RtcRole.PUBLISHER,
+    privilegeExpiredTs
+  );
+}
 
-    const currentTimestamp = Math.floor(Date.now() / 1000);
-
-    const privilegeExpiredTs =
-        currentTimestamp + expirationTime;
-
-    return RtcTokenBuilder.buildTokenWithUid(
-        APP_ID,
-        APP_CERTIFICATE,
-        channelName,
-        uid,
-        RtcRole.PUBLISHER,
-        privilegeExpiredTs
-    );
+export async function getAgoraAppId() {
+  const { appId } = await getAgoraSettings();
+  return appId;
 }
