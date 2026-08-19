@@ -79,6 +79,7 @@ getCallRateSettings,
 updateCallRateSettings,
 getCreatorCallRateSettings,
 updateCreatorEarningPercentage,
+updateCreatorCallRateSettings,
 getCreatorCallRateSummary
 } from "../services/callRate.service.js";
 import {
@@ -179,6 +180,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"auth-settings", label:"Auth Settings", path:"/auth-settings" },
 { key:"user-verification", label:"User Verification", path:"/user-verification" },
 { key:"app-settings", label:"App Settings", path:"/app-settings" },
+{ key:"regular-gold-packages", label:"Regular Gold Packages", path:"/regular-gold-packages" },
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
 { key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
 { key:"broadcast", label:"Broadcast", path:"/broadcast" },
@@ -1408,13 +1410,17 @@ const creatorId =
 req.params.id;
 
 const result =
-await updateCreatorEarningPercentage(
+await updateCreatorCallRateSettings(
 creatorId,
-req.body.femaleEarningPercentage
+{
+femaleEarningPercentage:req.body.femaleEarningPercentage,
+voiceRatePerMinute:req.body.voiceRatePerMinute,
+videoRatePerMinute:req.body.videoRatePerMinute,
+}
 );
 
 return res.json({
-message:"Creator earning percentage updated",
+message:"Creator call rate settings updated",
 setting:result
 });
 
@@ -5340,6 +5346,136 @@ paymentWhere.updatedAt =
 dateBounds;
 }
 
+const summaryAgg =
+await PaymentOrder.findOne({
+where:paymentWhere,
+attributes:[
+[
+fn(
+"COUNT",
+col("payment_orders.id")
+),
+"totalRecharges"
+],
+[
+fn(
+"COALESCE",
+fn(
+"SUM",
+col("payment_orders.amount")
+),
+0
+),
+"totalAmount"
+],
+[
+fn(
+"COALESCE",
+fn(
+"SUM",
+col("payment_orders.coins")
+),
+0
+),
+"totalCoins"
+]
+],
+raw:true
+});
+
+const aggregateTotalRecharges =
+Number(summaryAgg?.totalRecharges) || 0;
+
+const aggregateTotalAmount =
+Number(summaryAgg?.totalAmount) || 0;
+
+const aggregateTotalCoins =
+Number(summaryAgg?.totalCoins) || 0;
+
+const aggregateTotalGstAmount =
+splitInclusiveGst(
+aggregateTotalAmount,
+gstPercent
+).gstAmount;
+
+const aggregateTotalBaseRevenue =
+splitInclusiveGst(
+aggregateTotalAmount,
+gstPercent
+).baseRevenue;
+
+const todayStart =
+new Date();
+
+todayStart.setHours(
+0,
+0,
+0,
+0
+);
+
+const todayEnd =
+new Date(
+todayStart
+);
+
+todayEnd.setDate(
+todayEnd.getDate() + 1
+);
+
+const todayBounds = {
+[Op.gte]:todayStart,
+[Op.lt]:todayEnd
+};
+
+const todayWhere = {
+...paymentWhere,
+updatedAt:paymentWhere.updatedAt
+?
+{
+[Op.and]:[
+paymentWhere.updatedAt,
+todayBounds
+]
+}
+:
+todayBounds
+};
+
+const todayAgg =
+await PaymentOrder.findOne({
+where:todayWhere,
+attributes:[
+[
+fn(
+"COALESCE",
+fn(
+"SUM",
+col("payment_orders.amount")
+),
+0
+),
+"todayAmount"
+]
+],
+raw:true
+});
+
+const todayAmount =
+Number(todayAgg?.todayAmount) || 0;
+
+const todayGstAmount =
+splitInclusiveGst(
+todayAmount,
+gstPercent
+).gstAmount;
+
+const todayBaseRevenue =
+splitInclusiveGst(
+todayAmount,
+gstPercent
+).baseRevenue;
+
 const paidOrders =
 await PaymentOrder.findAll({
 where:paymentWhere,
@@ -5467,111 +5603,17 @@ limit
 )
 .map(applyGstBreakdown);
 
-const totalAmount =
-paidRows.reduce(
-(sum,row)=>
-sum + row.amount,
-0
-);
-
-const totalGstAmount =
-paidRows.reduce(
-(sum,row)=>
-sum + splitInclusiveGst(row.amount, gstPercent).gstAmount,
-0
-);
-
-const totalBaseRevenue =
-paidRows.reduce(
-(sum,row)=>
-sum + splitInclusiveGst(row.amount, gstPercent).baseRevenue,
-0
-);
-
-const totalCoins =
-rows.reduce(
-(sum,row)=>
-sum + row.coins,
-0
-);
-
-const todayStart =
-new Date();
-
-todayStart.setHours(
-0,
-0,
-0,
-0
-);
-
-const todayEnd =
-new Date(
-todayStart
-);
-
-todayEnd.setDate(
-todayEnd.getDate() + 1
-);
-
-const todayAmount =
-paidRows
-.filter(
-(row)=>
-{
-const paidAt =
-new Date(
-row.paidAt
-);
-
-return (
-paidAt >= todayStart &&
-paidAt < todayEnd
-);
-}
-)
-.reduce(
-(sum,row)=>
-sum + row.amount,
-0
-);
-
-const todayGstAmount =
-paidRows
-.filter(
-(row)=>
-{
-const paidAt =
-new Date(
-row.paidAt
-);
-
-return (
-paidAt >= todayStart &&
-paidAt < todayEnd
-);
-}
-)
-.reduce(
-(sum,row)=>
-sum + splitInclusiveGst(row.amount, gstPercent).gstAmount,
-0
-);
-
-const todayBaseRevenue =
-todayAmount - todayGstAmount;
-
 return res.json({
 summary:{
-totalAmount,
+totalAmount:aggregateTotalAmount,
 todayAmount,
-totalCoins,
-totalRecharges:rows.length,
-paidOrders:paidRows.length,
+totalCoins:aggregateTotalCoins,
+totalRecharges:aggregateTotalRecharges,
+paidOrders:aggregateTotalRecharges,
 legacyWalletRecharges:0,
 gstPercent,
-totalGstAmount:Math.round((totalGstAmount + Number.EPSILON) * 100) / 100,
-totalBaseRevenue:Math.round((totalBaseRevenue + Number.EPSILON) * 100) / 100,
+totalGstAmount:Math.round((aggregateTotalGstAmount + Number.EPSILON) * 100) / 100,
+totalBaseRevenue:Math.round((aggregateTotalBaseRevenue + Number.EPSILON) * 100) / 100,
 todayGstAmount:Math.round((todayGstAmount + Number.EPSILON) * 100) / 100,
 todayBaseRevenue:Math.round((todayBaseRevenue + Number.EPSILON) * 100) / 100,
 },
@@ -5905,10 +5947,22 @@ export const getUserFullProfile = async (req, res) => {
             accountStatus: user.accountStatus || "pending",
             approvalStatus: user.accountStatus || "pending",
             rank: creatorRatesSummary?.creatorPercentage ? `Level (${creatorRatesSummary.creatorPercentage}%)` : "Regular",
-            voiceRateCoins: creatorRatesSummary?.callRates?.voice?.coinsPerMinute || 10,
-            videoRateCoins: creatorRatesSummary?.callRates?.video?.coinsPerMinute || 60,
-            voiceRevenuePerMin: creatorRatesSummary?.callRates?.voice?.creatorRevenuePerMinute || 0.86,
-            videoRevenuePerMin: creatorRatesSummary?.callRates?.video?.creatorRevenuePerMinute || 5.18,
+            voiceRateCoins:
+              creatorRatesSummary?.voiceCoinsPerMinute ??
+              creatorRatesSummary?.voiceRatePerMinute ??
+              10,
+            videoRateCoins:
+              creatorRatesSummary?.videoCoinsPerMinute ??
+              creatorRatesSummary?.videoRatePerMinute ??
+              60,
+            voiceRevenuePerMin:
+              creatorRatesSummary?.voiceCreatorEarnPerMinute ??
+              creatorRatesSummary?.voiceEarnPerMinute ??
+              0.86,
+            videoRevenuePerMin:
+              creatorRatesSummary?.videoCreatorEarnPerMinute ??
+              creatorRatesSummary?.videoEarnPerMinute ??
+              5.18,
             currentEarnings: userWalletBalance,
             totalEarningsAmount: totalAmountEarned,
             totalWithdrawals: totalWithdrawals,
@@ -7518,57 +7572,115 @@ export const revenueRecharges = async (req, res) => {
     const gstSettings = await getGstSettings();
     const gstPercent = Number(gstSettings.gstPercent) || 0;
 
-    // Build WHERE
     const where = {
       status: { [Op.in]: ['PAID', 'SUCCESS', 'CAPTURED', 'credited'] },
     };
+
     if (gateway) {
       where.gateway = gateway;
     }
-    if (status && ['PAID','SUCCESS','CAPTURED','credited'].includes(status)) {
+
+    if (status && ['PAID', 'SUCCESS', 'CAPTURED', 'credited'].includes(status)) {
       where.status = status;
     }
+
     if (startDate) {
       where.updatedAt = where.updatedAt || {};
       where.updatedAt[Op.gte] = istDateKeyToUtcRange(startDate).start;
     }
+
     if (endDate) {
       where.updatedAt = where.updatedAt || {};
       where.updatedAt[Op.lte] = istDateKeyToUtcRange(endDate).end;
     }
-    if (minAmount > 0) where.amount = { ...(where.amount || {}), [Op.gte]: minAmount };
-    if (maxAmount > 0) where.amount = { ...(where.amount || {}), [Op.lte]: maxAmount };
 
-    // Fetch all matching orders (no pagination yet - we need search filter)
-    const allOrders = await PaymentOrder.findAll({
+    if (minAmount > 0) {
+      where.amount = { ...(where.amount || {}), [Op.gte]: minAmount };
+    }
+
+    if (maxAmount > 0) {
+      where.amount = { ...(where.amount || {}), [Op.lte]: maxAmount };
+    }
+
+    const userInclude = {
+      model: User,
+      as: "user",
+      attributes: ["id", "publicUserId", "name", "nickname", "username", "phone", "gender"],
+      required: false,
+    };
+
+    if (search) {
+      const like = `%${search}%`;
+      const searchConditions = [
+        { orderId: { [Op.like]: like } },
+        { cashfreePaymentId: { [Op.like]: like } },
+        { razorpayPaymentId: { [Op.like]: like } },
+        { '$user.name$': { [Op.like]: like } },
+        { '$user.nickname$': { [Op.like]: like } },
+        { '$user.username$': { [Op.like]: like } },
+        { '$user.phone$': { [Op.like]: like } },
+        { '$user.publicUserId$': { [Op.like]: like } },
+      ];
+
+      const numericSearch = Number(search);
+
+      if (Number.isFinite(numericSearch) && search === String(numericSearch)) {
+        searchConditions.push({ amount: numericSearch });
+      }
+
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { [Op.or]: searchConditions },
+      ];
+    }
+
+    const queryInclude = [userInclude];
+
+    const summaryAgg = await PaymentOrder.findOne({
       where,
-      include: [
-        {
-          model: User,
-          as: "user",
-          attributes: ["id", "publicUserId", "name", "nickname", "username", "phone", "gender"],
-        },
+      include: queryInclude,
+      attributes: [
+        [fn('COUNT', fn('DISTINCT', col('payment_orders.id'))), 'totalRecharges'],
+        [fn('COALESCE', fn('SUM', col('payment_orders.amount')), 0), 'totalAmount'],
+        [fn('COALESCE', fn('SUM', col('payment_orders.coins')), 0), 'totalCoins'],
       ],
-      order: [["updatedAt", "DESC"]],
-      limit: search ? 5000 : limit + offset + 100,
+      subQuery: false,
+      raw: true,
     });
 
-    // Collect unique userIds for coins-used and wallet balance queries
-    const userIds = [...new Set(allOrders.map((o) => o.userId))];
+    const totalRecharges = Number(summaryAgg?.totalRecharges) || 0;
+    const totalAmountRaw = Number(summaryAgg?.totalAmount) || 0;
+    const totalCoins = Number(summaryAgg?.totalCoins) || 0;
+    const totalGst = splitInclusiveGst(totalAmountRaw, gstPercent).gstAmount;
+    const totalNetRevenue = splitInclusiveGst(totalAmountRaw, gstPercent).baseRevenue;
+
+    const { rows: orderRows, count } = await PaymentOrder.findAndCountAll({
+      where,
+      include: queryInclude,
+      order: [["updatedAt", "DESC"]],
+      limit,
+      offset,
+      distinct: true,
+      subQuery: false,
+    });
+
+    const userIds = [...new Set(orderRows.map((o) => o.userId))];
 
     let walletMap = {};
+
     if (userIds.length > 0) {
       const wallets = await Wallet.findAll({
         where: { userId: userIds },
         attributes: ["userId", "balance"],
       });
+
       wallets.forEach((wallet) => {
         walletMap[wallet.userId] = Number(wallet.balance) || 0;
       });
     }
 
-    // Get coins used per user (sum of negative wallet transactions)
     let coinsUsedMap = {};
+
     if (userIds.length > 0) {
       const usedRows = await sequelize.query(
         `SELECT userId, ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed
@@ -7577,10 +7689,13 @@ export const revenueRecharges = async (req, res) => {
          GROUP BY userId`,
         { replacements: { userIds }, type: QueryTypes.SELECT }
       );
-      usedRows.forEach((r) => { coinsUsedMap[r.userId] = Number(r.coinsUsed) || 0; });
+
+      usedRows.forEach((r) => {
+        coinsUsedMap[r.userId] = Number(r.coinsUsed) || 0;
+      });
     }
 
-    let rows = allOrders.map((order) => {
+    const rows = orderRows.map((order) => {
       const data = order.toJSON();
       const { gstAmount, baseRevenue } = splitInclusiveGst(Number(data.amount) || 0, gstPercent);
       const walletBalance = walletMap[data.userId] ?? 0;
@@ -7609,33 +7724,20 @@ export const revenueRecharges = async (req, res) => {
       };
     });
 
-    // Search filter
-    if (search) {
-      rows = rows.filter((row) => {
-        const vals = [row.orderId, row.userName, row.phone, row.publicUserId, row.transactionId, String(row.amount)]
-          .filter(Boolean).map((v) => String(v).toLowerCase());
-        return vals.some((v) => v.includes(search));
-      });
-    }
-
-    // Aggregate summary (over all matched rows before pagination)
-    const totalRecharges = rows.length;
-    const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
-    const totalGst = rows.reduce((s, r) => s + r.gstAmount, 0);
-    const totalNetRevenue = rows.reduce((s, r) => s + r.netRevenue, 0);
-    const totalCoins = rows.reduce((s, r) => s + r.coinsPurchased, 0);
-
-    // Paginate
-    const total = rows.length;
-    const paginatedRows = rows.slice(offset, offset + limit);
-
     return res.json({
-      rows: paginatedRows,
-      total,
+      rows,
+      total: count,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
-      summary: { totalRecharges, totalAmount, totalGst, totalNetRevenue, totalCoins, gstPercent },
+      totalPages: Math.max(1, Math.ceil(count / limit)),
+      summary: {
+        totalRecharges,
+        totalAmount: totalAmountRaw,
+        totalGst,
+        totalNetRevenue,
+        totalCoins,
+        gstPercent,
+      },
     });
   } catch (error) {
     console.error('REVENUE RECHARGES ERROR', error);

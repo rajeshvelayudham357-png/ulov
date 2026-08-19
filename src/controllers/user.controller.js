@@ -18,7 +18,8 @@ filterBlockedUsers,
 getBlockedPeerIds
 } from "../services/block.service.js";
 import {
-getPublicCallRates
+getPublicCallRates,
+attachCreatorCallRates,
 } from "../services/callRate.service.js";
 import {
 getAppSettings,
@@ -440,14 +441,14 @@ ensureUserSchema;
       const callRates =
       await getPublicCallRates();
 
-      let formattedUsers =
-      users.map(
-      (user)=>{
-      const data =
-      user.toJSON();
+      const usersWithRates =
+      await attachCreatorCallRates(users);
 
+      let formattedUsers =
+      usersWithRates.map(
+      (data)=>{
       const stats =
-      ratingMap.get(data.id)
+      ratingMap.get(Number(data.id))
       ??
       {
        ratingScore:0,
@@ -470,13 +471,13 @@ ensureUserSchema;
        voiceRatePerMinute:
        isFemale
        ?
-       callRates.voiceRatePerMinute
+       data.voiceRatePerMinute
        :
        undefined,
        videoRatePerMinute:
        isFemale
        ?
-       callRates.videoRatePerMinute
+       data.videoRatePerMinute
        :
        undefined
       };
@@ -1086,9 +1087,15 @@ message:"User not found"
 
 
 
+const [userWithRates] =
+await attachCreatorCallRates([user]);
+
+
+
+
 return res.json(
 
-user
+userWithRates ?? user
 
 );
 

@@ -2,7 +2,6 @@ import { Op } from "sequelize";
 
 import { sequelize } from "../config/database.js";
 import {
-  GOLD_PACKAGES,
   getAllPurchasablePackages,
   resolveGoldPackageById,
 } from "../constants/goldPackages.js";
@@ -30,8 +29,8 @@ const getDisplayName = (user) => {
 };
 
 export const getMaleWalletCreditPackages = async () => {
-  const { bonus } = await getAllPurchasablePackages();
-  return [...GOLD_PACKAGES, ...bonus];
+  const { regular, bonus } = await getAllPurchasablePackages();
+  return [...regular, ...bonus];
 };
 
 export const lookupMaleUserForWalletCredit = async (phone) => {

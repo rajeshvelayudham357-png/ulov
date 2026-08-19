@@ -10,6 +10,7 @@ import {
 filterBlockedUsers,
 getBlockedPeerIds
 } from "../services/block.service.js";
+import { attachCreatorCallRates } from "../services/callRate.service.js";
    
    
    
@@ -393,12 +394,33 @@ if(
    item.profile &&
    !blockedIds.has(Number(item.profile.id))
    );
+
+   const profilesWithRates = await attachCreatorCallRates(
+   visibleFavorites.map((item) => item.profile)
+   );
+
+   const profileRateById = new Map(
+   profilesWithRates.map((profile) => [Number(profile.id), profile])
+   );
+
+   const favoritesWithRates =
+   visibleFavorites.map((item) => {
+   const profile =
+   profileRateById.get(Number(item.profile.id)) ??
+   item.profile.toJSON?.() ??
+   item.profile;
+
+   return {
+   ...item.toJSON(),
+   profile,
+   };
+   });
    
    
    
    res.json({
    
-   favorites:visibleFavorites
+   favorites:favoritesWithRates
    
    });
    

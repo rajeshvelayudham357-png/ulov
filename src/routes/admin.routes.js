@@ -186,6 +186,11 @@ updateMaleUserSpinWheelSettings
 } from "../controllers/spinWheel.controller.js";
 
 import {
+getRegularGoldPackagesAdminConfig,
+updateRegularGoldPackagesAdminConfig
+} from "../controllers/regularGoldPackages.controller.js";
+
+import {
   getGrowthBootstrap,
   getGrowthCalls,
   getGrowthCreators,
@@ -275,6 +280,20 @@ requirePageAccess([
 "user-verification"
 ]),
 updateAppSettingsConfig
+);
+
+
+router.get(
+"/regular-gold-packages",
+requirePageAccess("regular-gold-packages"),
+getRegularGoldPackagesAdminConfig
+);
+
+
+router.patch(
+"/regular-gold-packages",
+requirePageAccess("regular-gold-packages"),
+updateRegularGoldPackagesAdminConfig
 );
 
 

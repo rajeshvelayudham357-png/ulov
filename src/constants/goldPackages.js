@@ -1,4 +1,9 @@
 import { getAppSettings } from "../services/appSettings.service.js";
+import {
+  buildRegularPackagesFromSettings,
+  getEnabledRegularPackages,
+  readRegularPackSettingsRow,
+} from "../services/regularGoldPackages.service.js";
 
 export const GOLD_PACKAGES = [
   { id: 1, coins: 40, price: 19 },
@@ -91,9 +96,13 @@ export const buildBonusPackagesFromSettings = (settings = {}) =>
     ];
   });
 
-export const getGoldPackageById = (packageId, bonusPackages = []) => {
+export const getGoldPackageById = (
+  packageId,
+  regularPackages = [],
+  bonusPackages = []
+) => {
   const id = Number(packageId);
-  const regular = GOLD_PACKAGES.find((item) => item.id === id);
+  const regular = regularPackages.find((item) => item.id === id);
   if (regular) {
     return regular;
   }
@@ -103,8 +112,10 @@ export const getGoldPackageById = (packageId, bonusPackages = []) => {
 
 export const resolveGoldPackageById = async (packageId) => {
   const settings = await getAppSettings();
+  const regularRow = await readRegularPackSettingsRow();
+  const regularPackages = buildRegularPackagesFromSettings(regularRow);
   const bonusPackages = buildBonusPackagesFromSettings(settings);
-  return getGoldPackageById(packageId, bonusPackages);
+  return getGoldPackageById(packageId, regularPackages, bonusPackages);
 };
 
 export const getEnabledBonusPackages = async () => {
@@ -112,10 +123,16 @@ export const getEnabledBonusPackages = async () => {
   return buildBonusPackagesFromSettings(settings);
 };
 
+export { getEnabledRegularPackages };
+
 export const getAllPurchasablePackages = async () => {
-  const bonusPackages = await getEnabledBonusPackages();
+  const settings = await getAppSettings();
+  const regularRow = await readRegularPackSettingsRow();
+  const regularPackages = buildRegularPackagesFromSettings(regularRow);
+  const bonusPackages = buildBonusPackagesFromSettings(settings);
+
   return {
-    regular: GOLD_PACKAGES,
+    regular: regularPackages,
     bonus: bonusPackages,
   };
 };

@@ -1,12 +1,17 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
 import { normalizeCallTypeForDb } from "../constants/callTypes.js";
+import {
+  clampPercentage,
+  computeCreatorEarnings,
+  computeMaleCallCost,
+  DEFAULT_CALL_RATE_SETTINGS,
+  parseOptionalRate,
+  resolveEffectiveRate,
+  toPositiveNumber,
+} from "../utils/callRate.util.js";
 
-const DEFAULT_SETTINGS = {
-  voiceRatePerMinute: 60,
-  videoRatePerMinute: 60,
-  femaleEarningPercentage: 50,
-};
+const DEFAULT_SETTINGS = DEFAULT_CALL_RATE_SETTINGS;
 
 // Base coin value reference (e.g., ₹69 / 160 coins = 0.43125 INR / coin)
 const DEFAULT_COIN_VALUE = 69 / 160;
@@ -51,24 +56,157 @@ const ensureCreatorCallRateTable = async () => {
     `CREATE TABLE IF NOT EXISTS creator_call_rate_settings (
       userId BIGINT NOT NULL PRIMARY KEY,
       femaleEarningPercentage FLOAT NOT NULL,
+      voiceRatePerMinute FLOAT NULL,
+      videoRatePerMinute FLOAT NULL,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )`
   );
 
+  for (const [column, definition] of [
+    ["voiceRatePerMinute", "FLOAT NULL"],
+    ["videoRatePerMinute", "FLOAT NULL"],
+  ]) {
+    try {
+      await sequelize.query(
+        `ALTER TABLE creator_call_rate_settings ADD COLUMN \`${column}\` ${definition}`
+      );
+    } catch (_error) {
+      // Column already exists.
+    }
+  }
+
   creatorTableReady = true;
 };
 
-const toPositiveNumber = (value, fallback) =>
-  Number.isFinite(Number(value)) && Number(value) >= 0
-    ? Number(value)
-    : fallback;
+export const getCreatorCustomRateRow = async (creatorId) => {
+  await ensureCreatorCallRateTable();
 
-const clampPercentage = (value, fallback) =>
-  Math.min(
-    100,
-    Math.max(0, toPositiveNumber(value, fallback))
+  if (!creatorId) {
+    return null;
+  }
+
+  const rows = await sequelize.query(
+    `SELECT femaleEarningPercentage, voiceRatePerMinute, videoRatePerMinute
+     FROM creator_call_rate_settings
+     WHERE userId = :creatorId
+     LIMIT 1`,
+    {
+      replacements: { creatorId },
+      type: QueryTypes.SELECT,
+    }
   );
+
+  return rows[0] || null;
+};
+
+export const getCreatorCallRatesMap = async (creatorIds = []) => {
+  await ensureCreatorCallRateTable();
+
+  const ids = [...new Set(creatorIds.map((id) => Number(id)).filter(Boolean))];
+
+  if (!ids.length) {
+    return new Map();
+  }
+
+  const globalSettings = await getCallRateSettings();
+
+  const rows = await sequelize.query(
+    `SELECT userId, voiceRatePerMinute, videoRatePerMinute
+     FROM creator_call_rate_settings
+     WHERE userId IN (${ids.map(() => "?").join(",")})`,
+    {
+      replacements: ids,
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const rowByUserId = new Map(
+    rows.map((row) => [Number(row.userId), row])
+  );
+
+  const map = new Map();
+
+  for (const id of ids) {
+    const row = rowByUserId.get(id);
+
+    map.set(id, {
+      voiceRatePerMinute: resolveEffectiveRate(
+        row?.voiceRatePerMinute,
+        globalSettings.voiceRatePerMinute,
+        DEFAULT_SETTINGS.voiceRatePerMinute
+      ),
+      videoRatePerMinute: resolveEffectiveRate(
+        row?.videoRatePerMinute,
+        globalSettings.videoRatePerMinute,
+        DEFAULT_SETTINGS.videoRatePerMinute
+      ),
+      usesCustomVoiceRate: parseOptionalRate(row?.voiceRatePerMinute) !== null,
+      usesCustomVideoRate: parseOptionalRate(row?.videoRatePerMinute) !== null,
+    });
+  }
+
+  return map;
+};
+
+export const attachCreatorCallRates = async (users = []) => {
+  const globalSettings = await getCallRateSettings();
+  const femaleIds = users
+    .map((user) => {
+      const data = typeof user?.toJSON === "function" ? user.toJSON() : user;
+      return String(data?.gender ?? "").toLowerCase() === "female"
+        ? Number(data.id)
+        : null;
+    })
+    .filter(Boolean);
+
+  const ratesMap = await getCreatorCallRatesMap(femaleIds);
+
+  return users.map((user) => {
+    const data = typeof user?.toJSON === "function" ? user.toJSON() : { ...user };
+    const isFemale = String(data?.gender ?? "").toLowerCase() === "female";
+
+    if (!isFemale) {
+      return data;
+    }
+
+    const creatorId = Number(data.id);
+    const creatorRates = ratesMap.get(creatorId);
+
+    return {
+      ...data,
+      voiceRatePerMinute:
+        creatorRates?.voiceRatePerMinute ?? globalSettings.voiceRatePerMinute,
+      videoRatePerMinute:
+        creatorRates?.videoRatePerMinute ?? globalSettings.videoRatePerMinute,
+    };
+  });
+};
+
+export const getEffectiveCreatorCallRates = async (creatorId, globalSettings = null) => {
+  const settings = globalSettings || (await getCallRateSettings());
+  const customRow = await getCreatorCustomRateRow(creatorId);
+
+  const customVoice = parseOptionalRate(customRow?.voiceRatePerMinute);
+  const customVideo = parseOptionalRate(customRow?.videoRatePerMinute);
+
+  return {
+    voiceRatePerMinute: resolveEffectiveRate(
+      customVoice,
+      settings.voiceRatePerMinute,
+      DEFAULT_SETTINGS.voiceRatePerMinute
+    ),
+    videoRatePerMinute: resolveEffectiveRate(
+      customVideo,
+      settings.videoRatePerMinute,
+      DEFAULT_SETTINGS.videoRatePerMinute
+    ),
+    usesCustomVoiceRate: customVoice !== null,
+    usesCustomVideoRate: customVideo !== null,
+    customVoiceRatePerMinute: customVoice,
+    customVideoRatePerMinute: customVideo,
+  };
+};
 
 export const getCallRateSettings = async () => {
   await ensureCallRateTable();
@@ -125,6 +263,8 @@ export const getCreatorCallRateSettings = async () => {
       users.avatar,
       users.online,
       creator_call_rate_settings.femaleEarningPercentage AS customFemaleEarningPercentage,
+      creator_call_rate_settings.voiceRatePerMinute AS customVoiceRatePerMinute,
+      creator_call_rate_settings.videoRatePerMinute AS customVideoRatePerMinute,
       creator_call_rate_settings.updatedAt AS customUpdatedAt
     FROM users
     LEFT JOIN creator_call_rate_settings
@@ -146,6 +286,20 @@ export const getCreatorCallRateSettings = async () => {
         ? globalSettings.femaleEarningPercentage
         : clampPercentage(customPercentage, globalSettings.femaleEarningPercentage);
 
+    const customVoiceRate = parseOptionalRate(row.customVoiceRatePerMinute);
+    const customVideoRate = parseOptionalRate(row.customVideoRatePerMinute);
+
+    const effectiveVoiceRate = resolveEffectiveRate(
+      customVoiceRate,
+      globalSettings.voiceRatePerMinute,
+      DEFAULT_SETTINGS.voiceRatePerMinute
+    );
+    const effectiveVideoRate = resolveEffectiveRate(
+      customVideoRate,
+      globalSettings.videoRatePerMinute,
+      DEFAULT_SETTINGS.videoRatePerMinute
+    );
+
     return {
       id: row.id,
       publicUserId: row.publicUserId,
@@ -158,8 +312,14 @@ export const getCreatorCallRateSettings = async () => {
       phone: row.phone,
       avatar: row.avatar,
       online: Boolean(row.online),
-      voiceRatePerMinute: globalSettings.voiceRatePerMinute,
-      videoRatePerMinute: globalSettings.videoRatePerMinute,
+      globalVoiceRatePerMinute: globalSettings.voiceRatePerMinute,
+      globalVideoRatePerMinute: globalSettings.videoRatePerMinute,
+      voiceRatePerMinute: effectiveVoiceRate,
+      videoRatePerMinute: effectiveVideoRate,
+      customVoiceRatePerMinute: customVoiceRate,
+      customVideoRatePerMinute: customVideoRate,
+      usesCustomVoiceRate: customVoiceRate !== null,
+      usesCustomVideoRate: customVideoRate !== null,
       globalFemaleEarningPercentage: globalSettings.femaleEarningPercentage,
       customFemaleEarningPercentage: customPercentage,
       effectiveFemaleEarningPercentage: effectivePercentage,
@@ -169,25 +329,71 @@ export const getCreatorCallRateSettings = async () => {
   });
 };
 
-export const updateCreatorEarningPercentage = async (creatorId, percentage) => {
+export const updateCreatorCallRateSettings = async (
+  creatorId,
+  {
+    femaleEarningPercentage,
+    voiceRatePerMinute,
+    videoRatePerMinute,
+  } = {}
+) => {
   await ensureCreatorCallRateTable();
 
-  const value = clampPercentage(percentage, 0);
+  const globalSettings = await getCallRateSettings();
+  const existing = (await getCreatorCustomRateRow(creatorId)) || {};
+
+  const nextPercentage =
+    femaleEarningPercentage !== undefined
+      ? clampPercentage(
+          femaleEarningPercentage,
+          globalSettings.femaleEarningPercentage
+        )
+      : clampPercentage(
+          existing.femaleEarningPercentage,
+          globalSettings.femaleEarningPercentage
+        );
+
+  const nextVoiceRate =
+    voiceRatePerMinute !== undefined
+      ? parseOptionalRate(voiceRatePerMinute)
+      : parseOptionalRate(existing.voiceRatePerMinute);
+
+  const nextVideoRate =
+    videoRatePerMinute !== undefined
+      ? parseOptionalRate(videoRatePerMinute)
+      : parseOptionalRate(existing.videoRatePerMinute);
 
   await sequelize.query(
-    `INSERT INTO creator_call_rate_settings (userId, femaleEarningPercentage)
-     VALUES (:creatorId, :percentage)
-     ON DUPLICATE KEY UPDATE femaleEarningPercentage = VALUES(femaleEarningPercentage), updatedAt = NOW()`,
+    `INSERT INTO creator_call_rate_settings
+      (userId, femaleEarningPercentage, voiceRatePerMinute, videoRatePerMinute)
+     VALUES (:creatorId, :percentage, :voiceRate, :videoRate)
+     ON DUPLICATE KEY UPDATE
+       femaleEarningPercentage = VALUES(femaleEarningPercentage),
+       voiceRatePerMinute = VALUES(voiceRatePerMinute),
+       videoRatePerMinute = VALUES(videoRatePerMinute),
+       updatedAt = NOW()`,
     {
-      replacements: { creatorId, percentage: value },
+      replacements: {
+        creatorId,
+        percentage: nextPercentage,
+        voiceRate: nextVoiceRate,
+        videoRate: nextVideoRate,
+      },
     }
   );
 
   return {
     userId: creatorId,
-    femaleEarningPercentage: value,
+    femaleEarningPercentage: nextPercentage,
+    voiceRatePerMinute: nextVoiceRate,
+    videoRatePerMinute: nextVideoRate,
   };
 };
+
+export const updateCreatorEarningPercentage = async (creatorId, percentage) =>
+  updateCreatorCallRateSettings(creatorId, {
+    femaleEarningPercentage: percentage,
+  });
 
 export const updateCallRateSettings = async (settings) => {
   await ensureCallRateTable();
@@ -224,30 +430,18 @@ export const updateCallRateSettings = async (settings) => {
 
 export const calculateCallBilling = async ({ duration, type, callerId, receiverId }) => {
   const settings = await getCallRateSettings();
-  const durationSeconds = Math.max(0, Number(duration) || 0);
+  const creatorRates = await getEffectiveCreatorCallRates(receiverId, settings);
   const normalizedType = normalizeCallTypeForDb(type);
   const ratePerMinute =
     normalizedType === "voice"
-      ? settings.voiceRatePerMinute
-      : settings.videoRatePerMinute;
+      ? creatorRates.voiceRatePerMinute
+      : creatorRates.videoRatePerMinute;
 
-  const VIDEO_FIRST_HALF_SECONDS = 30;
-  let minutes = 0;
-  let maleCost = 0;
-
-  if (durationSeconds <= 0) {
-    minutes = 0;
-    maleCost = 0;
-  } else if (
-    normalizedType === "video" &&
-    durationSeconds <= VIDEO_FIRST_HALF_SECONDS
-  ) {
-    minutes = 0.5;
-    maleCost = Math.max(1, Math.ceil(ratePerMinute / 2));
-  } else {
-    minutes = Math.max(1, Math.ceil(durationSeconds / 60));
-    maleCost = Math.ceil(minutes * ratePerMinute);
-  }
+  const { minutes, maleCost } = computeMaleCallCost({
+    durationSeconds: duration,
+    type: normalizedType,
+    ratePerMinute,
+  });
 
   // Determine caller's effective coin value (Recharge Amount / Coins Credited)
   let coinValue = DEFAULT_COIN_VALUE;
@@ -264,34 +458,29 @@ export const calculateCallBilling = async ({ duration, type, callerId, receiverI
   }
 
   // 1. Gross Revenue = Coins Spent * Effective Coin Value
-  const revenue = Number((maleCost * coinValue).toFixed(2));
-
   const creatorPercentage = await getCreatorEarningPercentage(
     receiverId,
     settings.femaleEarningPercentage
   );
 
-  // 2. Creator INR Earnings = Gross Revenue * Creator Percentage
-  const femaleAmount = Number((revenue * (creatorPercentage / 100)).toFixed(2));
-
-  // 3. Platform INR Earnings = Gross Revenue - Creator Earnings
-  const platformAmount = Number((revenue - femaleAmount).toFixed(2));
-
-  // 4. Female Coins Earned (for coin logging/audit)
-  const femaleEarn = Math.floor(maleCost * (creatorPercentage / 100));
+  const earnings = computeCreatorEarnings({
+    maleCost,
+    coinValue,
+    creatorPercentage,
+  });
 
   return {
     settings,
     minutes,
     type: normalizedType,
     ratePerMinute,
-    femaleEarningPercentage: creatorPercentage,
+    femaleEarningPercentage: earnings.femaleEarningPercentage,
     maleCost,
     coinValue,
-    revenue,
-    femaleEarn,
-    femaleAmount,
-    platformAmount,
+    revenue: earnings.revenue,
+    femaleEarn: earnings.femaleEarn,
+    femaleAmount: earnings.femaleAmount,
+    platformAmount: earnings.platformAmount,
   };
 };
 
@@ -310,37 +499,38 @@ export const getCreatorCallRateSummary = async (creatorId) => {
   await ensureCreatorCallRateTable();
 
   const settings = await getCallRateSettings();
+  const creatorRates = await getEffectiveCreatorCallRates(creatorId, settings);
 
   const femaleEarningPercentage = await getCreatorEarningPercentage(
     creatorId,
     settings.femaleEarningPercentage
   );
 
-  const customRows = creatorId
-    ? await sequelize.query(
-        "SELECT femaleEarningPercentage FROM creator_call_rate_settings WHERE userId = :creatorId LIMIT 1",
-        { replacements: { creatorId }, type: QueryTypes.SELECT }
-      )
-    : [];
-
-  const usesCustomPercentage = customRows.length > 0;
+  const customRow = await getCreatorCustomRateRow(creatorId);
+  const usesCustomPercentage =
+    customRow?.femaleEarningPercentage !== null &&
+    customRow?.femaleEarningPercentage !== undefined;
 
   // Base coin value reference (e.g. ₹69 / 160 coins = 0.43125)
   const baseCoinValue = DEFAULT_COIN_VALUE;
 
-  const voiceCoinsPerMinute = settings.voiceRatePerMinute;
+  const voiceCoinsPerMinute = creatorRates.voiceRatePerMinute;
   const voiceRevenuePerMinute = Number((voiceCoinsPerMinute * baseCoinValue).toFixed(2));
   const voiceCreatorEarnPerMinute = Number((voiceRevenuePerMinute * (femaleEarningPercentage / 100)).toFixed(2));
   const voicePlatformEarnPerMinute = Number((voiceRevenuePerMinute - voiceCreatorEarnPerMinute).toFixed(2));
 
-  const videoCoinsPerMinute = settings.videoRatePerMinute;
+  const videoCoinsPerMinute = creatorRates.videoRatePerMinute;
   const videoRevenuePerMinute = Number((videoCoinsPerMinute * baseCoinValue).toFixed(2));
   const videoCreatorEarnPerMinute = Number((videoRevenuePerMinute * (femaleEarningPercentage / 100)).toFixed(2));
   const videoPlatformEarnPerMinute = Number((videoRevenuePerMinute - videoCreatorEarnPerMinute).toFixed(2));
 
   return {
-    voiceRatePerMinute: settings.voiceRatePerMinute,
-    videoRatePerMinute: settings.videoRatePerMinute,
+    voiceRatePerMinute: creatorRates.voiceRatePerMinute,
+    videoRatePerMinute: creatorRates.videoRatePerMinute,
+    globalVoiceRatePerMinute: settings.voiceRatePerMinute,
+    globalVideoRatePerMinute: settings.videoRatePerMinute,
+    usesCustomVoiceRate: creatorRates.usesCustomVoiceRate,
+    usesCustomVideoRate: creatorRates.usesCustomVideoRate,
     globalFemaleEarningPercentage: settings.femaleEarningPercentage,
     femaleEarningPercentage,
     usesCustomPercentage,
