@@ -1,6 +1,7 @@
 import {
 DeviceToken,
-NotificationRecord
+NotificationRecord,
+User
 } from "../models/index.js";
 
 import {
@@ -148,12 +149,36 @@ notified:0
 });
 }
 
+const female =
+await User.findByPk(
+Number(userId),
+{
+attributes:[
+"id",
+"online",
+"gender"
+]
+}
+);
+
+if(
+!female ||
+String(female.gender ?? "").toLowerCase() !== "female" ||
+!Boolean(female.online)
+){
+return res.json({
+success:true,
+notified:0,
+skipped:"not_online"
+});
+}
+
 // Backup / explicit notify path. Cooldown avoids duplicate tray spam.
 const result =
 await notifyMalesWhenFemaleOnline(
 userId,
 {
-broadcastStatus:true,
+broadcastStatus:false,
 ignoreCooldown:false
 }
 );

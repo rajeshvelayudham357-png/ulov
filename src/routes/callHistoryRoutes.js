@@ -6,7 +6,9 @@ import {
 saveCallHistory,
 
 getCallHistory,
-getFemaleCallHistory
+getFemaleCallHistory,
+getFemaleMissedCalls,
+getFemaleMissedCallSummary
 
 }
 from "../controllers/callHistoryController.js";
@@ -28,6 +30,16 @@ saveCallHistory
 router.get(
 "/:userId",
 getCallHistory
+);
+
+router.get(
+"/female/:userId/missed/summary",
+getFemaleMissedCallSummary
+);
+
+router.get(
+"/female/:userId/missed",
+getFemaleMissedCalls
 );
 
 router.get(

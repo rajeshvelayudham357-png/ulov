@@ -1578,9 +1578,15 @@ attributes:["id","online"]
 }
 );
 
+const serverRouted =
+Boolean(data.serverRouted);
+
 if(
+!serverRouted &&
+(
 !receiverUser ||
 !Boolean(receiverUser.online)
+)
 ){
 return {
 notified:false,
@@ -1672,6 +1678,109 @@ callerId,
 
 return {
 notified:true,
+...pushResult
+};
+};
+
+export const notifyChatMessage =
+async({
+receiverId,
+senderId,
+senderName,
+messageText,
+senderAvatar
+})=>{
+const receiver =
+Number(receiverId);
+
+const sender =
+Number(senderId);
+
+if(
+!Number.isFinite(receiver) ||
+!Number.isFinite(sender)
+){
+return {
+notified:false
+};
+}
+
+const displayName =
+String(senderName || "").trim() ||
+"Someone";
+
+const body =
+String(messageText || "").trim() ||
+"You have a new message";
+
+const chatScreen =
+`/chat/${sender}`;
+
+const pushPayload =
+buildOutsideAppPushPayload({
+title:displayName,
+body,
+data:{
+type:"chat_message",
+senderId:String(sender),
+receiverId:String(receiver),
+peerId:String(sender),
+name:displayName,
+avatar:String(senderAvatar || ""),
+screen:chatScreen
+},
+ttlSeconds:3600
+});
+
+const saved =
+await saveNotification(
+receiver,
+pushPayload
+);
+
+const realtimePayload = {
+...pushPayload.data,
+id:saved?.id ?? null,
+notificationId:saved?.id ?? null,
+type:"chat_message",
+title:displayName,
+message:body,
+senderId:sender,
+receiverId:receiver,
+peerId:sender,
+name:displayName,
+avatar:String(senderAvatar || ""),
+screen:chatScreen
+};
+
+const socketEmitted =
+emitToUser(
+receiver,
+"notification",
+realtimePayload
+);
+
+const pushResult =
+await sendPushToUser(
+receiver,
+pushPayload
+);
+
+console.log(
+"CHAT MESSAGE NOTIFIED",
+{
+receiverId:receiver,
+senderId:sender,
+saved:Boolean(saved),
+socketEmitted,
+...pushResult
+}
+);
+
+return {
+notified:true,
+saved:Boolean(saved),
+socketEmitted,
 ...pushResult
 };
 };

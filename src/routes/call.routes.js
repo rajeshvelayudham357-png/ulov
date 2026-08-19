@@ -1,5 +1,6 @@
 import express from "express";
-import { createVideoCall } from "../controllers/call.controller.js";
+import { createVideoCall, getIncomingCallStatus, reportCallDeliveryEvent } from "../controllers/call.controller.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 import {
     endCall
     }
@@ -11,6 +12,16 @@ sendCallGift
 const router = express.Router();
 
 router.post("/create", createVideoCall);
+router.post(
+  "/delivery-event",
+  authMiddleware,
+  reportCallDeliveryEvent
+);
+router.get(
+  "/incoming-status",
+  authMiddleware,
+  getIncomingCallStatus
+);
 router.get("/gifts", getCallGifts);
 router.post("/send-gift", sendCallGift);
 router.post(

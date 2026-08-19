@@ -21,6 +21,7 @@ import { getAttributionAnalytics } from "../services/adminGrowthAttribution.serv
 import { getRetentionBundle } from "../services/adminGrowthRetention.service.js";
 import { getLiveHealthStatus } from "../services/adminGrowthHealth.service.js";
 import { getInsightsBundle } from "../services/adminGrowthInsights.service.js";
+import { getCallDeliveryDiagnostics } from "../services/callDelivery.service.js";
 import { ensureGrowthAnalyticsIndexes } from "../services/adminGrowthSchema.service.js";
 import { GROWTH_METRIC_DEFINITIONS } from "../constants/growthMetricDefinitions.js";
 
@@ -60,11 +61,13 @@ export const getGrowthBootstrap = async (req, res) => {
     await ensureGrowthAnalyticsIndexes();
     const context = parseGrowthRequest(req);
 
-    const [summary, health, funnel, callQuality] = await Promise.all([
+    const [summary, health, funnel, callQuality, callDeliveryDiagnostics] =
+      await Promise.all([
       getExecutiveSummary(context),
       getLiveHealthStatus(),
       getGrowthFunnel(context.current),
       getCallQualityMetrics(context.current),
+      getCallDeliveryDiagnostics(context.current),
     ]);
 
     return res.json({
@@ -74,6 +77,7 @@ export const getGrowthBootstrap = async (req, res) => {
       health,
       funnel,
       callQuality,
+      callDeliveryDiagnostics,
     });
   } catch (error) {
     return handleGrowthError(res, error, "GROWTH BOOTSTRAP");

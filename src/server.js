@@ -9,9 +9,12 @@ User
 } from "./models/index.js";
 import {
 initNotificationPush,
-notifyMalesWhenFemaleOnline,
 notifyIncomingCall
 } from "./services/notificationPush.service.js";
+import {
+routeIncomingCallToCreator,
+logCallDeliveryEvent,
+} from "./services/callDelivery.service.js";
 import {
 initChatRealtime
 } from "./services/chatRealtime.service.js";
@@ -86,6 +89,52 @@ server,
 
 const onlineUsers =
 new Map();
+
+const logCreatorCallDeliveryEvent =
+async(data,event)=>{
+try{
+
+const callId =
+data?.callId ?
+String(data.callId)
+:
+null;
+
+const creatorId =
+data?.receiverId ?
+Number(data.receiverId)
+:
+null;
+
+if(
+!callId ||
+!creatorId
+){
+return;
+}
+
+await logCallDeliveryEvent({
+callId,
+callerId:
+data?.callerId ??
+null,
+creatorId,
+event,
+metadata:{
+source:"socket"
+}
+});
+
+}catch(error){
+
+console.log(
+"CALL DELIVERY LOG ERROR",
+error?.message ||
+error
+);
+
+}
+};
 
 initNotificationPush(
 io,
@@ -340,35 +389,6 @@ socket.broadcast.emit(
 data
 );
 
-const status =
-data?.status ??
-(
-data?.online
-?
-"online"
-:
-"offline"
-);
-
-if(
-status === "online" &&
-data?.userId
-){
-notifyMalesWhenFemaleOnline(
-data.userId,
-{
-broadcastStatus:false
-}
-).catch(
-error=>{
-console.log(
-"SOCKET FAVORITE ONLINE ERROR",
-error.message
-);
-}
-);
-}
-
 });
 
 
@@ -505,6 +525,33 @@ data,
 "live"
 );
 
+const receiverSocket =
+onlineUsers.get(
+String(
+data.receiverId
+)
+);
+
+console.log(
+"RECEIVER SOCKET:",
+receiverSocket
+);
+
+await routeIncomingCallToCreator({
+io,
+onlineUsers,
+data:{
+...data,
+callId:
+data.callId ?
+String(data.callId)
+:
+undefined
+},
+creatorOnlineInDb:
+Boolean(receiverUser?.online)
+});
+
 }catch(error){
 
 console.log(
@@ -513,68 +560,6 @@ error.message
 );
 
 }
-
-
-
-
-const receiverSocket =
-onlineUsers.get(
-String(
-data.receiverId
-)
-);
-
-
-
-
-console.log(
-"RECEIVER SOCKET:",
-receiverSocket
-);
-
-
-
-
-
-if(
-receiverSocket
-){
-
-
-
-io.to(
-receiverSocket
-)
-.emit(
-"incoming-call",
-data
-);
-
-
-
-}
-else{
-
-
-console.log(
-"USER OFFLINE - SENDING PUSH",
-data.receiverId
-);
-
-notifyIncomingCall(
-data
-).catch(
-(error)=>{
-console.log(
-"INCOMING CALL PUSH ERROR",
-error.message
-);
-}
-);
-
-
-}
-
 
 
 });
@@ -602,6 +587,11 @@ async(data)=>{
 console.log(
 "CALL ACCEPTED",
 data
+);
+
+await logCreatorCallDeliveryEvent(
+data,
+"ACCEPTED"
 );
 
 try{
@@ -720,6 +710,11 @@ async(data)=>{
 console.log(
 "CALL REJECTED",
 data
+);
+
+await logCreatorCallDeliveryEvent(
+data,
+"REJECTED"
 );
 
 try{
@@ -934,6 +929,11 @@ async(data)=>{
 console.log(
 "MISSED CALL",
 data
+);
+
+await logCreatorCallDeliveryEvent(
+data,
+"MISSED"
 );
 
 try{

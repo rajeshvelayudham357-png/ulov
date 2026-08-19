@@ -13,6 +13,9 @@ import {
 emitChatMessage
 } from "../services/chatRealtime.service.js";
 import {
+notifyChatMessage
+} from "../services/notificationPush.service.js";
+import {
 areUsersBlocked,
 getBlockedPeerIds
 } from "../services/block.service.js";
@@ -258,6 +261,19 @@ emitChatMessage(
 senderId,
 payload
 );
+
+notifyChatMessage({
+receiverId:Number(receiverId),
+senderId:Number(senderId),
+senderName:getDisplayName(sender),
+messageText:payload.messageText,
+senderAvatar:sender.avatar
+}).catch((error)=>{
+console.log(
+"CHAT NOTIFY ERROR",
+error
+);
+});
 
 trackGrowthEventAsync({
   eventName: GROWTH_EVENT_NAMES.CHAT_STARTED,

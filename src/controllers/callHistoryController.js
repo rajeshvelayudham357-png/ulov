@@ -225,6 +225,186 @@ completeCallRecord
 // =====================
 
 
+const UNANSWERED_CALL_STATUSES = [
+"missed",
+"cancelled"
+];
+
+const buildFemaleMissedCallsWhere =
+async(userId)=>{
+const blockedIds =
+await getBlockedPeerIds(userId);
+
+const blockedCallerIds =
+[...blockedIds];
+
+const whereClause = {
+ receiverId:userId,
+ status:{
+  [Op.in]:UNANSWERED_CALL_STATUSES
+ }
+};
+
+if(blockedCallerIds.length > 0){
+ whereClause.callerId = {
+  [Op.notIn]:blockedCallerIds
+ };
+}
+
+return whereClause;
+};
+
+export const getFemaleMissedCallSummary =
+async(req,res)=>{
+
+try{
+
+const {
+ userId
+}
+=
+req.params;
+
+const whereClause =
+await buildFemaleMissedCallsWhere(userId);
+
+const sinceRaw =
+req.query.since;
+
+if(sinceRaw){
+ const sinceDate =
+ new Date(String(sinceRaw));
+
+ if(!Number.isNaN(sinceDate.getTime())){
+  whereClause.createdAt = {
+   [Op.gt]:sinceDate
+  };
+ }
+}
+
+const totalMissed =
+await CallHistory.count({
+ where:whereClause
+});
+
+return res.json({
+ totalMissed
+});
+
+}catch(error){
+
+console.log(
+"FEMALE MISSED CALL SUMMARY ERROR",
+error
+);
+
+return res.status(500)
+.json({
+ message:error.message
+});
+
+}
+
+};
+
+export const getFemaleMissedCalls =
+async(req,res)=>{
+
+try{
+
+const {
+ userId
+}
+=
+req.params;
+
+const page =
+Math.max(
+1,
+parseInt(req.query.page,10) || 1
+);
+
+const limit =
+Math.min(
+50,
+Math.max(
+1,
+parseInt(req.query.limit,10) || 20
+)
+);
+
+const offset =
+(page - 1) * limit;
+
+const whereClause =
+await buildFemaleMissedCallsWhere(userId);
+
+const [
+ missedCalls,
+ total
+]=
+await Promise.all([
+
+CallHistory.findAll({
+
+where:whereClause,
+
+include:[
+ {
+  model:User,
+  as:"caller",
+  required:true,
+  attributes:[
+   "id",
+   "username",
+   "avatar"
+  ]
+ }
+],
+
+order:[
+ [
+  "createdAt",
+  "DESC"
+ ]
+],
+
+limit,
+offset
+
+}),
+
+CallHistory.count({
+ where:whereClause
+})
+
+]);
+
+return res.json({
+ missedCalls,
+ total,
+ page,
+ limit,
+ hasMore:
+ offset + missedCalls.length < total
+});
+
+}catch(error){
+
+console.log(
+"FEMALE MISSED CALLS ERROR",
+error
+);
+
+return res.status(500)
+.json({
+ message:error.message
+});
+
+}
+
+};
+
 export const getFemaleCallHistory =
 async(req,res)=>{
 
