@@ -4,6 +4,7 @@ import {
   AdminNotify,
   Block,
   Broadcast,
+  BroadcastSchedule,
   CallHistory,
   CallRating,
   ChatMessage,
@@ -138,6 +139,7 @@ export const runDatabaseMigrations = async () => {
   await safeModelSync(CallHistory, "CallHistory");
   await safeModelSync(PaymentOrder, "PaymentOrder");
   await safeModelSync(Broadcast, "Broadcast");
+  await safeModelSync(BroadcastSchedule, "BroadcastSchedule");
   await ensureBroadcastSchema();
   await ensureUserOnlineLogSchema();
   const { ensureGrowthAnalyticsIndexes } = await import(

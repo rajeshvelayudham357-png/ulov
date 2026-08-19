@@ -16,6 +16,9 @@ routeIncomingCallToCreator,
 logCallDeliveryEvent,
 } from "./services/callDelivery.service.js";
 import {
+startBroadcastScheduleWorker
+} from "./services/broadcastSchedule.service.js";
+import {
 initChatRealtime
 } from "./services/chatRealtime.service.js";
 import {
@@ -211,6 +214,7 @@ console.log(
 );
 
 startChatRetention();
+startBroadcastScheduleWorker();
 
 }catch(error){
 

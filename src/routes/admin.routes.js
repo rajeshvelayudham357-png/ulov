@@ -130,7 +130,6 @@ rejectKyc
 
 
 import {
-
 getBroadcasts,
 
 createBroadcast,
@@ -140,6 +139,14 @@ listBroadcastUsers,
 createIndividualBroadcast
 
 } from "../controllers/broadcast.controller.js";
+
+import {
+cancelBroadcastScheduleHandler,
+createBroadcastScheduleHandler,
+getBroadcastScheduleSummary,
+getBroadcastSchedules,
+updateBroadcastScheduleHandler
+} from "../controllers/broadcastSchedule.controller.js";
 
 import {
   listNotifyUsers,
@@ -802,6 +809,36 @@ router.post(
 "/broadcast/individual",
 requirePageAccess("broadcast"),
 createIndividualBroadcast
+);
+
+router.get(
+"/broadcast/schedules/summary",
+requirePageAccess("broadcast"),
+getBroadcastScheduleSummary
+);
+
+router.get(
+"/broadcast/schedules",
+requirePageAccess("broadcast"),
+getBroadcastSchedules
+);
+
+router.post(
+"/broadcast/schedules",
+requirePageAccess("broadcast"),
+createBroadcastScheduleHandler
+);
+
+router.patch(
+"/broadcast/schedules/:id",
+requirePageAccess("broadcast"),
+updateBroadcastScheduleHandler
+);
+
+router.delete(
+"/broadcast/schedules/:id",
+requirePageAccess("broadcast"),
+cancelBroadcastScheduleHandler
 );
 
 router.get(
