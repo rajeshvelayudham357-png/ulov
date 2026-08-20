@@ -546,11 +546,29 @@
     title,
     message,
     type,
-    userId
+    userId,
+    userIds
     }=req.body;
 
-    const targetUserId =
-    Number(userId);
+    const targetUserIds = [
+    ...new Set(
+    (
+    Array.isArray(userIds)
+    ?
+    userIds
+    :
+    userId !== undefined &&
+    userId !== null &&
+    userId !== ""
+    ?
+    [userId]
+    :
+    []
+    )
+    .map((value)=>Number(value))
+    .filter(Number.isFinite)
+    )
+    ];
 
     if(
     !title?.trim() ||
@@ -563,18 +581,30 @@
     }
 
     if(
-    !Number.isFinite(targetUserId)
+    !targetUserIds.length
     ){
     return res.status(400)
     .json({
-    message:"Please select a user"
+    message:"Please select at least one user"
     });
     }
 
-    const user =
-    await User.findByPk(
-    targetUserId,
-    {
+    if(
+    targetUserIds.length > 200
+    ){
+    return res.status(400)
+    .json({
+    message:"You can notify up to 200 users at a time"
+    });
+    }
+
+    const users =
+    await User.findAll({
+    where:{
+    id:{
+    [Op.in]:targetUserIds
+    }
+    },
     attributes:[
     "id",
     "name",
@@ -583,21 +613,53 @@
     "phone",
     "gender"
     ]
-    }
-    );
+    });
 
     if(
-    !user
+    !users.length
     ){
     return res.status(404)
     .json({
-    message:"User not found"
+    message:"No selected users were found"
     });
     }
+
+    const userById =
+    new Map(
+    users.map((user)=>[
+    user.id,
+    user
+    ])
+    );
+
+    const missingUserIds =
+    targetUserIds.filter(
+    (id)=>!userById.has(id)
+    );
 
     const dbType =
     TYPE_TO_DB[type] ||
     "info";
+
+    const broadcasts = [];
+    let notified = 0;
+    const failures = [];
+
+    for(
+    const targetUserId of targetUserIds
+    ){
+    const user =
+    userById.get(targetUserId);
+
+    if(
+    !user
+    ){
+    failures.push({
+    userId:targetUserId,
+    message:"User not found"
+    });
+    continue;
+    }
 
     const msg =
     await Broadcast.create({
@@ -609,22 +671,60 @@
     targetAudience:"individual"
     });
 
+    try{
     const notifyResult =
     await notifySingleUserOnBroadcast(
     formatBroadcast(msg),
     targetUserId
     );
 
-    const recipient =
-    user.toJSON();
+    notified +=
+    Number(notifyResult?.notified) || 0;
+
+    broadcasts.push(
+    formatBroadcast(
+    msg,
+    user.toJSON()
+    )
+    );
+    }catch(
+    error
+    ){
+    failures.push({
+    userId:targetUserId,
+    message:error.message
+    });
+    broadcasts.push(
+    formatBroadcast(
+    msg,
+    user.toJSON()
+    )
+    );
+    }
+    }
+
+    if(
+    targetUserIds.length === 1 &&
+    broadcasts.length === 1
+    ){
+    return res.status(201)
+    .json({
+    ...broadcasts[0],
+    notified,
+    failures
+    });
+    }
 
     res.status(201)
     .json({
-    ...formatBroadcast(
-    msg,
-    recipient
-    ),
-    notified:notifyResult.notified
+    sent:broadcasts.length,
+    notified,
+    missingUserIds,
+    failures,
+    recipients:broadcasts.map(
+    (row)=>row.recipientName
+    ).filter(Boolean),
+    broadcasts
     });
 
     }catch(error){

@@ -1251,6 +1251,56 @@ userId:user.id
 };
 };
 
+export const notifyMultipleUsersOnBroadcast =
+async(
+broadcast,
+userIds = []
+)=>{
+const ids = [
+...new Set(
+userIds
+.map((value)=>Number(value))
+.filter(Number.isFinite)
+)
+];
+
+if(
+!ids.length
+){
+return {
+notified:0,
+failures:[]
+};
+}
+
+let notified = 0;
+const failures = [];
+
+for(
+const userId of ids
+){
+try{
+await notifySingleUserOnBroadcast(
+broadcast,
+userId
+);
+notified += 1;
+}catch(
+error
+){
+failures.push({
+userId,
+message:error.message
+});
+}
+}
+
+return {
+notified,
+failures
+};
+};
+
 const GENDER_FILTERS = {
 female:{
 [Op.in]:[
