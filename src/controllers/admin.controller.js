@@ -12,6 +12,21 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const isFemaleGender = (gender) =>
+  String(gender ?? "").trim().toLowerCase() === "female";
+
+const normalizeAccountStatus = (status, gender) => {
+  const normalized = String(status ?? "").trim().toLowerCase();
+
+  if (normalized) {
+    return normalized;
+  }
+
+  return isFemaleGender(gender) ? "pending" : "active";
+};
+
+const femaleGenderWhereSql = "LOWER(TRIM(gender)) = 'female'";
+
 
 
 import {
@@ -1737,15 +1752,13 @@ user.toJSON();
 
 
 const isFemale =
-data.gender === "Female";
+isFemaleGender(data.gender);
 
 
 const accountStatus =
-data.accountStatus ||
-(
-isFemale
-? "pending"
-: "active"
+normalizeAccountStatus(
+data.accountStatus,
+data.gender
 );
 
 
@@ -2029,11 +2042,10 @@ await User.count();
 const femaleCreators =
 await User.count({
 
-where:{
-
-gender:"Female"
-
-}
+where:sequelize.where(
+fn("LOWER", fn("TRIM", col("gender"))),
+"female"
+),
 
 });
 
@@ -2044,7 +2056,7 @@ const [
 pendingFemaleResult
 ]=
 await sequelize.query(
-`SELECT COUNT(*) AS count FROM users WHERE gender = 'Female' AND COALESCE(accountStatus, 'pending') = 'pending'`,
+`SELECT COUNT(*) AS count FROM users WHERE ${femaleGenderWhereSql} AND COALESCE(NULLIF(TRIM(accountStatus), ''), 'pending') = 'pending'`,
 
 {
 type:sequelize.QueryTypes.SELECT
@@ -2459,23 +2471,6 @@ required:false,
 attributes:[
 "balance"
 ]
-},
-{
-model:PaymentOrder,
-as:"paymentOrders",
-required:false,
-where:{
-status:"PAID"
-},
-attributes:[
-"id",
-"orderId",
-"coins",
-"amount",
-"paymentMethod",
-"cashfreePaymentId",
-"updatedAt"
-]
 }
 ],
 order:[
@@ -2486,6 +2481,62 @@ order:[
 ]
 });
 
+const userIds =
+usersList.map((user) => user.id);
+
+const paymentOrdersByUserId =
+new Map();
+
+if(userIds.length > 0){
+const paidStatuses = [
+"PAID",
+"SUCCESS",
+"CAPTURED",
+"credited"
+];
+
+const paymentRows =
+await PaymentOrder.findAll({
+where:{
+userId:{
+[Op.in]:userIds
+},
+status:{
+[Op.in]:paidStatuses
+}
+},
+attributes:[
+"id",
+"userId",
+"orderId",
+"coins",
+"amount",
+"paymentMethod",
+"cashfreePaymentId",
+"updatedAt"
+],
+order:[
+[
+"updatedAt",
+"DESC"
+]
+],
+raw:true
+});
+
+paymentRows.forEach((payment)=>{
+const list =
+paymentOrdersByUserId.get(payment.userId) ||
+[];
+
+list.push(payment);
+paymentOrdersByUserId.set(
+payment.userId,
+list
+);
+});
+}
+
 const rowsAll =
 usersList.map(
 (user)=>{
@@ -2494,7 +2545,8 @@ const data =
 user.toJSON();
 
 const payments =
-data.paymentOrders || [];
+paymentOrdersByUserId.get(data.id) ||
+[];
 
 const totalRechargeAmount =
 payments.reduce(
@@ -6570,7 +6622,7 @@ message:"User not found"
 
 
 if(
-user.gender !== "Female"
+!isFemaleGender(user.gender)
 ){
 
 
