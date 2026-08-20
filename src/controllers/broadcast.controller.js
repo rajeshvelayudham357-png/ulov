@@ -434,7 +434,7 @@
 
 
     export const listBroadcastUsers =
-    async(req,res)=>{
+    async(req,res,genderOverride = null)=>{
 
     try{
 
@@ -443,7 +443,11 @@
     .trim();
 
     const genderFilter =
-    String(req.query.gender || "female").trim().toLowerCase();
+    String(
+    genderOverride ||
+    req.query.gender ||
+    "female"
+    ).trim().toLowerCase();
 
     const where = {
     gender:{
@@ -523,15 +527,13 @@
 
     export const listBroadcastFemales =
     async(req,res)=>{
-    req.query.gender = "female";
-    return listBroadcastUsers(req,res);
+    return listBroadcastUsers(req,res,"female");
     };
 
 
     export const listBroadcastMales =
     async(req,res)=>{
-    req.query.gender = "male";
-    return listBroadcastUsers(req,res);
+    return listBroadcastUsers(req,res,"male");
     };
 
 
