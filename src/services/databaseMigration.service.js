@@ -25,6 +25,7 @@ import { getPublicCallRates } from "./callRate.service.js";
 import { ensureFemaleOnlineTimeTables } from "./femaleOnlineTime.service.js";
 import { ensureSupportTables } from "./support.service.js";
 import { ensureUserSchema } from "./userSchema.service.js";
+import { ensureUserDeviceRegistrationTable } from "./deviceRegistration.service.js";
 import { ensurePaymentOrderColumns } from "./payment.service.js";
 import { ensureBroadcastSchema } from "./broadcastSchema.service.js";
 import { ensureUserOnlineLogSchema } from "./userOnlineLog.service.js";
@@ -115,6 +116,10 @@ export const runDatabaseMigrations = async () => {
   console.log("Ensuring user schema...");
   await ensureUserSchema({ force: true });
   console.log("User schema ready");
+
+  console.log("Ensuring device registration table...");
+  await ensureUserDeviceRegistrationTable();
+  console.log("Device registration table ready");
 
   console.log("Ensuring support tables...");
   await ensureSupportTables();

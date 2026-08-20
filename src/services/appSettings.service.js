@@ -29,6 +29,14 @@ const DEFAULT_SETTINGS = {
   bonusPack3Enabled: 0,
   bonusPack3Price: 549,
   bonusPack3Coins: 2000,
+  lowBalanceOfferEnabled: 1,
+  lowBalanceThreshold: 20,
+  lowBalanceOfferPrice: 699,
+  lowBalanceOfferCoins: 2500,
+  lowBalanceOfferOriginalPrice: 999,
+  lowBalanceOfferTitle: "Your welcome offer",
+  lowBalanceOfferSubtitle: "A one-time head start to find your best friend.",
+  lowBalanceOfferSocialProof: "Used by 30,505 people in the last 30 mins",
   forceUpdateEnabled: 0,
   minAndroidVersionCode: null,
   minIosBuildNumber: null,
@@ -127,6 +135,14 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["bonusPack3Enabled", "TINYINT(1) NOT NULL DEFAULT 0"],
     ["bonusPack3Price", "INT NOT NULL DEFAULT 549"],
     ["bonusPack3Coins", "INT NOT NULL DEFAULT 2000"],
+    ["lowBalanceOfferEnabled", "TINYINT(1) NOT NULL DEFAULT 1"],
+    ["lowBalanceThreshold", "INT NOT NULL DEFAULT 20"],
+    ["lowBalanceOfferPrice", "INT NOT NULL DEFAULT 699"],
+    ["lowBalanceOfferCoins", "INT NOT NULL DEFAULT 2500"],
+    ["lowBalanceOfferOriginalPrice", "INT NOT NULL DEFAULT 999"],
+    ["lowBalanceOfferTitle", "VARCHAR(120) NOT NULL DEFAULT 'Your welcome offer'"],
+    ["lowBalanceOfferSubtitle", "VARCHAR(255) NOT NULL DEFAULT 'A one-time head start to find your best friend.'"],
+    ["lowBalanceOfferSocialProof", "VARCHAR(255) NOT NULL DEFAULT 'Used by 30,505 people in the last 30 mins'"],
     ["forceUpdateEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
     ["minAndroidVersionCode", "INT NULL"],
     ["minIosBuildNumber", "INT NULL"],
@@ -197,6 +213,27 @@ export const getAppSettings = async () => {
     bonusPack3Enabled: Boolean(Number(row.bonusPack3Enabled ?? 0)),
     bonusPack3Price: Number(row.bonusPack3Price ?? 549) || 549,
     bonusPack3Coins: Number(row.bonusPack3Coins ?? 2000) || 2000,
+    lowBalanceOfferEnabled: Boolean(Number(row.lowBalanceOfferEnabled ?? 1)),
+    lowBalanceThreshold: Number(row.lowBalanceThreshold ?? 20) || 20,
+    lowBalanceOfferPrice: Number(row.lowBalanceOfferPrice ?? 699) || 699,
+    lowBalanceOfferCoins: Number(row.lowBalanceOfferCoins ?? 2500) || 2500,
+    lowBalanceOfferOriginalPrice:
+      Number(row.lowBalanceOfferOriginalPrice ?? 999) || 999,
+    lowBalanceOfferTitle:
+      String(row.lowBalanceOfferTitle ?? "Your welcome offer").trim() ||
+      "Your welcome offer",
+    lowBalanceOfferSubtitle:
+      String(
+        row.lowBalanceOfferSubtitle ??
+          "A one-time head start to find your best friend."
+      ).trim() ||
+      "A one-time head start to find your best friend.",
+    lowBalanceOfferSocialProof:
+      String(
+        row.lowBalanceOfferSocialProof ??
+          "Used by 30,505 people in the last 30 mins"
+      ).trim() ||
+      "Used by 30,505 people in the last 30 mins",
     ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
@@ -218,6 +255,14 @@ export const updateAppSettings = async ({
   bonusPack3Enabled,
   bonusPack3Price,
   bonusPack3Coins,
+  lowBalanceOfferEnabled,
+  lowBalanceThreshold,
+  lowBalanceOfferPrice,
+  lowBalanceOfferCoins,
+  lowBalanceOfferOriginalPrice,
+  lowBalanceOfferTitle,
+  lowBalanceOfferSubtitle,
+  lowBalanceOfferSocialProof,
   forceUpdateEnabled,
   minAndroidVersionCode,
   minIosBuildNumber,
@@ -351,6 +396,56 @@ export const updateAppSettings = async ({
       ? current.bonusPack3Coins
       : parsePositiveInt(bonusPack3Coins, current.bonusPack3Coins);
 
+  const nextLowBalanceOfferEnabled =
+    lowBalanceOfferEnabled === undefined
+      ? current.lowBalanceOfferEnabled
+        ? 1
+        : 0
+      : lowBalanceOfferEnabled
+        ? 1
+        : 0;
+
+  const nextLowBalanceThreshold =
+    lowBalanceThreshold === undefined
+      ? current.lowBalanceThreshold
+      : parsePositiveInt(lowBalanceThreshold, current.lowBalanceThreshold);
+
+  const nextLowBalanceOfferPrice =
+    lowBalanceOfferPrice === undefined
+      ? current.lowBalanceOfferPrice
+      : parsePositiveInt(lowBalanceOfferPrice, current.lowBalanceOfferPrice);
+
+  const nextLowBalanceOfferCoins =
+    lowBalanceOfferCoins === undefined
+      ? current.lowBalanceOfferCoins
+      : parsePositiveInt(lowBalanceOfferCoins, current.lowBalanceOfferCoins);
+
+  const nextLowBalanceOfferOriginalPrice =
+    lowBalanceOfferOriginalPrice === undefined
+      ? current.lowBalanceOfferOriginalPrice
+      : parsePositiveInt(
+          lowBalanceOfferOriginalPrice,
+          current.lowBalanceOfferOriginalPrice
+        );
+
+  const nextLowBalanceOfferTitle =
+    lowBalanceOfferTitle === undefined
+      ? current.lowBalanceOfferTitle
+      : String(lowBalanceOfferTitle).trim().slice(0, 120) ||
+        current.lowBalanceOfferTitle;
+
+  const nextLowBalanceOfferSubtitle =
+    lowBalanceOfferSubtitle === undefined
+      ? current.lowBalanceOfferSubtitle
+      : String(lowBalanceOfferSubtitle).trim().slice(0, 255) ||
+        current.lowBalanceOfferSubtitle;
+
+  const nextLowBalanceOfferSocialProof =
+    lowBalanceOfferSocialProof === undefined
+      ? current.lowBalanceOfferSocialProof
+      : String(lowBalanceOfferSocialProof).trim().slice(0, 255) ||
+        current.lowBalanceOfferSocialProof;
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -368,6 +463,14 @@ bonusPack2Coins = :bonusPack2Coins,
 bonusPack3Enabled = :bonusPack3Enabled,
 bonusPack3Price = :bonusPack3Price,
 bonusPack3Coins = :bonusPack3Coins,
+lowBalanceOfferEnabled = :lowBalanceOfferEnabled,
+lowBalanceThreshold = :lowBalanceThreshold,
+lowBalanceOfferPrice = :lowBalanceOfferPrice,
+lowBalanceOfferCoins = :lowBalanceOfferCoins,
+lowBalanceOfferOriginalPrice = :lowBalanceOfferOriginalPrice,
+lowBalanceOfferTitle = :lowBalanceOfferTitle,
+lowBalanceOfferSubtitle = :lowBalanceOfferSubtitle,
+lowBalanceOfferSocialProof = :lowBalanceOfferSocialProof,
 forceUpdateEnabled = :forceUpdateEnabled,
 minAndroidVersionCode = :minAndroidVersionCode,
 minIosBuildNumber = :minIosBuildNumber,
@@ -394,6 +497,14 @@ WHERE id = 1`,
         bonusPack3Enabled: nextBonusPack3Enabled,
         bonusPack3Price: nextBonusPack3Price,
         bonusPack3Coins: nextBonusPack3Coins,
+        lowBalanceOfferEnabled: nextLowBalanceOfferEnabled,
+        lowBalanceThreshold: nextLowBalanceThreshold,
+        lowBalanceOfferPrice: nextLowBalanceOfferPrice,
+        lowBalanceOfferCoins: nextLowBalanceOfferCoins,
+        lowBalanceOfferOriginalPrice: nextLowBalanceOfferOriginalPrice,
+        lowBalanceOfferTitle: nextLowBalanceOfferTitle,
+        lowBalanceOfferSubtitle: nextLowBalanceOfferSubtitle,
+        lowBalanceOfferSocialProof: nextLowBalanceOfferSocialProof,
         forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
         minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
         minIosBuildNumber: nextForceUpdate.minIosBuildNumber,

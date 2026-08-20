@@ -59,6 +59,9 @@ from "./routes/spinWheel.routes.js";
 import welcomeOfferRoutes
 from "./routes/welcomeOffer.routes.js";
 
+import lowBalanceOfferRoutes
+from "./routes/lowBalanceOffer.routes.js";
+
 import paymentRoutes
 from "./routes/payment.routes.js";
 
@@ -210,6 +213,11 @@ app.use(
                     app.use(
                       "/api/welcome-offer",
                       welcomeOfferRoutes
+                      );
+
+                    app.use(
+                      "/api/low-balance-offer",
+                      lowBalanceOfferRoutes
                       );
 
                     app.use(

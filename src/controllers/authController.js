@@ -28,6 +28,10 @@ verifyPinHash,
 import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { trackGrowthEventAsync } from "../services/growthEvents.service.js";
 import { extractGrowthAttribution } from "../utils/growthAttribution.util.js";
+import {
+assertDeviceAllowedForRegistration,
+enforceDeviceRegistration,
+} from "../services/deviceRegistration.service.js";
 
 const validatePhone = (phone) => {
   const normalizedPhone = normalizeIndianPhone(phone);
@@ -44,6 +48,15 @@ const validatePhone = (phone) => {
     phone: normalizedPhone,
   };
 };
+
+const rejectDeviceRegistration = (
+res,
+check
+)=>
+res.status(check.status || 400).json({
+message:check.message,
+code:check.code,
+});
 
 const completePhoneAuth = async (res, user) => {
   const now = new Date();
@@ -332,6 +345,27 @@ const username = await buildUniqueUsername(
   user?.id
 );
 
+const isNewRegistration =
+!user;
+
+if(
+isNewRegistration
+){
+const deviceCheck =
+await assertDeviceAllowedForRegistration({
+payload:req.body,
+});
+
+if(
+!deviceCheck.ok
+){
+return rejectDeviceRegistration(
+res,
+deviceCheck
+);
+}
+}
+
 const payload = {
 phone,
 name:displayName,
@@ -375,6 +409,12 @@ publicUserId:await generateUniquePublicUserId()
 });
 
 }
+
+await enforceDeviceRegistration({
+req,
+userId:user.id,
+isNewRegistration,
+});
 
 return res
 .status(201)
@@ -611,6 +651,27 @@ if (user?.loginPinHash) {
   });
 }
 
+const isNewRegistration =
+!user;
+
+if (
+isNewRegistration
+) {
+const deviceCheck =
+await assertDeviceAllowedForRegistration({
+payload:req.body,
+});
+
+if (
+!deviceCheck.ok
+) {
+return rejectDeviceRegistration(
+res,
+deviceCheck
+);
+}
+}
+
 if (!user) {
   user = await User.create({
     phone: phoneResult.phone,
@@ -628,6 +689,12 @@ user.loginPinHash =
 await hashPin(pin);
 
 await user.save();
+
+await enforceDeviceRegistration({
+req,
+userId:user.id,
+isNewRegistration,
+});
 
 return completePhoneAuth(res, user);
 
@@ -858,9 +925,43 @@ message: error.message,
         : "Invalid OTP",
     });
   }
+
+  const existingUser =
+  await User.findOne({
+  where:{
+  phone:normalizedPhone,
+  },
+  });
+
+  const isNewRegistration =
+  !existingUser;
+
+  if(
+  isNewRegistration
+  ){
+  const deviceCheck =
+  await assertDeviceAllowedForRegistration({
+  payload:req.body,
+  });
+
+  if(
+  !deviceCheck.ok
+  ){
+  return rejectDeviceRegistration(
+  res,
+  deviceCheck
+  );
+  }
+  }
   
   
   const { user, created } = await findOrCreateUserByPhone(normalizedPhone);
+
+  await enforceDeviceRegistration({
+  req,
+  userId:user.id,
+  isNewRegistration:created,
+  });
 
   const now = new Date();
   await user.update({

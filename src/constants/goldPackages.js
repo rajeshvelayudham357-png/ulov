@@ -17,6 +17,34 @@ export const GOLD_PACKAGES = [
   { id: 9, coins: 2400, price: 699 },
 ];
 
+export const LOW_BALANCE_OFFER_PACKAGE_ID = 201;
+
+export const buildLowBalanceOfferPackage = (settings = {}) => {
+  const enabled = Boolean(Number(settings?.lowBalanceOfferEnabled ?? 1));
+  if (!enabled) {
+    return null;
+  }
+
+  const price = Number(settings?.lowBalanceOfferPrice ?? 699);
+  const coins = Number(settings?.lowBalanceOfferCoins ?? 2500);
+  const originalPrice = Number(settings?.lowBalanceOfferOriginalPrice ?? 999);
+
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(coins) || coins <= 0) {
+    return null;
+  }
+
+  return {
+    id: LOW_BALANCE_OFFER_PACKAGE_ID,
+    coins: Math.round(coins),
+    price: Math.round(price),
+    originalPrice: Number.isFinite(originalPrice) && originalPrice > 0
+      ? Math.round(originalPrice)
+      : null,
+    isLowBalanceOffer: true,
+    badge: "LIMITED OFFER",
+  };
+};
+
 export const BONUS_PACKAGE_DEFAULTS = [
   {
     id: 101,
@@ -99,9 +127,15 @@ export const buildBonusPackagesFromSettings = (settings = {}) =>
 export const getGoldPackageById = (
   packageId,
   regularPackages = [],
-  bonusPackages = []
+  bonusPackages = [],
+  lowBalanceOfferPackage = null
 ) => {
   const id = Number(packageId);
+
+  if (lowBalanceOfferPackage && lowBalanceOfferPackage.id === id) {
+    return lowBalanceOfferPackage;
+  }
+
   const regular = regularPackages.find((item) => item.id === id);
   if (regular) {
     return regular;
@@ -115,7 +149,14 @@ export const resolveGoldPackageById = async (packageId) => {
   const regularRow = await readRegularPackSettingsRow();
   const regularPackages = buildRegularPackagesFromSettings(regularRow);
   const bonusPackages = buildBonusPackagesFromSettings(settings);
-  return getGoldPackageById(packageId, regularPackages, bonusPackages);
+  const lowBalanceOfferPackage = buildLowBalanceOfferPackage(settings);
+
+  return getGoldPackageById(
+    packageId,
+    regularPackages,
+    bonusPackages,
+    lowBalanceOfferPackage
+  );
 };
 
 export const getEnabledBonusPackages = async () => {
