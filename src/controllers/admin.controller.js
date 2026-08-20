@@ -7631,17 +7631,32 @@ export const revenueRecharges = async (req, res) => {
         { orderId: { [Op.like]: like } },
         { cashfreePaymentId: { [Op.like]: like } },
         { razorpayPaymentId: { [Op.like]: like } },
-        { '$user.name$': { [Op.like]: like } },
-        { '$user.nickname$': { [Op.like]: like } },
-        { '$user.username$': { [Op.like]: like } },
-        { '$user.phone$': { [Op.like]: like } },
-        { '$user.publicUserId$': { [Op.like]: like } },
       ];
 
       const numericSearch = Number(search);
 
       if (Number.isFinite(numericSearch) && search === String(numericSearch)) {
         searchConditions.push({ amount: numericSearch });
+      }
+
+      const matchingUsers = await User.findAll({
+        where: {
+          [Op.or]: [
+            { name: { [Op.like]: like } },
+            { nickname: { [Op.like]: like } },
+            { username: { [Op.like]: like } },
+            { phone: { [Op.like]: like } },
+            { publicUserId: { [Op.like]: like } },
+          ],
+        },
+        attributes: ["id"],
+        raw: true,
+      });
+
+      const matchedUserIds = matchingUsers.map((row) => row.id);
+
+      if (matchedUserIds.length > 0) {
+        searchConditions.push({ userId: { [Op.in]: matchedUserIds } });
       }
 
       where[Op.and] = [
@@ -7652,26 +7667,13 @@ export const revenueRecharges = async (req, res) => {
 
     const queryInclude = [userInclude];
 
-    const summaryInclude = search
-      ? [
-          {
-            model: User,
-            as: "user",
-            attributes: [],
-            required: false,
-          },
-        ]
-      : [];
-
     const summaryAgg = await PaymentOrder.findOne({
       where,
-      ...(summaryInclude.length ? { include: summaryInclude } : {}),
       attributes: [
         [fn('COUNT', fn('DISTINCT', col('payment_orders.id'))), 'totalRecharges'],
         [fn('COALESCE', fn('SUM', col('payment_orders.amount')), 0), 'totalAmount'],
         [fn('COALESCE', fn('SUM', col('payment_orders.coins')), 0), 'totalCoins'],
       ],
-      subQuery: false,
       raw: true,
     });
 
