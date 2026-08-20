@@ -7636,9 +7636,20 @@ export const revenueRecharges = async (req, res) => {
 
     const queryInclude = [userInclude];
 
+    const summaryInclude = search
+      ? [
+          {
+            model: User,
+            as: "user",
+            attributes: [],
+            required: false,
+          },
+        ]
+      : [];
+
     const summaryAgg = await PaymentOrder.findOne({
       where,
-      include: queryInclude,
+      ...(summaryInclude.length ? { include: summaryInclude } : {}),
       attributes: [
         [fn('COUNT', fn('DISTINCT', col('payment_orders.id'))), 'totalRecharges'],
         [fn('COALESCE', fn('SUM', col('payment_orders.amount')), 0), 'totalAmount'],
