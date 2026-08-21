@@ -112,9 +112,16 @@ export const callAcceptedSql = (alias = "") => {
   return `(${prefix}status IN ('accepted','completed','ended','ongoing','in_progress') OR COALESCE(${prefix}duration, 0) > 0)`;
 };
 
+/** Connected calls require actual connection evidence (duration or post-connect terminal status). */
 export const callConnectedSql = (alias = "") => {
   const prefix = alias ? `${alias}.` : "";
-  return `(COALESCE(${prefix}duration, 0) > 0 OR ${prefix}status IN ('accepted','completed','ended','ongoing','in_progress'))`;
+  return `(COALESCE(${prefix}duration, 0) > 0 OR ${prefix}status IN ('completed','ended','ongoing','in_progress'))`;
+};
+
+/** Countable call attempts for totals — exclude transient ringing rows. */
+export const callCountableSql = (alias = "") => {
+  const prefix = alias ? `${alias}.` : "";
+  return `${prefix}status NOT IN ('ringing')`;
 };
 
 export const callFailedSql = (alias = "") => {

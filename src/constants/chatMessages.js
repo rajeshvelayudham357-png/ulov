@@ -9,7 +9,12 @@ export const MALE_MESSAGE_KEYS = [
   "evening",
   "night",
   "miss_you",
-  "are_you_free"
+  "are_you_free",
+  "turn_video_on",
+  "called_many_times",
+  "please_call_back",
+  "waiting_for_call",
+  "video_call_me"
 ];
 
 export const FEMALE_MESSAGE_KEYS = [
@@ -22,7 +27,10 @@ export const FEMALE_MESSAGE_KEYS = [
   "hi",
   "busy_now",
   "online_now",
-  "thanks"
+  "thanks",
+  "video_calls_on",
+  "saw_missed_calls",
+  "call_me_soon"
 ];
 
 export const CHAT_MESSAGE_CATALOG = {
@@ -43,7 +51,15 @@ export const CHAT_MESSAGE_CATALOG = {
   call_me_by_night: { text: "Call me by night 🌙" },
   busy_now: { text: "Busy right now" },
   online_now: { text: "I'm online now ✨" },
-  thanks: { text: "Thanks 💖" }
+  thanks: { text: "Thanks 💖" },
+  turn_video_on: { text: "Please turn video call on 📹" },
+  called_many_times: { text: "I called you many times 📞" },
+  please_call_back: { text: "Please call me back 📲" },
+  waiting_for_call: { text: "Waiting for your call ⏳" },
+  video_call_me: { text: "Video call me 🎥" },
+  video_calls_on: { text: "Video calls are on 📹" },
+  saw_missed_calls: { text: "I saw your missed calls" },
+  call_me_soon: { text: "Call me when you're free 📲" }
 };
 
 export const getMessageText =

@@ -22,6 +22,15 @@ expoPushToken,
 gender
 }=req.body;
 
+const authenticatedUserId =
+Number(req.user?.id);
+
+if(!authenticatedUserId){
+return res.status(401).json({
+message:"Unauthorized"
+});
+}
+
 if(!userId){
 return res.status(400).json({
 message:"userId required"
@@ -30,6 +39,12 @@ message:"userId required"
 
 const normalizedUserId =
 Number(userId);
+
+if(normalizedUserId !== authenticatedUserId){
+return res.status(403).json({
+message:"Forbidden"
+});
+}
 
 const normalizedPlatform =
 platform ?? "unknown";

@@ -6,6 +6,11 @@ import {
   routeIncomingCallToCreator,
   recordClientCallDeliveryEvent,
 } from "../callDelivery.service.js";
+import { sequelize } from "../../config/database.js";
+
+test.after(async () => {
+  await sequelize.close();
+});
 
 test("routeIncomingCallToCreator attempts socket and push", async () => {
   const emitted = [];

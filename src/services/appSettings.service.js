@@ -45,6 +45,10 @@ const DEFAULT_SETTINGS = {
   updateMessage: DEFAULT_FORCE_UPDATE_MESSAGE,
   playStoreUrl: null,
   appStoreUrl: null,
+  quickConnectEnabled: 0,
+  quickConnectMaxAttempts: 3,
+  quickConnectRingTimeoutSeconds: 10,
+  quickConnectMaxRoutingSeconds: 30,
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -151,6 +155,10 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["updateMessage", "VARCHAR(500) NULL"],
     ["playStoreUrl", "VARCHAR(512) NULL"],
     ["appStoreUrl", "VARCHAR(512) NULL"],
+    ["quickConnectEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["quickConnectMaxAttempts", "INT NOT NULL DEFAULT 3"],
+    ["quickConnectRingTimeoutSeconds", "INT NOT NULL DEFAULT 10"],
+    ["quickConnectMaxRoutingSeconds", "INT NOT NULL DEFAULT 30"],
   ]) {
     await ensureColumn("admin_app_settings", column, definition);
   }
@@ -234,6 +242,19 @@ export const getAppSettings = async () => {
           "Used by 30,505 people in the last 30 mins"
       ).trim() ||
       "Used by 30,505 people in the last 30 mins",
+    quickConnectEnabled: Boolean(Number(row.quickConnectEnabled ?? 0)),
+    quickConnectMaxAttempts: Math.min(
+      5,
+      Math.max(1, Number(row.quickConnectMaxAttempts ?? 3) || 3)
+    ),
+    quickConnectRingTimeoutSeconds: Math.min(
+      30,
+      Math.max(5, Number(row.quickConnectRingTimeoutSeconds ?? 10) || 10)
+    ),
+    quickConnectMaxRoutingSeconds: Math.min(
+      60,
+      Math.max(10, Number(row.quickConnectMaxRoutingSeconds ?? 30) || 30)
+    ),
     ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
@@ -263,6 +284,10 @@ export const updateAppSettings = async ({
   lowBalanceOfferTitle,
   lowBalanceOfferSubtitle,
   lowBalanceOfferSocialProof,
+  quickConnectEnabled,
+  quickConnectMaxAttempts,
+  quickConnectRingTimeoutSeconds,
+  quickConnectMaxRoutingSeconds,
   forceUpdateEnabled,
   minAndroidVersionCode,
   minIosBuildNumber,
@@ -446,6 +471,51 @@ export const updateAppSettings = async ({
       : String(lowBalanceOfferSocialProof).trim().slice(0, 255) ||
         current.lowBalanceOfferSocialProof;
 
+  const nextQuickConnectEnabled =
+    quickConnectEnabled === undefined
+      ? current.quickConnectEnabled
+        ? 1
+        : 0
+      : quickConnectEnabled
+        ? 1
+        : 0;
+
+  const nextQuickConnectMaxAttempts = Math.min(
+    5,
+    Math.max(
+      1,
+      quickConnectMaxAttempts === undefined
+        ? current.quickConnectMaxAttempts
+        : parsePositiveInt(quickConnectMaxAttempts, current.quickConnectMaxAttempts)
+    )
+  );
+
+  const nextQuickConnectRingTimeoutSeconds = Math.min(
+    30,
+    Math.max(
+      5,
+      quickConnectRingTimeoutSeconds === undefined
+        ? current.quickConnectRingTimeoutSeconds
+        : parsePositiveInt(
+            quickConnectRingTimeoutSeconds,
+            current.quickConnectRingTimeoutSeconds
+          )
+    )
+  );
+
+  const nextQuickConnectMaxRoutingSeconds = Math.min(
+    60,
+    Math.max(
+      10,
+      quickConnectMaxRoutingSeconds === undefined
+        ? current.quickConnectMaxRoutingSeconds
+        : parsePositiveInt(
+            quickConnectMaxRoutingSeconds,
+            current.quickConnectMaxRoutingSeconds
+          )
+    )
+  );
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -471,6 +541,10 @@ lowBalanceOfferOriginalPrice = :lowBalanceOfferOriginalPrice,
 lowBalanceOfferTitle = :lowBalanceOfferTitle,
 lowBalanceOfferSubtitle = :lowBalanceOfferSubtitle,
 lowBalanceOfferSocialProof = :lowBalanceOfferSocialProof,
+quickConnectEnabled = :quickConnectEnabled,
+quickConnectMaxAttempts = :quickConnectMaxAttempts,
+quickConnectRingTimeoutSeconds = :quickConnectRingTimeoutSeconds,
+quickConnectMaxRoutingSeconds = :quickConnectMaxRoutingSeconds,
 forceUpdateEnabled = :forceUpdateEnabled,
 minAndroidVersionCode = :minAndroidVersionCode,
 minIosBuildNumber = :minIosBuildNumber,
@@ -505,6 +579,10 @@ WHERE id = 1`,
         lowBalanceOfferTitle: nextLowBalanceOfferTitle,
         lowBalanceOfferSubtitle: nextLowBalanceOfferSubtitle,
         lowBalanceOfferSocialProof: nextLowBalanceOfferSocialProof,
+        quickConnectEnabled: nextQuickConnectEnabled,
+        quickConnectMaxAttempts: nextQuickConnectMaxAttempts,
+        quickConnectRingTimeoutSeconds: nextQuickConnectRingTimeoutSeconds,
+        quickConnectMaxRoutingSeconds: nextQuickConnectMaxRoutingSeconds,
         forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
         minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
         minIosBuildNumber: nextForceUpdate.minIosBuildNumber,

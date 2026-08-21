@@ -155,6 +155,10 @@ export const runDatabaseMigrations = async () => {
     "./growthEventSchema.service.js"
   );
   await ensureGrowthEventSchema();
+  const { ensureQuickConnectSchema } = await import(
+    "./quickConnectSchema.service.js"
+  );
+  await ensureQuickConnectSchema({ force: true });
   console.log("Core analytics tables ready");
 
   await safeModelSync(DeviceToken, "DeviceToken");

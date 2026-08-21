@@ -16,6 +16,14 @@ import {
 CallHistory,
 User
 } from "../models/index.js";
+import {
+CALL_MODES,
+normalizeCallMode,
+} from "../constants/quickConnect.js";
+import {
+createQuickConnectSession,
+cancelQuickConnectSession,
+} from "../services/quickConnect.service.js";
 
 export const createVideoCall =
 async(req,res)=>{
@@ -27,8 +35,36 @@ try{
 const {
 receiverId,
 callerId,
-type
+type,
+mode: rawMode,
+callerName,
+callerAvatar,
 }=req.body;
+
+const mode = normalizeCallMode(rawMode);
+
+if (mode === CALL_MODES.QUICK_CONNECT) {
+  if (receiverId) {
+    return res.status(400).json({
+      message: "Quick Connect does not accept receiverId",
+    });
+  }
+
+  if (!callerId) {
+    return res.status(400).json({
+      message: "callerId required",
+    });
+  }
+
+  const quickConnectResult = await createQuickConnectSession({
+    callerId,
+    type,
+    callerName: callerName ?? null,
+    callerAvatar: callerAvatar ?? null,
+  });
+
+  return res.json(quickConnectResult);
+}
 
 const normalizedType =
 normalizeCallTypeForDb(type);
@@ -248,7 +284,7 @@ token:receiverToken
 }catch(error){
 
 
-res.status(500).json({
+res.status(error.statusCode || 500).json({
 message:error.message
 });
 
@@ -351,5 +387,41 @@ export const getIncomingCallStatus = async (req, res) => {
     return res.status(500).json({
       message: error.message,
     });
+  }
+};
+
+export const cancelQuickConnect = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id ?? req.body?.callerId);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const sessionId = Number(req.body?.sessionId);
+
+    if (!Number.isFinite(sessionId)) {
+      return res.status(400).json({ message: "sessionId required" });
+    }
+
+    const result = await cancelQuickConnectSession({
+      sessionId,
+      callerId: userId,
+    });
+
+    if (!result.cancelled) {
+      return res.status(result.reason === "forbidden" ? 403 : 404).json({
+        success: false,
+        message: result.reason || "Unable to cancel session",
+      });
+    }
+
+    return res.json({
+      success: true,
+      sessionId,
+      alreadyTerminal: Boolean(result.alreadyTerminal),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 };

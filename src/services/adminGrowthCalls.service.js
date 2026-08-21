@@ -5,6 +5,7 @@ import {
   buildFunnelStage,
   callAcceptedSql,
   callConnectedSql,
+  callCountableSql,
   callFailedSql,
   periodReplacements,
   safeRate,
@@ -27,7 +28,7 @@ export const getCallQualityMetrics = async (bounds) => {
 
   const [metricsRow] = await sequelize.query(
     `SELECT
-       COUNT(*) AS totalCalls,
+       SUM(CASE WHEN ${callCountableSql("ch")} THEN 1 ELSE 0 END) AS totalCalls,
        SUM(CASE WHEN ${callAcceptedSql("ch")} THEN 1 ELSE 0 END) AS acceptedCalls,
        SUM(CASE WHEN ${callConnectedSql("ch")} THEN 1 ELSE 0 END) AS connectedCalls,
        SUM(CASE WHEN COALESCE(ch.duration, 0) >= 5 THEN 1 ELSE 0 END) AS callsGt5Sec,

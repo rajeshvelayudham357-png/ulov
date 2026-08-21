@@ -162,6 +162,11 @@ export const User = sequelize.define(
       defaultValue: true,
     },
 
+    acceptAutoRoutedCalls: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+
     notificationsEnabled: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,

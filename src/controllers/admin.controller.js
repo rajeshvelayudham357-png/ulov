@@ -1124,6 +1124,14 @@ lowBalanceOfferSubtitle:
 req.body.lowBalanceOfferSubtitle,
 lowBalanceOfferSocialProof:
 req.body.lowBalanceOfferSocialProof,
+quickConnectEnabled:
+req.body.quickConnectEnabled,
+quickConnectMaxAttempts:
+req.body.quickConnectMaxAttempts,
+quickConnectRingTimeoutSeconds:
+req.body.quickConnectRingTimeoutSeconds,
+quickConnectMaxRoutingSeconds:
+req.body.quickConnectMaxRoutingSeconds,
 forceUpdateEnabled:
 req.body.forceUpdateEnabled,
 minAndroidVersionCode:

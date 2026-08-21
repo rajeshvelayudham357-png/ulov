@@ -44,6 +44,18 @@ recordFemaleOnlineSessionEnd
 import { setSocketInstance as setAppSettingsSocketInstance } from "./services/appSettings.service.js";
 import { setSocketInstance as setGoogleBillingSocketInstance } from "./services/googleBilling.service.js";
 import { setFemaleOfflineSocketInstance } from "./services/femaleOffline.service.js";
+import {
+  setQuickConnectRuntime,
+  resolveQuickConnectContext,
+  tryAcceptQuickConnectAttempt,
+  buildQuickConnectAcceptAck,
+  handleQuickConnectCreatorRejected,
+  handleQuickConnectAttemptFailure,
+  cancelQuickConnectSession,
+  handleCreatorDisconnectedDuringQuickConnect,
+} from "./services/quickConnect.service.js";
+import { CALL_MODES, ATTEMPT_STATUS } from "./constants/quickConnect.js";
+import { startQuickConnectWatchdog } from "./services/quickConnectWatchdog.service.js";
 
 
 
@@ -161,6 +173,7 @@ onlineUsers
 
 setAppSettingsSocketInstance(io);
 setGoogleBillingSocketInstance(io);
+setQuickConnectRuntime({ io, onlineUsers });
 
 const startChatRetention =
 async()=>{
@@ -215,6 +228,7 @@ console.log(
 
 startChatRetention();
 startBroadcastScheduleWorker();
+startQuickConnectWatchdog();
 
 }catch(error){
 
@@ -584,7 +598,7 @@ error.message
 
 socket.on(
 "accept-call",
-async(data)=>{
+async(data, ack)=>{
 
 
 
@@ -592,6 +606,13 @@ console.log(
 "CALL ACCEPTED",
 data
 );
+
+const respondAccept =
+typeof ack === "function"
+?
+(payload)=>ack(payload)
+:
+null;
 
 await logCreatorCallDeliveryEvent(
 data,
@@ -605,6 +626,44 @@ data?.callerId;
 
 const receiverId =
 data?.receiverId;
+
+const quickConnectContext =
+await resolveQuickConnectContext({
+callId:data?.callId,
+attemptId:data?.attemptId,
+sessionId:data?.sessionId,
+});
+
+if(
+quickConnectContext.mode === CALL_MODES.QUICK_CONNECT &&
+quickConnectContext.attempt
+){
+const acceptResult =
+await tryAcceptQuickConnectAttempt({
+attemptId:quickConnectContext.attempt.id,
+callerId,
+receiverId,
+});
+
+if(respondAccept){
+respondAccept(
+buildQuickConnectAcceptAck(acceptResult)
+);
+}
+
+if(!acceptResult.accepted){
+console.log(
+"QUICK CONNECT ACCEPT BLOCKED",
+acceptResult.reason
+);
+return;
+}
+}else if(respondAccept){
+respondAccept({
+accepted:true,
+mode:CALL_MODES.DIRECT,
+});
+}
 
 if(
 callerId &&
@@ -635,6 +694,15 @@ console.log(
 error.message
 );
 
+if(respondAccept){
+respondAccept({
+accepted:false,
+reason:"unavailable",
+mode:data?.mode || CALL_MODES.DIRECT,
+});
+}
+
+return;
 }
 
 
@@ -723,6 +791,24 @@ data,
 
 try{
 
+const quickConnectContext =
+await resolveQuickConnectContext({
+callId:data?.callId,
+attemptId:data?.attemptId,
+sessionId:data?.sessionId,
+});
+
+if(
+quickConnectContext.mode === CALL_MODES.QUICK_CONNECT &&
+quickConnectContext.attempt
+){
+await handleQuickConnectCreatorRejected({
+attemptId:quickConnectContext.attempt.id,
+});
+
+return;
+}
+
 await updateActiveCallStatus(
 data,
 "rejected"
@@ -791,6 +877,20 @@ data
 );
 
 try{
+
+if(data?.sessionId){
+
+const cancelResult =
+await cancelQuickConnectSession({
+sessionId:data.sessionId,
+callerId:data.callerId,
+});
+
+if(cancelResult.cancelled){
+return;
+}
+
+}
 
 await updateActiveCallStatus(
 data,
@@ -941,6 +1041,26 @@ data,
 );
 
 try{
+
+const quickConnectContext =
+await resolveQuickConnectContext({
+callId:data?.callId,
+attemptId:data?.attemptId,
+sessionId:data?.sessionId,
+});
+
+if(
+quickConnectContext.mode === CALL_MODES.QUICK_CONNECT &&
+quickConnectContext.attempt
+){
+await handleQuickConnectAttemptFailure({
+attemptId:quickConnectContext.attempt.id,
+terminalStatus:ATTEMPT_STATUS.MISSED,
+failureReason:"client_missed",
+});
+
+return;
+}
 
 await updateActiveCallStatus(
 data,
@@ -1207,6 +1327,15 @@ String(user.gender || "")
 .toLowerCase() === "female";
 
 if(isFemaleCreator){
+await handleCreatorDisconnectedDuringQuickConnect(
+removedUser
+).catch((error)=>{
+console.log(
+"QUICK CONNECT CREATOR DISCONNECT ERROR",
+error.message
+);
+});
+
 // Female creators stay available until they manually turn offline.
 // App kill / socket drop only removes live socket; push delivers calls.
 await recordFemaleOnlineSessionEnd(

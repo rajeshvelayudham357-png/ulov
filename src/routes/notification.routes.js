@@ -9,11 +9,15 @@ getNotifications,
 markNotificationsRead
 } from "../controllers/notification.controller.js";
 
+import authMiddleware from "../middleware/authMiddleware.js";
+
+
 const router =
 express.Router();
 
 router.post(
 "/register-token",
+authMiddleware,
 registerToken
 );
 

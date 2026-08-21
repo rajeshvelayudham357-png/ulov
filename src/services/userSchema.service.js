@@ -104,6 +104,22 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
   await ensureColumn("users", "appVersion", "VARCHAR(20) NULL");
   await ensureColumn("users", "lastSeen", "DATETIME NULL");
   await ensureColumn("users", "lastLoginAt", "DATETIME NULL");
+  await ensureColumn(
+    "users",
+    "acceptAutoRoutedCalls",
+    "TINYINT(1) NOT NULL DEFAULT 1"
+  );
+
+  try {
+    await sequelize.query(
+      `UPDATE users
+       SET acceptAutoRoutedCalls = 1
+       WHERE LOWER(COALESCE(gender, '')) = 'female'
+         AND COALESCE(acceptAutoRoutedCalls, 0) = 0`
+    );
+  } catch (error) {
+    console.log("acceptAutoRoutedCalls migration skipped:", error.message);
+  }
 
   try {
     await sequelize.query(

@@ -928,8 +928,41 @@ await ensureUserSchema();
 const {
  userId,
  acceptVoiceCalls,
- acceptVideoCalls
+ acceptVideoCalls,
+ acceptAutoRoutedCalls,
 }=req.body;
+
+const parseOptionalBoolean = (value) => {
+ if(value === undefined || value === null){
+ return undefined;
+ }
+
+ if(typeof value === "boolean"){
+ return value;
+ }
+
+ const normalized =
+ String(value).trim().toLowerCase();
+
+ if(normalized === "1" || normalized === "true"){
+ return true;
+ }
+
+ if(normalized === "0" || normalized === "false"){
+ return false;
+ }
+
+ return undefined;
+};
+
+const parsedAcceptVoiceCalls =
+parseOptionalBoolean(acceptVoiceCalls);
+
+const parsedAcceptVideoCalls =
+parseOptionalBoolean(acceptVideoCalls);
+
+const parsedAcceptAutoRoutedCalls =
+parseOptionalBoolean(acceptAutoRoutedCalls);
 
 const user =
 await User.findByPk(
@@ -966,19 +999,30 @@ accountStatus
 }
 
 const nextVoice =
-typeof acceptVoiceCalls === "boolean"
+parsedAcceptVoiceCalls !== undefined
 ?
-acceptVoiceCalls
+parsedAcceptVoiceCalls
 :
 Boolean(user.acceptVoiceCalls ?? true);
 
 const nextVideo =
-typeof acceptVideoCalls === "boolean"
+parsedAcceptVideoCalls !== undefined
 ?
-acceptVideoCalls
+parsedAcceptVideoCalls
 :
 Boolean(user.acceptVideoCalls ?? true);
 
+const nextAutoRouted =
+parsedAcceptAutoRoutedCalls !== undefined
+?
+parsedAcceptAutoRoutedCalls
+:
+Boolean(user.acceptAutoRoutedCalls ?? false);
+
+if(
+parsedAcceptVoiceCalls !== undefined ||
+parsedAcceptVideoCalls !== undefined
+){
 if(
 !nextVoice &&
 !nextVideo
@@ -987,16 +1031,33 @@ return res.status(400).json({
 message:"Enable at least one call mode: voice or video"
 });
 }
+}
 
 await user.update({
-acceptVoiceCalls:nextVoice,
-acceptVideoCalls:nextVideo
+...(parsedAcceptVoiceCalls !== undefined
+?
+{ acceptVoiceCalls: nextVoice }
+:
+{}),
+...(parsedAcceptVideoCalls !== undefined
+?
+{ acceptVideoCalls: nextVideo }
+:
+{}),
+...(parsedAcceptAutoRoutedCalls !== undefined
+?
+{ acceptAutoRoutedCalls: nextAutoRouted }
+:
+{}),
 });
+
+await user.reload();
 
 return res.json({
 message:"Call preferences updated",
 acceptVoiceCalls:Boolean(user.acceptVoiceCalls),
-acceptVideoCalls:Boolean(user.acceptVideoCalls)
+acceptVideoCalls:Boolean(user.acceptVideoCalls),
+acceptAutoRoutedCalls:Boolean(user.acceptAutoRoutedCalls),
 });
 
 }catch(error){
