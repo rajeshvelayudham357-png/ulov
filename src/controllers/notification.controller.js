@@ -8,6 +8,9 @@ import {
 notifyFemalesOnBroadcast,
 notifyMalesWhenFemaleOnline
 } from "../services/notificationPush.service.js";
+import {
+filterNotificationsForGender,
+} from "../utils/notificationAudience.js";
 
 export const registerToken =
 async(req,res)=>{
@@ -271,10 +274,27 @@ const {
 userId
 }=req.params;
 
+const normalizedUserId =
+Number(userId);
+
+const user =
+await User.findByPk(
+normalizedUserId,
+{
+attributes:["id","gender"]
+}
+);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
 const notifications =
 await NotificationRecord.findAll({
 where:{
-userId:Number(userId)
+userId:normalizedUserId
 },
 order:[
 ["createdAt","DESC"]
@@ -283,7 +303,11 @@ limit:100
 });
 
 return res.json({
-notifications
+notifications:
+filterNotificationsForGender(
+notifications,
+user.gender
+)
 });
 
 }catch(error){

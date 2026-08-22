@@ -87,6 +87,10 @@ import {
 }
 from "../config/database.js";
 
+import {
+QC_TABLES
+} from "../constants/quickConnect.js";
+
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import {
@@ -3001,6 +3005,40 @@ order:[
 
 
 
+const callIds =
+data.map(
+(call)=>Number(call.id)
+).filter(Boolean);
+
+let quickConnectCallIds =
+new Set();
+
+if(callIds.length > 0){
+
+const attemptRows =
+await sequelize.query(
+`SELECT DISTINCT callHistoryId AS callHistoryId
+ FROM ${QC_TABLES.ATTEMPTS}
+ WHERE callHistoryId IN (:callIds)`,
+{
+replacements:{
+callIds
+},
+type:QueryTypes.SELECT
+}
+);
+
+quickConnectCallIds =
+new Set(
+attemptRows
+.map(
+(row)=>Number(row.callHistoryId)
+)
+.filter(Boolean)
+);
+
+}
+
 
 
 const formatDuration =
@@ -3077,6 +3115,13 @@ type:row.type ||
 
 status:row.status ||
 "completed",
+
+source:
+quickConnectCallIds.has(Number(row.id))
+?
+"quick_connect"
+:
+"direct",
 
 startedAt:row.createdAt,
 
