@@ -6,6 +6,7 @@ import { CallHistory, User, Wallet } from "../../../models/index.js";
 import { getAppSettings, updateAppSettings } from "../../appSettings.service.js";
 import { ensureQuickConnectSchema } from "../../quickConnectSchema.service.js";
 import { setQuickConnectRuntime } from "../../quickConnect.service.js";
+import { ensureFemaleOnlineTimeTables } from "../../femaleOnlineTime.service.js";
 import { releaseCreatorReservation } from "../../creatorReservation.service.js";
 
 export const TEST_PREFIX = 881000;
@@ -130,6 +131,34 @@ export const upsertTestWallet = async (userId, balance = 10_000) => {
   });
 };
 
+export const seedCreatorOnlineStats = async (
+  userId,
+  minutesOnline = 20
+) => {
+  await ensureFemaleOnlineTimeTables();
+
+  const minutes = Math.max(1, Number(minutesOnline) || 20);
+
+  await sequelize.query(
+    `INSERT INTO female_creator_online_stats
+     (userId, totalOnlineMinutes, totalOnlineSeconds, lastSessionStartedAt, lastHeartbeatAt)
+     VALUES (:userId, :minutes, :seconds, DATE_SUB(NOW(), INTERVAL :minutes MINUTE), NOW())
+     ON DUPLICATE KEY UPDATE
+       totalOnlineMinutes = :minutes,
+       totalOnlineSeconds = :seconds,
+       lastSessionStartedAt = DATE_SUB(NOW(), INTERVAL :minutes MINUTE),
+       lastHeartbeatAt = NOW(),
+       updatedAt = NOW()`,
+    {
+      replacements: {
+        userId: Number(userId),
+        minutes,
+        seconds: minutes * 60,
+      },
+    }
+  );
+};
+
 export const seedEligibleCreators = async () => {
   await ensureQuickConnectSchema({ force: true });
 
@@ -195,6 +224,16 @@ export const seedEligibleCreators = async () => {
     online: true,
     nickname: "Busy Caller",
   });
+
+  for (const creatorId of [
+    IDS.CREATOR_A,
+    IDS.CREATOR_B,
+    IDS.CREATOR_C,
+    IDS.CREATOR_BLOCKED,
+    IDS.CREATOR_NO_AUTO,
+  ]) {
+    await seedCreatorOnlineStats(creatorId, 20);
+  }
 
   await sequelize.query(
     `INSERT INTO blocks (blockerId, blockedUserId, createdAt, updatedAt)

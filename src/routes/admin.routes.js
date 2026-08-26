@@ -55,6 +55,8 @@ import {
 
     updateMasterTask,
 
+    getTaskClaims,
+
     dashboard,
     
     users,
@@ -136,6 +138,8 @@ createBroadcast,
 listBroadcastFemales,
 listBroadcastMales,
 listBroadcastUsers,
+listFemaleBroadcastLanguages,
+getBroadcastAudienceCount,
 createIndividualBroadcast
 
 } from "../controllers/broadcast.controller.js";
@@ -165,6 +169,8 @@ import {
   offlineAllFemaleCreators,
   offlineStaleFemaleCreators,
   previewStaleFemaleCreators,
+  getFemaleOnlineScheduler,
+  updateFemaleOnlineScheduler,
 } from "../controllers/femaleOnlineAdmin.controller.js";
 
 import {
@@ -413,6 +419,12 @@ router.patch(
 "/master-tasks/:id",
 requirePageAccess("daily-tasks"),
 updateMasterTask
+);
+
+router.get(
+"/task-claims",
+requirePageAccess("task-claims"),
+getTaskClaims
 );
 
 
@@ -819,6 +831,18 @@ listBroadcastFemales
 );
 
 router.get(
+"/broadcast/female-languages",
+requirePageAccess("broadcast"),
+listFemaleBroadcastLanguages
+);
+
+router.get(
+"/broadcast/audience-count",
+requirePageAccess("broadcast"),
+getBroadcastAudienceCount
+);
+
+router.get(
 "/broadcast/males",
 requirePageAccess("broadcast"),
 listBroadcastMales
@@ -912,6 +936,18 @@ router.post(
   "/female-online/offline-stale",
   requirePageAccess("female-online"),
   offlineStaleFemaleCreators
+);
+
+router.get(
+  "/female-online/scheduler",
+  requirePageAccess("female-online"),
+  getFemaleOnlineScheduler
+);
+
+router.patch(
+  "/female-online/scheduler",
+  requirePageAccess("female-online"),
+  updateFemaleOnlineScheduler
 );
 
 router.post(

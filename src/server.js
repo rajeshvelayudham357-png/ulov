@@ -56,6 +56,7 @@ import {
 } from "./services/quickConnect.service.js";
 import { CALL_MODES, ATTEMPT_STATUS } from "./constants/quickConnect.js";
 import { startQuickConnectWatchdog } from "./services/quickConnectWatchdog.service.js";
+import { startFemaleOnlineScheduler } from "./services/femaleOnlineScheduler.service.js";
 
 
 
@@ -229,6 +230,7 @@ console.log(
 startChatRetention();
 startBroadcastScheduleWorker();
 startQuickConnectWatchdog();
+startFemaleOnlineScheduler();
 
 }catch(error){
 

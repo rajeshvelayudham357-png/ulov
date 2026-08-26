@@ -43,6 +43,7 @@ export const DEFAULT_QUICK_CONNECT = {
   ringTimeoutSeconds: 10,
   maxRoutingSeconds: 30,
   maxSelectionRetries: 20,
+  minOnlineMinutes: 15,
 };
 
 export const MAX_SELECTION_RETRIES =

@@ -138,7 +138,8 @@ backfillPublicUserIds
 import {
 createMasterFemaleTask,
 getMasterFemaleTasks,
-updateMasterFemaleTask
+updateMasterFemaleTask,
+listFemaleTaskClaims,
 } from "../services/femaleTask.service.js";
 import {
 getMaleWalletCreditPackages,
@@ -202,6 +203,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"regular-gold-packages", label:"Regular Gold Packages", path:"/regular-gold-packages" },
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
 { key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
+{ key:"task-claims", label:"Task Claims", path:"/task-claims" },
 { key:"broadcast", label:"Broadcast", path:"/broadcast" },
 { key:"user-notify", label:"User Notify", path:"/user-notify" },
 { key:"support", label:"Support", path:"/support" },
@@ -1136,6 +1138,8 @@ quickConnectRingTimeoutSeconds:
 req.body.quickConnectRingTimeoutSeconds,
 quickConnectMaxRoutingSeconds:
 req.body.quickConnectMaxRoutingSeconds,
+quickConnectMinOnlineMinutes:
+req.body.quickConnectMinOnlineMinutes,
 forceUpdateEnabled:
 req.body.forceUpdateEnabled,
 minAndroidVersionCode:
@@ -1571,6 +1575,49 @@ message.includes("not found") ? 404 : 500
 )
 .json({
 message
+});
+
+}
+
+};
+
+
+export const getTaskClaims =
+async(
+req,
+res
+)=>{
+
+try{
+
+const date =
+String(req.query.date || "").trim();
+
+const taskId =
+String(req.query.taskId || "").trim();
+
+const cadence =
+String(req.query.cadence || "daily").trim().toLowerCase();
+
+const search =
+String(req.query.search || "").trim();
+
+const result =
+await listFemaleTaskClaims({
+date:date || undefined,
+taskId:taskId || undefined,
+cadence,
+search,
+});
+
+return res.json(result);
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
 });
 
 }

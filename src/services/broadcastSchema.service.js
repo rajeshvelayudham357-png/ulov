@@ -45,5 +45,11 @@ export const ensureBroadcastSchema = async () => {
     "VARCHAR(20) NULL DEFAULT 'female'"
   );
 
+  await ensureColumn(
+    "broadcasts",
+    "targetLanguage",
+    "VARCHAR(40) NULL"
+  );
+
   broadcastSchemaReady = true;
 };

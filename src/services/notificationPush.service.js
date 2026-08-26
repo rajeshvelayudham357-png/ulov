@@ -19,6 +19,7 @@ User,
 DeviceToken,
 NotificationRecord
 } from "../models/index.js";
+import { matchesFirstLanguage } from "../constants/languages.js";
 
 const __filename =
 fileURLToPath(import.meta.url);
@@ -1338,8 +1339,28 @@ await User.findAll({
 where:{
 gender:genderFilter
 },
-attributes:["id","username","name"]
+attributes:["id","username","name","languages"]
 });
+
+const languageFilter =
+String(
+broadcast?.targetLanguage ||
+broadcast?.language ||
+""
+).trim();
+
+const targetUsers =
+languageFilter &&
+audience === "female"
+?
+users.filter((user)=>
+matchesFirstLanguage(
+user.languages,
+languageFilter
+)
+)
+:
+users;
 
 const payload = {
 id:broadcast.id,
@@ -1355,7 +1376,7 @@ let pushSent =
 0;
 
 for(
-const user of users
+const user of targetUsers
 ){
 notified++;
 

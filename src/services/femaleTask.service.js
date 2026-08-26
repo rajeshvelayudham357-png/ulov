@@ -611,6 +611,141 @@ lifetimeTasks:tasks.filter(
 
 };
 
+export const listFemaleTaskClaims = async ({
+  date,
+  taskId,
+  cadence = "daily",
+  search = "",
+  limit = 500,
+} = {}) => {
+  await ensureClaimsTable();
+  await ensureMasterTasksTable();
+
+  const normalizedCadence = String(cadence || "daily").trim().toLowerCase();
+  const claimDate = String(date || getTodayKey()).trim();
+  const whereParts = ["1 = 1"];
+  const replacements = {
+    limit: Math.min(Math.max(Number(limit) || 500, 1), 1000),
+  };
+
+  if (normalizedCadence === "daily") {
+    whereParts.push("c.claimKey = :claimKey");
+    replacements.claimKey = claimDate;
+  } else if (normalizedCadence === "lifetime") {
+    whereParts.push("c.claimKey = 'lifetime'");
+  } else if (claimDate) {
+    whereParts.push("c.claimKey = :claimKey");
+    replacements.claimKey = claimDate;
+  }
+
+  if (taskId) {
+    whereParts.push("c.taskId = :taskId");
+    replacements.taskId = taskId;
+  }
+
+  const rows = await sequelize.query(
+    `SELECT
+      c.id,
+      c.userId,
+      c.taskId,
+      c.claimKey,
+      c.rewardCoins,
+      c.createdAt,
+      u.name,
+      u.nickname,
+      u.username,
+      u.phone,
+      u.publicUserId,
+      t.title AS taskTitle,
+      t.cadence AS taskCadence
+    FROM female_task_claims c
+    JOIN users u ON u.id = c.userId
+    LEFT JOIN female_master_tasks t ON t.id = c.taskId
+    WHERE ${whereParts.join(" AND ")}
+    ORDER BY c.createdAt DESC
+    LIMIT :limit`,
+    {
+      replacements,
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const getDisplayName = (row) =>
+    row.nickname ||
+    (row.name && row.name !== "New User" ? row.name : null) ||
+    row.username ||
+    row.publicUserId ||
+    row.phone ||
+    `User ${row.userId}`;
+
+  let mapped = rows.map((row) => ({
+    id: Number(row.id),
+    userId: Number(row.userId),
+    displayName: getDisplayName(row),
+    phone: row.phone || "—",
+    publicUserId: row.publicUserId || "",
+    taskId: row.taskId,
+    taskTitle: row.taskTitle || row.taskId,
+    taskCadence: row.taskCadence || (row.claimKey === "lifetime" ? "lifetime" : "daily"),
+    claimKey: row.claimKey,
+    rewardCoins: Number(row.rewardCoins) || 0,
+    claimedAt: row.createdAt,
+  }));
+
+  if (search) {
+    const query = search.toLowerCase();
+    const compact = query.replace(/[^a-z0-9]/g, "");
+
+    mapped = mapped.filter((row) => {
+      const values = [
+        row.displayName,
+        row.phone,
+        row.publicUserId,
+        row.taskId,
+        row.taskTitle,
+        String(row.userId),
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+
+      return values.some((value) => {
+        const compactValue = value.replace(/[^a-z0-9]/g, "");
+        return (
+          value.includes(query) ||
+          (compact && compactValue.includes(compact))
+        );
+      });
+    });
+  }
+
+  const tasks = await getMasterFemaleTasks({
+    includeInactive: true,
+  });
+
+  const uniqueUsers = new Set(mapped.map((row) => row.userId)).size;
+  const totalRewardCoins = mapped.reduce(
+    (sum, row) => sum + Number(row.rewardCoins || 0),
+    0
+  );
+
+  return {
+    summary: {
+      totalClaims: mapped.length,
+      uniqueUsers,
+      totalRewardCoins,
+      claimDate: normalizedCadence === "lifetime" ? "lifetime" : claimDate,
+      cadence: normalizedCadence,
+      taskId: taskId || null,
+    },
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      cadence: task.cadence,
+    })),
+    rows: mapped,
+  };
+};
+
 export const claimFemaleTaskReward =
 async(
 userId,

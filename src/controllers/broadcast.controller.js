@@ -7,6 +7,12 @@
     from "../models/index.js";
 
     import {
+    FEMALE_LANGUAGE_OPTIONS,
+    formatLanguageLabel,
+    matchesFirstLanguage,
+    } from "../constants/languages.js";
+
+    import {
     notifyFemalesOnBroadcast,
     notifyMalesOnBroadcast,
     notifyAllUsersOnBroadcast,
@@ -144,7 +150,15 @@
 
     audienceLabel:data.targetUserId ?
     AUDIENCE_LABELS.individual :
-    (AUDIENCE_LABELS[normalizeAudience(data.targetAudience)] || AUDIENCE_LABELS.female),
+    (
+    data.targetLanguage
+    ?
+    `${AUDIENCE_LABELS[normalizeAudience(data.targetAudience)] || AUDIENCE_LABELS.female} (${formatLanguageLabel(data.targetLanguage)})`
+    :
+    (AUDIENCE_LABELS[normalizeAudience(data.targetAudience)] || AUDIENCE_LABELS.female)
+    ),
+
+    targetLanguage:data.targetLanguage ?? null,
 
     createdAt:data.createdAt,
 
@@ -348,7 +362,8 @@
     title,
     message,
     type,
-    audience
+    audience,
+    language
     }=req.body;
 
 
@@ -374,6 +389,45 @@
     const targetAudience =
     normalizeAudience(audience);
 
+    const targetLanguage =
+    targetAudience === "female" &&
+    String(language || "").trim()
+    ?
+    formatLanguageLabel(language)
+    :
+    null;
+
+    if(
+    targetLanguage
+    ){
+    const females =
+    await User.findAll({
+    where:{
+    gender:{
+    [Op.in]:["Female","female"]
+    }
+    },
+    attributes:["id","languages"]
+    });
+
+    const matchedCount =
+    females.filter((user)=>
+    matchesFirstLanguage(
+    user.languages,
+    targetLanguage
+    )
+    ).length;
+
+    if(
+    matchedCount === 0
+    ){
+    return res.status(400)
+    .json({
+    message:`No female users found with ${targetLanguage} as their first language`
+    });
+    }
+    }
+
 
     const msg =
     await Broadcast.create({
@@ -388,7 +442,9 @@
 
     targetUserId:null,
 
-    targetAudience
+    targetAudience,
+
+    targetLanguage
 
     });
 
@@ -534,6 +590,80 @@
     export const listBroadcastMales =
     async(req,res)=>{
     return listBroadcastUsers(req,res,"male");
+    };
+
+
+    export const listFemaleBroadcastLanguages =
+    async(_req,res)=>{
+    try{
+    return res.json({
+    languages:FEMALE_LANGUAGE_OPTIONS
+    });
+    }catch(error){
+    return res.status(500).json({
+    message:error.message
+    });
+    }
+    };
+
+
+    export const getBroadcastAudienceCount =
+    async(req,res)=>{
+    try{
+    const targetAudience =
+    normalizeAudience(req.query.audience);
+
+    const targetLanguage =
+    targetAudience === "female" &&
+    String(req.query.language || "").trim()
+    ?
+    formatLanguageLabel(req.query.language)
+    :
+    null;
+
+    const genderFilter =
+    targetAudience === "male"
+    ?
+    ["Male","male"]
+    :
+    targetAudience === "all"
+    ?
+    ["Female","female","Male","male"]
+    :
+    ["Female","female"];
+
+    const users =
+    await User.findAll({
+    where:{
+    gender:{
+    [Op.in]:genderFilter
+    }
+    },
+    attributes:["id","languages"]
+    });
+
+    const count =
+    targetLanguage
+    ?
+    users.filter((user)=>
+    matchesFirstLanguage(
+    user.languages,
+    targetLanguage
+    )
+    ).length
+    :
+    users.length;
+
+    return res.json({
+    audience:targetAudience,
+    language:targetLanguage,
+    count
+    });
+    }catch(error){
+    return res.status(500).json({
+    message:error.message
+    });
+    }
     };
 
 

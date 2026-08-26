@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS = {
   quickConnectMaxAttempts: 3,
   quickConnectRingTimeoutSeconds: 10,
   quickConnectMaxRoutingSeconds: 30,
+  quickConnectMinOnlineMinutes: 15,
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -159,6 +160,7 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["quickConnectMaxAttempts", "INT NOT NULL DEFAULT 3"],
     ["quickConnectRingTimeoutSeconds", "INT NOT NULL DEFAULT 10"],
     ["quickConnectMaxRoutingSeconds", "INT NOT NULL DEFAULT 30"],
+    ["quickConnectMinOnlineMinutes", "INT NOT NULL DEFAULT 15"],
   ]) {
     await ensureColumn("admin_app_settings", column, definition);
   }
@@ -255,6 +257,16 @@ export const getAppSettings = async () => {
       60,
       Math.max(10, Number(row.quickConnectMaxRoutingSeconds ?? 30) || 30)
     ),
+    quickConnectMinOnlineMinutes: Math.min(
+      240,
+      Math.max(
+        0,
+        Number(
+          row.quickConnectMinOnlineMinutes ??
+            DEFAULT_SETTINGS.quickConnectMinOnlineMinutes
+        ) || 0
+      )
+    ),
     ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
@@ -288,6 +300,7 @@ export const updateAppSettings = async ({
   quickConnectMaxAttempts,
   quickConnectRingTimeoutSeconds,
   quickConnectMaxRoutingSeconds,
+  quickConnectMinOnlineMinutes,
   forceUpdateEnabled,
   minAndroidVersionCode,
   minIosBuildNumber,
@@ -516,6 +529,18 @@ export const updateAppSettings = async ({
     )
   );
 
+  const nextQuickConnectMinOnlineMinutes = Math.min(
+    240,
+    Math.max(
+      0,
+      quickConnectMinOnlineMinutes === undefined
+        ? current.quickConnectMinOnlineMinutes
+        : Number.isFinite(Number(quickConnectMinOnlineMinutes))
+          ? Number(quickConnectMinOnlineMinutes)
+          : current.quickConnectMinOnlineMinutes
+    )
+  );
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -545,6 +570,7 @@ quickConnectEnabled = :quickConnectEnabled,
 quickConnectMaxAttempts = :quickConnectMaxAttempts,
 quickConnectRingTimeoutSeconds = :quickConnectRingTimeoutSeconds,
 quickConnectMaxRoutingSeconds = :quickConnectMaxRoutingSeconds,
+quickConnectMinOnlineMinutes = :quickConnectMinOnlineMinutes,
 forceUpdateEnabled = :forceUpdateEnabled,
 minAndroidVersionCode = :minAndroidVersionCode,
 minIosBuildNumber = :minIosBuildNumber,
@@ -583,6 +609,7 @@ WHERE id = 1`,
         quickConnectMaxAttempts: nextQuickConnectMaxAttempts,
         quickConnectRingTimeoutSeconds: nextQuickConnectRingTimeoutSeconds,
         quickConnectMaxRoutingSeconds: nextQuickConnectMaxRoutingSeconds,
+        quickConnectMinOnlineMinutes: nextQuickConnectMinOnlineMinutes,
         forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
         minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
         minIosBuildNumber: nextForceUpdate.minIosBuildNumber,

@@ -52,6 +52,11 @@ import { sequelize } from "../config/database.js";
    type:DataTypes.STRING(20),
    allowNull:true,
    defaultValue:"female"
+   },
+
+   targetLanguage:{
+   type:DataTypes.STRING(40),
+   allowNull:true
    }
    
    

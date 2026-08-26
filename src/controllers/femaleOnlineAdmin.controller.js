@@ -5,6 +5,12 @@ import {
   forceAllFemalesOffline,
   forceFemaleOffline,
 } from "../services/femaleOffline.service.js";
+import {
+  findStaleOnlineFemaleIds,
+  getFemaleOnlineSchedulerSettings,
+  offlineStaleFemaleCreatorsByMinutes,
+  updateFemaleOnlineSchedulerSettings,
+} from "../services/femaleOnlineScheduler.service.js";
 
 const getDisplayName = (row) =>
   row.nickname ||
@@ -16,7 +22,35 @@ const getDisplayName = (row) =>
 const getLastActivityAt = (row) =>
   row.lastHeartbeatAt || row.lastSeen || row.updatedAt || null;
 
-const isStaleOnline = (row, staleHours = 1) => {
+const parseInactiveMinutes = (source = {}, fallbackMinutes = 60) => {
+  const minutes = Number(source?.minutes);
+  if (Number.isFinite(minutes) && minutes > 0) {
+    return Math.floor(minutes);
+  }
+
+  const hours = Number(source?.hours);
+  if (Number.isFinite(hours) && hours > 0) {
+    return Math.floor(hours * 60);
+  }
+
+  const staleHours = Number(source?.staleHours);
+  if (Number.isFinite(staleHours) && staleHours > 0) {
+    return Math.floor(staleHours * 60);
+  }
+
+  return fallbackMinutes;
+};
+
+const formatInactiveLabel = (inactiveMinutes) => {
+  if (inactiveMinutes % 60 === 0 && inactiveMinutes >= 60) {
+    const hours = inactiveMinutes / 60;
+    return `${hours}+ hour${hours === 1 ? "" : "s"}`;
+  }
+
+  return `${inactiveMinutes}+ minute${inactiveMinutes === 1 ? "" : "s"}`;
+};
+
+const isStaleOnline = (row, inactiveMinutes = 60) => {
   if (!row.online) {
     return false;
   }
@@ -26,7 +60,7 @@ const isStaleOnline = (row, staleHours = 1) => {
     return true;
   }
 
-  const staleMs = Number(staleHours) * 60 * 60 * 1000;
+  const staleMs = Number(inactiveMinutes) * 60 * 1000;
   return Date.now() - new Date(lastActivity).getTime() >= staleMs;
 };
 
@@ -34,7 +68,7 @@ export const listFemaleOnlineStatus = async (req, res) => {
   try {
     const search = String(req.query.search || "").trim();
     const onlineFilter = String(req.query.online || "all").trim().toLowerCase();
-    const staleHours = Math.max(1, Number(req.query.staleHours) || 1);
+    const staleMinutes = parseInactiveMinutes(req.query, 60);
 
     const rows = await sequelize.query(
       `SELECT
@@ -61,7 +95,7 @@ export const listFemaleOnlineStatus = async (req, res) => {
 
     let mapped = rows.map((row) => {
       const lastActivityAt = getLastActivityAt(row);
-      const stale = isStaleOnline(row, staleHours);
+      const stale = isStaleOnline(row, staleMinutes);
 
       return {
         id: Number(row.id),
@@ -115,13 +149,17 @@ export const listFemaleOnlineStatus = async (req, res) => {
     const summary = {
       totalFemales: rows.length,
       onlineNow: rows.filter((row) => Boolean(row.online)).length,
-      staleOnline: rows.filter((row) => isStaleOnline(row, staleHours)).length,
-      staleHours,
+      staleOnline: rows.filter((row) => isStaleOnline(row, staleMinutes)).length,
+      staleOnline30m: rows.filter((row) => isStaleOnline(row, 30)).length,
+      staleOnline1h: rows.filter((row) => isStaleOnline(row, 60)).length,
+      staleMinutes,
+      staleHours: staleMinutes / 60,
     };
 
     return res.json({
       summary,
       rows: mapped,
+      scheduler: await getFemaleOnlineSchedulerSettings(),
     });
   } catch (error) {
     return res.status(500).json({
@@ -163,47 +201,19 @@ export const offlineAllFemaleCreators = async (req, res) => {
 
 export const offlineStaleFemaleCreators = async (req, res) => {
   try {
-    const staleHours = Math.max(1, Number(req.body?.hours) || 1);
-
-    const rows = await sequelize.query(
-      `SELECT
-        u.id,
-        u.online,
-        u.lastSeen,
-        u.updatedAt,
-        s.lastHeartbeatAt
-      FROM users u
-      LEFT JOIN female_creator_online_stats s ON s.userId = u.id
-      WHERE u.gender IN ('Female', 'female')
-        AND u.online = 1
-        AND COALESCE(s.lastHeartbeatAt, u.lastSeen, u.updatedAt)
-            < DATE_SUB(NOW(), INTERVAL :hours HOUR)`,
-      {
-        replacements: { hours: staleHours },
-        type: QueryTypes.SELECT,
-      }
-    );
-
-    const results = [];
-
-    for (const row of rows) {
-      try {
-        const result = await forceFemaleOffline(row.id);
-        results.push(result);
-      } catch (error) {
-        results.push({
-          userId: row.id,
-          error: error.message,
-        });
-      }
-    }
+    const inactiveMinutes = parseInactiveMinutes(req.body, 60);
+    const result = await offlineStaleFemaleCreatorsByMinutes(inactiveMinutes, {
+      source: "manual",
+    });
 
     return res.json({
-      message: `Turned offline ${results.filter((item) => !item.error).length} stale female users (inactive ${staleHours}+ hour)`,
-      staleHours,
-      requested: rows.length,
-      processed: results.filter((item) => !item.error).length,
-      results,
+      message: `Turned offline ${result.processed} stale female users (inactive ${formatInactiveLabel(inactiveMinutes)})`,
+      inactiveMinutes,
+      staleMinutes: inactiveMinutes,
+      staleHours: inactiveMinutes / 60,
+      requested: result.requested,
+      processed: result.processed,
+      results: result.results,
     });
   } catch (error) {
     return res.status(500).json({
@@ -214,25 +224,60 @@ export const offlineStaleFemaleCreators = async (req, res) => {
 
 export const previewStaleFemaleCreators = async (req, res) => {
   try {
-    const staleHours = Math.max(1, Number(req.query.hours) || 1);
-
-    const countRow = await sequelize.query(
-      `SELECT COUNT(*) AS total
-      FROM users u
-      LEFT JOIN female_creator_online_stats s ON s.userId = u.id
-      WHERE u.gender IN ('Female', 'female')
-        AND u.online = 1
-        AND COALESCE(s.lastHeartbeatAt, u.lastSeen, u.updatedAt)
-            < DATE_SUB(NOW(), INTERVAL :hours HOUR)`,
-      {
-        replacements: { hours: staleHours },
-        type: QueryTypes.SELECT,
-      }
-    );
+    const inactiveMinutes = parseInactiveMinutes(req.query, 60);
+    const userIds = await findStaleOnlineFemaleIds(inactiveMinutes);
 
     return res.json({
-      staleHours,
-      count: Number(countRow[0]?.total) || 0,
+      inactiveMinutes,
+      staleMinutes: inactiveMinutes,
+      staleHours: inactiveMinutes / 60,
+      count: userIds.length,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+export const getFemaleOnlineScheduler = async (_req, res) => {
+  try {
+    const settings = await getFemaleOnlineSchedulerSettings();
+
+    return res.json({
+      ...settings,
+      intervalMinutes: Math.max(
+        1,
+        Math.round(
+          Number(process.env.FEMALE_ONLINE_SCHEDULER_MS ?? 5 * 60 * 1000) /
+            60000
+        )
+      ),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+export const updateFemaleOnlineScheduler = async (req, res) => {
+  try {
+    const settings = await updateFemaleOnlineSchedulerSettings({
+      autoOffline30mEnabled: req.body?.autoOffline30mEnabled,
+      autoOffline1hEnabled: req.body?.autoOffline1hEnabled,
+    });
+
+    return res.json({
+      message: "Female online scheduler updated",
+      ...settings,
+      intervalMinutes: Math.max(
+        1,
+        Math.round(
+          Number(process.env.FEMALE_ONLINE_SCHEDULER_MS ?? 5 * 60 * 1000) /
+            60000
+        )
+      ),
     });
   } catch (error) {
     return res.status(500).json({

@@ -252,6 +252,38 @@ const getQuickConnectSettings = async () => {
     maxRoutingSeconds: Number(
       settings.quickConnectMaxRoutingSeconds ?? DEFAULT_QUICK_CONNECT.maxRoutingSeconds
     ),
+    minOnlineMinutes: Math.min(
+      240,
+      Math.max(
+        0,
+        Number(
+          settings.quickConnectMinOnlineMinutes ??
+            DEFAULT_QUICK_CONNECT.minOnlineMinutes
+        ) || 0
+      )
+    ),
+  };
+};
+
+const buildQuickConnectMinOnlineFilter = (minOnlineMinutes) => {
+  const minutes = Number(minOnlineMinutes) || 0;
+
+  if (minutes <= 0) {
+    return {
+      join: "",
+      clause: "",
+      replacements: {},
+    };
+  }
+
+  return {
+    join: "INNER JOIN female_creator_online_stats s ON s.userId = u.id",
+    clause: `
+       AND s.lastSessionStartedAt IS NOT NULL
+       AND s.lastSessionStartedAt <= DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)`,
+    replacements: {
+      minOnlineMinutes: minutes,
+    },
   };
 };
 
@@ -339,6 +371,10 @@ const selectEligibleCreator = async ({
   callType,
   excludedReceiverIds = [],
 }) => {
+  const settings = await getQuickConnectSettings();
+  const minOnlineFilter = buildQuickConnectMinOnlineFilter(
+    settings.minOnlineMinutes
+  );
   const normalizedType = normalizeCallTypeForDb(callType);
   const excluded = excludedReceiverIds
     .map((id) => Number(id))
@@ -373,6 +409,7 @@ const selectEligibleCreator = async ({
 
   const replacements = {
     callerId: Number(callerId),
+    ...minOnlineFilter.replacements,
   };
 
   excluded.forEach((id, index) => {
@@ -387,11 +424,13 @@ const selectEligibleCreator = async ({
   const rows = await sequelize.query(
     `SELECT u.id, u.nickname, u.avatar, u.online
      FROM users u
+     ${minOnlineFilter.join}
      WHERE LOWER(COALESCE(u.gender, '')) = 'female'
        AND COALESCE(u.accountStatus, 'pending') = 'approved'
        AND COALESCE(u.blocked, 0) = 0
        AND COALESCE(u.online, 0) = 1
        ${voiceClause}
+       ${minOnlineFilter.clause}
        ${excludedClause}
        AND NOT EXISTS (
          SELECT 1
@@ -441,11 +480,18 @@ const selectEligibleCreator = async ({
 };
 
 const getQuickConnectEligibilitySnapshot = async (callType = "voice") => {
+  const settings = await getQuickConnectSettings();
+  const minOnlineMinutes = Number(settings.minOnlineMinutes) || 0;
   const normalizedType = normalizeCallTypeForDb(callType);
   const voiceClause =
     normalizedType === "voice"
       ? "AND COALESCE(u.acceptVoiceCalls, 1) = 1"
       : "AND COALESCE(u.acceptVideoCalls, 1) = 1";
+  const minOnlineCaseClause =
+    minOnlineMinutes > 0
+      ? `AND s.lastSessionStartedAt IS NOT NULL
+             AND s.lastSessionStartedAt <= DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)`
+      : "";
 
   const [rows] = await sequelize.query(
     `SELECT
@@ -475,14 +521,32 @@ const getQuickConnectEligibilitySnapshot = async (callType = "voice") => {
              ${voiceClause}
            THEN 1 ELSE 0
          END
-       ) AS onlineOptInFemales
-     FROM users u`
+       ) AS onlineOptInFemales,
+       SUM(
+         CASE
+           WHEN LOWER(COALESCE(u.gender, '')) = 'female'
+             AND COALESCE(u.accountStatus, 'pending') = 'approved'
+             AND COALESCE(u.blocked, 0) = 0
+             AND COALESCE(u.online, 0) = 1
+             ${voiceClause}
+             ${minOnlineCaseClause}
+           THEN 1 ELSE 0
+         END
+       ) AS onlineEligibleFemales
+     FROM users u
+     LEFT JOIN female_creator_online_stats s ON s.userId = u.id`,
+    {
+      replacements:
+        minOnlineMinutes > 0 ? { minOnlineMinutes } : {},
+    }
   );
 
   return {
     approvedFemales: Number(rows[0]?.approvedFemales ?? 0),
     onlineApprovedFemales: Number(rows[0]?.onlineApprovedFemales ?? 0),
     onlineOptInFemales: Number(rows[0]?.onlineOptInFemales ?? 0),
+    onlineEligibleFemales: Number(rows[0]?.onlineEligibleFemales ?? 0),
+    minOnlineMinutes,
   };
 };
 
