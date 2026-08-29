@@ -7,6 +7,8 @@ createBroadcast
 }
 from "../controllers/broadcast.controller.js";
 
+import optionalAuthMiddleware from "../middleware/optionalAuthMiddleware.js";
+
 
 const router =
 express.Router();
@@ -14,6 +16,7 @@ express.Router();
 
 router.get(
 "/",
+optionalAuthMiddleware,
 getBroadcasts
 );
 

@@ -1140,6 +1140,8 @@ quickConnectMaxRoutingSeconds:
 req.body.quickConnectMaxRoutingSeconds,
 quickConnectMinOnlineMinutes:
 req.body.quickConnectMinOnlineMinutes,
+creatorQueensTopLimit:
+req.body.creatorQueensTopLimit,
 forceUpdateEnabled:
 req.body.forceUpdateEnabled,
 minAndroidVersionCode:

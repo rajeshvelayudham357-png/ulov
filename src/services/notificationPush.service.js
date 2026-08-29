@@ -1623,6 +1623,157 @@ socketEmitted
 };
 };
 
+const buildWithdrawalNotificationPayload =
+({
+status,
+amount
+})=>{
+const normalizedAmount =
+Math.max(
+0,
+Math.round(Number(amount) || 0)
+);
+
+if(
+String(status).toLowerCase() === "approved"
+){
+return {
+type:"withdrawal_approved",
+title:"Withdrawal approved",
+body:`Your withdrawal of ₹${normalizedAmount} has been processed.`,
+screen:"/female/withdraw"
+};
+}
+
+return {
+type:"withdrawal_rejected",
+title:"Withdrawal rejected",
+body:`Your withdrawal request of ₹${normalizedAmount} was rejected. The amount is available in your balance again.`,
+screen:"/female/withdraw"
+};
+};
+
+export const notifyWithdrawalProcessed =
+async(
+userId,
+{
+status,
+amount,
+withdrawId
+} = {}
+)=>{
+const id =
+Number(userId);
+
+if(
+!Number.isFinite(id)
+){
+return {
+notified:false
+};
+}
+
+const notificationContent =
+buildWithdrawalNotificationPayload({
+status,
+amount
+});
+
+const pushPayload =
+buildOutsideAppPushPayload({
+title:notificationContent.title,
+body:notificationContent.body,
+data:{
+type:notificationContent.type,
+userId:String(id),
+withdrawId:
+withdrawId === undefined ||
+withdrawId === null
+?
+undefined
+:
+String(withdrawId),
+amount:String(
+Math.max(
+0,
+Math.round(Number(amount) || 0)
+)
+),
+screen:notificationContent.screen
+}
+});
+
+const saved =
+await saveNotification(
+id,
+pushPayload
+);
+
+const realtimePayload = {
+...pushPayload,
+id:saved?.id ?? null,
+notificationId:saved?.id ?? null,
+type:notificationContent.type,
+message:pushPayload.body,
+userId:id,
+withdrawId:
+withdrawId === undefined ||
+withdrawId === null
+?
+null
+:
+Number(withdrawId),
+amount:
+Math.max(
+0,
+Math.round(Number(amount) || 0)
+),
+screen:notificationContent.screen
+};
+
+const socketEvent =
+notificationContent.type === "withdrawal_approved"
+?
+"withdrawal-approved"
+:
+"withdrawal-rejected";
+
+const socketEmitted =
+emitToUser(
+id,
+socketEvent,
+realtimePayload
+) ||
+emitToUser(
+id,
+"notification",
+realtimePayload
+);
+
+await sendPushToUser(
+id,
+pushPayload
+);
+
+console.log(
+"WITHDRAWAL PROCESSED NOTIFIED",
+{
+userId:id,
+status,
+withdrawId:withdrawId ?? null,
+saved:Boolean(saved),
+notificationId:saved?.id ?? null,
+socketEmitted
+}
+);
+
+return {
+notified:true,
+saved:Boolean(saved),
+socketEmitted
+};
+};
+
 export const notifyIncomingCall =
 async(
 data = {}

@@ -12,6 +12,10 @@ import {
   getFemaleWithdrawSummary,
 } from "../services/withdraw.service.js";
 
+import {
+  notifyWithdrawalProcessed
+} from "../services/notificationPush.service.js";
+
 
 
 
@@ -308,6 +312,22 @@ status:"approved"
 
 });
 
+await notifyWithdrawalProcessed(
+withdraw.userId,
+{
+status:"approved",
+amount:withdraw.amount,
+withdrawId:withdraw.id
+}
+).catch(
+(error)=>{
+console.log(
+"WITHDRAWAL APPROVED NOTIFY ERROR",
+error.message
+);
+}
+);
+
 const summary =
 await getFemaleWithdrawSummary(withdraw.userId);
 
@@ -417,6 +437,22 @@ status:"rejected"
 
 
 });
+
+await notifyWithdrawalProcessed(
+withdraw.userId,
+{
+status:"rejected",
+amount:withdraw.amount,
+withdrawId:withdraw.id
+}
+).catch(
+(error)=>{
+console.log(
+"WITHDRAWAL REJECTED NOTIFY ERROR",
+error.message
+);
+}
+);
 
 const summary =
 await getFemaleWithdrawSummary(withdraw.userId);

@@ -77,6 +77,211 @@
     };
 
 
+    const isFemaleGender =
+    (gender)=>
+    String(gender || "")
+    .trim()
+    .toLowerCase() === "female";
+
+
+    const isMaleGender =
+    (gender)=>
+    String(gender || "")
+    .trim()
+    .toLowerCase() === "male";
+
+
+    const isBroadcastVisibleToUser =
+    (broadcastRow,user)=>{
+    const data =
+    broadcastRow.toJSON ?
+    broadcastRow.toJSON() :
+    broadcastRow;
+
+    if(
+    !data.active
+    ){
+    return false;
+    }
+
+    const userId =
+    Number(user?.id);
+
+    const targetUserId =
+    data.targetUserId === null ||
+    data.targetUserId === undefined
+    ?
+    null
+    :
+    Number(data.targetUserId);
+
+    if(
+    targetUserId &&
+    Number.isFinite(targetUserId)
+    ){
+    return targetUserId === userId;
+    }
+
+    const audience =
+    normalizeAudience(data.targetAudience);
+
+    if(
+    audience === "all"
+    ){
+    return true;
+    }
+
+    if(
+    audience === "female"
+    ){
+    if(
+    !isFemaleGender(user?.gender)
+    ){
+    return false;
+    }
+
+    if(
+    data.targetLanguage
+    ){
+    return matchesFirstLanguage(
+    user.languages,
+    data.targetLanguage
+    );
+    }
+
+    return true;
+    }
+
+    if(
+    audience === "male"
+    ){
+    return isMaleGender(user?.gender);
+    }
+
+    return false;
+    };
+
+
+    const buildAuthenticatedMobileWhere =
+    (user)=>{
+    const userId =
+    Number(user.id);
+
+    if(
+    isFemaleGender(user.gender)
+    ){
+    return {
+    active:true,
+    [Op.or]:[
+    {
+    targetUserId:userId
+    },
+    {
+    targetUserId:null,
+    [Op.or]:[
+    {
+    targetAudience:"female"
+    },
+    {
+    targetAudience:"Female"
+    },
+    {
+    targetAudience:"all"
+    },
+    {
+    targetAudience:"All"
+    },
+    {
+    targetAudience:null
+    }
+    ]
+    }
+    ]
+    };
+    }
+
+    if(
+    isMaleGender(user.gender)
+    ){
+    return {
+    active:true,
+    [Op.or]:[
+    {
+    targetUserId:userId
+    },
+    {
+    targetUserId:null,
+    [Op.or]:[
+    {
+    targetAudience:"male"
+    },
+    {
+    targetAudience:"Male"
+    },
+    {
+    targetAudience:"all"
+    },
+    {
+    targetAudience:"All"
+    }
+    ]
+    }
+    ]
+    };
+    }
+
+    return {
+    active:true,
+    targetUserId:null
+    };
+    };
+
+
+    const loadVisibleBroadcastsForUser =
+    async(
+    user,
+    {
+    page,
+    limit
+    }
+    )=>{
+    const rows =
+    await Broadcast.findAll({
+    where:buildAuthenticatedMobileWhere(user),
+    order:[
+    ["createdAt","DESC"]
+    ]
+    });
+
+    const visible =
+    rows.filter(
+    (row)=>
+    isBroadcastVisibleToUser(
+    row,
+    user
+    )
+    );
+
+    const offset =
+    (page - 1) * limit;
+
+    const pageRows =
+    visible.slice(
+    offset,
+    offset + limit
+    );
+
+    return {
+    rows:pageRows,
+    total:visible.length,
+    page,
+    limit,
+    hasMore:
+    offset + pageRows.length < visible.length
+    };
+    };
+
+
     const getDisplayName =
     (user)=>{
     if(
@@ -218,6 +423,47 @@
 
     const offset =
     (page - 1) * limit;
+
+    const authUserId =
+    Number(req.user?.id);
+
+    if(
+    !showAll &&
+    Number.isFinite(authUserId)
+    ){
+    const user =
+    await User.findByPk(
+    authUserId,
+    {
+    attributes:[
+    "id",
+    "gender",
+    "languages"
+    ]
+    }
+    );
+
+    if(
+    user
+    ){
+    const visiblePage =
+    await loadVisibleBroadcastsForUser(
+    user,
+    {
+    page,
+    limit
+    }
+    );
+
+    return res.json({
+    broadcasts:visiblePage.rows.map(formatBroadcast),
+    total:visiblePage.total,
+    page:visiblePage.page,
+    limit:visiblePage.limit,
+    hasMore:visiblePage.hasMore
+    });
+    }
+    }
 
     const whereClause =
     showAll ?

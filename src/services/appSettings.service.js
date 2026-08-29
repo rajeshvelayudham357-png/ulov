@@ -50,6 +50,7 @@ const DEFAULT_SETTINGS = {
   quickConnectRingTimeoutSeconds: 10,
   quickConnectMaxRoutingSeconds: 30,
   quickConnectMinOnlineMinutes: 15,
+  creatorQueensTopLimit: 15,
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -161,6 +162,7 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["quickConnectRingTimeoutSeconds", "INT NOT NULL DEFAULT 10"],
     ["quickConnectMaxRoutingSeconds", "INT NOT NULL DEFAULT 30"],
     ["quickConnectMinOnlineMinutes", "INT NOT NULL DEFAULT 15"],
+    ["creatorQueensTopLimit", "INT NOT NULL DEFAULT 15"],
   ]) {
     await ensureColumn("admin_app_settings", column, definition);
   }
@@ -267,6 +269,16 @@ export const getAppSettings = async () => {
         ) || 0
       )
     ),
+    creatorQueensTopLimit: Math.min(
+      100,
+      Math.max(
+        3,
+        Number(
+          row.creatorQueensTopLimit ??
+            DEFAULT_SETTINGS.creatorQueensTopLimit
+        ) || DEFAULT_SETTINGS.creatorQueensTopLimit
+      )
+    ),
     ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
@@ -301,6 +313,7 @@ export const updateAppSettings = async ({
   quickConnectRingTimeoutSeconds,
   quickConnectMaxRoutingSeconds,
   quickConnectMinOnlineMinutes,
+  creatorQueensTopLimit,
   forceUpdateEnabled,
   minAndroidVersionCode,
   minIosBuildNumber,
@@ -541,6 +554,18 @@ export const updateAppSettings = async ({
     )
   );
 
+  const nextCreatorQueensTopLimit = Math.min(
+    100,
+    Math.max(
+      3,
+      creatorQueensTopLimit === undefined
+        ? current.creatorQueensTopLimit
+        : Number.isFinite(Number(creatorQueensTopLimit))
+          ? Number(creatorQueensTopLimit)
+          : current.creatorQueensTopLimit
+    )
+  );
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -571,6 +596,7 @@ quickConnectMaxAttempts = :quickConnectMaxAttempts,
 quickConnectRingTimeoutSeconds = :quickConnectRingTimeoutSeconds,
 quickConnectMaxRoutingSeconds = :quickConnectMaxRoutingSeconds,
 quickConnectMinOnlineMinutes = :quickConnectMinOnlineMinutes,
+creatorQueensTopLimit = :creatorQueensTopLimit,
 forceUpdateEnabled = :forceUpdateEnabled,
 minAndroidVersionCode = :minAndroidVersionCode,
 minIosBuildNumber = :minIosBuildNumber,
@@ -610,6 +636,7 @@ WHERE id = 1`,
         quickConnectRingTimeoutSeconds: nextQuickConnectRingTimeoutSeconds,
         quickConnectMaxRoutingSeconds: nextQuickConnectMaxRoutingSeconds,
         quickConnectMinOnlineMinutes: nextQuickConnectMinOnlineMinutes,
+        creatorQueensTopLimit: nextCreatorQueensTopLimit,
         forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
         minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
         minIosBuildNumber: nextForceUpdate.minIosBuildNumber,
