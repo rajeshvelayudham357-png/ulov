@@ -21,6 +21,24 @@ test("hashDeviceFingerprint is stable for the same android payload", () => {
   assert.match(first, /^[a-f0-9]{64}$/);
 });
 
+test("hashDeviceFingerprint ignores installId when native device id is present", () => {
+  const firstInstall = hashDeviceFingerprint({
+    platform: "android",
+    deviceId: "abc123",
+    installId: "install-before-reinstall",
+    applicationId: "com.rajenterprise.ulov",
+  });
+
+  const afterReinstall = hashDeviceFingerprint({
+    platform: "android",
+    deviceId: "abc123",
+    installId: "install-after-reinstall",
+    applicationId: "com.rajenterprise.ulov",
+  });
+
+  assert.equal(firstInstall, afterReinstall);
+});
+
 test("hashDeviceFingerprint changes when device id changes", () => {
   const base = hashDeviceFingerprint({
     platform: "android",
@@ -34,6 +52,21 @@ test("hashDeviceFingerprint changes when device id changes", () => {
   });
 
   assert.notEqual(base, changed);
+});
+
+test("hashDeviceFingerprint falls back to installId when native device id is missing", () => {
+  const first = hashDeviceFingerprint({
+    platform: "web",
+    installId: "install-1",
+    applicationId: "com.rajenterprise.ulov",
+  });
+  const second = hashDeviceFingerprint({
+    platform: "web",
+    installId: "install-2",
+    applicationId: "com.rajenterprise.ulov",
+  });
+
+  assert.notEqual(first, second);
 });
 
 test("parseDeviceRegistrationPayload accepts legacy androidId alias", () => {

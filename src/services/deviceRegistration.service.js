@@ -15,6 +15,12 @@ const getMaxAccountsPerDevice = () => {
 const shouldBlockEmulators = () =>
   String(process.env.DEVICE_BLOCK_EMULATORS ?? "true").toLowerCase() !== "false";
 
+/**
+ * Build a stable device fingerprint for duplicate-account prevention.
+ * Uses the native OS device id (Android ID / iOS IDFV) when available so the
+ * fingerprint survives app uninstall + reinstall. installId is only used as a
+ * fallback when no native device id is present (e.g. web builds).
+ */
 export const hashDeviceFingerprint = ({
   platform,
   deviceId,
@@ -28,21 +34,31 @@ export const hashDeviceFingerprint = ({
     applicationId || DEFAULT_APP_PACKAGE
   ).trim();
 
-  if (!normalizedDeviceId && !normalizedInstallId) {
-    return null;
+  if (normalizedDeviceId) {
+    return crypto
+      .createHash("sha256")
+      .update(
+        [normalizedPlatform, normalizedDeviceId, normalizedApplicationId].join(
+          "|"
+        )
+      )
+      .digest("hex");
   }
 
-  return crypto
-    .createHash("sha256")
-    .update(
-      [
-        normalizedPlatform,
-        normalizedDeviceId,
-        normalizedInstallId,
-        normalizedApplicationId,
-      ].join("|")
-    )
-    .digest("hex");
+  if (normalizedInstallId) {
+    return crypto
+      .createHash("sha256")
+      .update(
+        [
+          normalizedPlatform,
+          normalizedInstallId,
+          normalizedApplicationId,
+        ].join("|")
+      )
+      .digest("hex");
+  }
+
+  return null;
 };
 
 export const parseDeviceRegistrationPayload = (body = {}) => ({
@@ -57,6 +73,30 @@ export const parseDeviceRegistrationPayload = (body = {}) => ({
   applicationId: String(body.applicationId || "").trim(),
 });
 
+const buildDeviceMatchClause = (device) => {
+  const normalizedDeviceId = String(device?.deviceId || "").trim();
+  const normalizedPlatform = String(device?.platform || "").trim().toLowerCase();
+
+  if (normalizedDeviceId) {
+    return {
+      clause: `(udr.deviceHash = :deviceHash
+         OR (
+           udr.nativeDeviceId = :nativeDeviceId
+           AND LOWER(COALESCE(udr.platform, '')) = :platform
+         ))`,
+      replacements: {
+        nativeDeviceId: normalizedDeviceId,
+        platform: normalizedPlatform,
+      },
+    };
+  }
+
+  return {
+    clause: "udr.deviceHash = :deviceHash",
+    replacements: {},
+  };
+};
+
 export const ensureUserDeviceRegistrationTable = async () => {
   if (tableReady) {
     return;
@@ -67,6 +107,7 @@ export const ensureUserDeviceRegistrationTable = async () => {
       id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
       userId BIGINT NOT NULL,
       deviceHash CHAR(64) NOT NULL,
+      nativeDeviceId VARCHAR(128) NULL,
       platform VARCHAR(20) NULL,
       deviceModel VARCHAR(120) NULL,
       osVersion VARCHAR(40) NULL,
@@ -74,28 +115,46 @@ export const ensureUserDeviceRegistrationTable = async () => {
       firstSeenAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       lastSeenAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY user_device_unique (userId, deviceHash),
-      KEY device_hash_idx (deviceHash)
+      KEY device_hash_idx (deviceHash),
+      KEY device_native_idx (platform, nativeDeviceId)
     )`
   );
+
+  await sequelize
+    .query(
+      `ALTER TABLE user_device_registrations
+       ADD COLUMN nativeDeviceId VARCHAR(128) NULL`
+    )
+    .catch(() => {});
+
+  await sequelize
+    .query(
+      `CREATE INDEX device_native_idx
+       ON user_device_registrations (platform, nativeDeviceId)`
+    )
+    .catch(() => {});
 
   tableReady = true;
 };
 
-export const countRegisteredUsersOnDevice = async (
+export const countRegisteredUsersOnDevice = async ({
   deviceHash,
-  excludeUserId = null
-) => {
+  device = null,
+  excludeUserId = null,
+} = {}) => {
   await ensureUserDeviceRegistrationTable();
 
   if (!deviceHash) {
     return 0;
   }
 
+  const match = buildDeviceMatchClause(device);
+
   const rows = await sequelize.query(
     `SELECT COUNT(DISTINCT udr.userId) AS userCount
      FROM user_device_registrations udr
      INNER JOIN users u ON u.id = udr.userId
-     WHERE udr.deviceHash = :deviceHash
+     WHERE ${match.clause}
        AND COALESCE(u.blocked, 0) = 0
        AND COALESCE(u.accountStatus, '') <> 'deleted'
        AND (:excludeUserId IS NULL OR udr.userId <> :excludeUserId)`,
@@ -103,6 +162,7 @@ export const countRegisteredUsersOnDevice = async (
       replacements: {
         deviceHash,
         excludeUserId: excludeUserId ?? null,
+        ...match.replacements,
       },
       type: QueryTypes.SELECT,
     }
@@ -111,22 +171,30 @@ export const countRegisteredUsersOnDevice = async (
   return Number(rows[0]?.userCount) || 0;
 };
 
-export const getRegisteredUserIdsOnDevice = async (deviceHash) => {
+export const getRegisteredUserIdsOnDevice = async ({
+  deviceHash,
+  device = null,
+} = {}) => {
   await ensureUserDeviceRegistrationTable();
 
   if (!deviceHash) {
     return [];
   }
 
+  const match = buildDeviceMatchClause(device);
+
   const rows = await sequelize.query(
     `SELECT DISTINCT udr.userId AS userId
      FROM user_device_registrations udr
      INNER JOIN users u ON u.id = udr.userId
-     WHERE udr.deviceHash = :deviceHash
+     WHERE ${match.clause}
        AND COALESCE(u.blocked, 0) = 0
        AND COALESCE(u.accountStatus, '') <> 'deleted'`,
     {
-      replacements: { deviceHash },
+      replacements: {
+        deviceHash,
+        ...match.replacements,
+      },
       type: QueryTypes.SELECT,
     }
   );
@@ -136,6 +204,9 @@ export const getRegisteredUserIdsOnDevice = async (deviceHash) => {
     .filter(Number.isFinite);
 };
 
+const requiresNativeDeviceId = (platform) =>
+  platform === "android" || platform === "ios";
+
 export const assertDeviceAllowedForRegistration = async ({
   payload,
   excludeUserId = null,
@@ -143,7 +214,7 @@ export const assertDeviceAllowedForRegistration = async ({
   const device = parseDeviceRegistrationPayload(payload);
   const deviceHash = hashDeviceFingerprint(device);
 
-  if (device.platform === "android" && !deviceHash) {
+  if (requiresNativeDeviceId(device.platform) && !device.deviceId) {
     return {
       ok: false,
       status: 400,
@@ -172,10 +243,11 @@ export const assertDeviceAllowedForRegistration = async ({
   }
 
   const maxAccounts = getMaxAccountsPerDevice();
-  const existingCount = await countRegisteredUsersOnDevice(
+  const existingCount = await countRegisteredUsersOnDevice({
     deviceHash,
-    excludeUserId
-  );
+    device,
+    excludeUserId,
+  });
 
   if (existingCount >= maxAccounts) {
     return {
@@ -199,6 +271,7 @@ export const registerUserDevice = async (userId, { device, deviceHash }) => {
 
   const normalizedUserId = Number(userId);
   const normalizedHash = String(deviceHash || "").trim();
+  const nativeDeviceId = String(device?.deviceId || "").trim() || null;
 
   if (!Number.isFinite(normalizedUserId) || !normalizedHash) {
     return null;
@@ -206,10 +279,11 @@ export const registerUserDevice = async (userId, { device, deviceHash }) => {
 
   await sequelize.query(
     `INSERT INTO user_device_registrations
-      (userId, deviceHash, platform, deviceModel, osVersion, isEmulator)
+      (userId, deviceHash, nativeDeviceId, platform, deviceModel, osVersion, isEmulator)
      VALUES
-      (:userId, :deviceHash, :platform, :deviceModel, :osVersion, :isEmulator)
+      (:userId, :deviceHash, :nativeDeviceId, :platform, :deviceModel, :osVersion, :isEmulator)
      ON DUPLICATE KEY UPDATE
+       nativeDeviceId = COALESCE(VALUES(nativeDeviceId), nativeDeviceId),
        platform = VALUES(platform),
        deviceModel = VALUES(deviceModel),
        osVersion = VALUES(osVersion),
@@ -219,6 +293,7 @@ export const registerUserDevice = async (userId, { device, deviceHash }) => {
       replacements: {
         userId: normalizedUserId,
         deviceHash: normalizedHash,
+        nativeDeviceId,
         platform: device?.platform || null,
         deviceModel: device?.deviceModel || null,
         osVersion: device?.osVersion || null,
@@ -248,10 +323,10 @@ export const enforceDeviceRegistration = async ({
     if (!check.ok) {
       return check;
     }
+  }
 
-    if (userId && deviceHash) {
-      await registerUserDevice(userId, { device, deviceHash });
-    }
+  if (userId && deviceHash) {
+    await registerUserDevice(userId, { device, deviceHash });
   }
 
   return {
