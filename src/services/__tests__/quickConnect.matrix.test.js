@@ -49,6 +49,7 @@ import {
   seedEligibleCreators,
   upsertTestUser,
   withQuickConnectEnabled,
+  seedCreatorOnlineStats,
 } from "./helpers/qcTestHarness.js";
 
 test.before(async () => {
@@ -174,6 +175,27 @@ test("[6-12] Creator eligibility filters", async () => {
   });
   assert.equal(offlineCheck.ok, false);
   assert.equal(offlineCheck.reason, "offline");
+
+  await sequelize.query(
+    `DELETE FROM female_creator_online_stats WHERE userId = :userId`,
+    { replacements: { userId: IDS.CREATOR_B } }
+  );
+
+  const withoutStats = await __testables.selectEligibleCreator({
+    callerId: IDS.MALE,
+    callType: "voice",
+    excludedReceiverIds: [
+      IDS.CREATOR_A,
+      IDS.CREATOR_C,
+      IDS.CREATOR_BLOCKED,
+      IDS.CREATOR_NO_AUTO,
+    ],
+  });
+
+  assert.ok(withoutStats);
+  assert.equal(Number(withoutStats.id), IDS.CREATOR_B);
+
+  await seedCreatorOnlineStats(IDS.CREATOR_B, 20);
 });
 
 // ── ROUTING (13–21) ────────────────────────────────────────────────

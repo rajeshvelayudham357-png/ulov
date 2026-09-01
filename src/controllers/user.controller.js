@@ -37,6 +37,10 @@ import {
 logUserCameOnline
 } from "../services/userOnlineLog.service.js";
 import {
+recordFemaleOnlineSessionEnd,
+recordFemaleOnlineSessionStart,
+} from "../services/femaleOnlineTime.service.js";
+import {
 resolveMaleAvatarForProfile,
 } from "../services/maleAvatar.service.js";
 import {
@@ -718,12 +722,38 @@ if(
 isOnline &&
 !wasOnline
 ){
+if(
+String(user.gender ?? "").toLowerCase() === "female"
+){
+try{
+await recordFemaleOnlineSessionStart(userId);
+}catch(onlineStatsError){
+console.log(
+"FEMALE ONLINE STATS ERROR",
+onlineStatsError.message
+);
+}
+}else{
 try{
 await logUserCameOnline(user);
 }catch(logError){
 console.log(
 "ONLINE LOG ERROR",
 logError.message
+);
+}
+}
+}else if(
+String(user.gender ?? "").toLowerCase() === "female" &&
+!isOnline &&
+wasOnline
+){
+try{
+await recordFemaleOnlineSessionEnd(userId);
+}catch(onlineStatsError){
+console.log(
+"FEMALE ONLINE STATS ERROR",
+onlineStatsError.message
 );
 }
 }

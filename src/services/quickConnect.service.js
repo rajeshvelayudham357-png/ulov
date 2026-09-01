@@ -277,10 +277,12 @@ const buildQuickConnectMinOnlineFilter = (minOnlineMinutes) => {
   }
 
   return {
-    join: "INNER JOIN female_creator_online_stats s ON s.userId = u.id",
+    join: "LEFT JOIN female_creator_online_stats s ON s.userId = u.id",
     clause: `
-       AND s.lastSessionStartedAt IS NOT NULL
-       AND s.lastSessionStartedAt <= DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)`,
+       AND COALESCE(
+         s.lastSessionStartedAt,
+         DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)
+       ) <= DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)`,
     replacements: {
       minOnlineMinutes: minutes,
     },
@@ -429,6 +431,7 @@ const selectEligibleCreator = async ({
        AND COALESCE(u.accountStatus, 'pending') = 'approved'
        AND COALESCE(u.blocked, 0) = 0
        AND COALESCE(u.online, 0) = 1
+       AND COALESCE(u.acceptAutoRoutedCalls, 1) = 1
        ${voiceClause}
        ${minOnlineFilter.clause}
        ${excludedClause}
@@ -489,8 +492,10 @@ const getQuickConnectEligibilitySnapshot = async (callType = "voice") => {
       : "AND COALESCE(u.acceptVideoCalls, 1) = 1";
   const minOnlineCaseClause =
     minOnlineMinutes > 0
-      ? `AND s.lastSessionStartedAt IS NOT NULL
-             AND s.lastSessionStartedAt <= DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)`
+      ? `AND COALESCE(
+             s.lastSessionStartedAt,
+             DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)
+           ) <= DATE_SUB(NOW(), INTERVAL :minOnlineMinutes MINUTE)`
       : "";
 
   const [rows] = await sequelize.query(
