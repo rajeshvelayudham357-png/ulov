@@ -209,6 +209,15 @@ import {
   getGrowthAcquisition,
   getGrowthAttribution,
 } from "../controllers/adminGrowth.controller.js";
+import {
+  getExpectedPayouts,
+} from "../controllers/expectedPayout.controller.js";
+import {
+  getDailyRevenue,
+} from "../controllers/dailyRevenue.controller.js";
+import {
+  getMaleWalletCoins,
+} from "../controllers/maleWalletCoins.controller.js";
 
 const router = express.Router();
 
@@ -454,6 +463,12 @@ router.get(
 "/male-users",
 requirePageAccess("male-users"),
 maleUsers
+);
+
+router.get(
+  "/male-wallet-coins",
+  requirePageAccess("male-users"),
+  getMaleWalletCoins
 );
 
 
@@ -984,5 +999,12 @@ adminUpdateStatus
 router.get('/revenue/recharges', requirePageAccess('recharge-revenue'), revenueRecharges);
 router.get('/revenue/summary', requirePageAccess('recharge-revenue'), revenueSummary);
 router.get('/revenue/analytics', requirePageAccess('recharge-revenue'), revenueAnalytics);
+router.get('/revenue/daily', requirePageAccess('recharge-revenue'), getDailyRevenue);
+
+router.get(
+  "/expected-payouts",
+  requirePageAccess("payouts"),
+  getExpectedPayouts
+);
 
 export default router;
