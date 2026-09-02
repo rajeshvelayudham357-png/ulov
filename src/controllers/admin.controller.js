@@ -2267,6 +2267,34 @@ Kyc.count()
 
 
 
+const [
+supportOpen,
+supportAnswered,
+supportClosed,
+supportTotal
+] =
+await Promise.all([
+SupportTicket.count({
+where:{
+status:"open"
+}
+}),
+SupportTicket.count({
+where:{
+status:"answered"
+}
+}),
+SupportTicket.count({
+where:{
+status:"closed"
+}
+}),
+SupportTicket.count()
+]);
+
+
+
+
 res.json({
 
 
@@ -2309,6 +2337,18 @@ pending:kycPending,
 approved:kycApproved,
 
 rejected:kycRejected
+
+},
+
+support:{
+
+total:supportTotal,
+
+open:supportOpen,
+
+answered:supportAnswered,
+
+closed:supportClosed
 
 }
 
