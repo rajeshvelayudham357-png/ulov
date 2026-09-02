@@ -17,6 +17,53 @@ const getDisplayName = (row) => {
   return name || "User";
 };
 
+export const maskCreatorDisplayName = (value) => {
+  const raw = String(value ?? "").trim();
+
+  if (!raw) {
+    return "xxxxxxxx";
+  }
+
+  const midIndex = Math.floor(raw.length / 2);
+  const midChar = raw[midIndex]?.toLowerCase() || "x";
+
+  return `xxxx${midChar}xxx`;
+};
+
+export const maskRankerDisplayName = (value) => {
+  const raw = String(value ?? "").trim();
+
+  if (!raw) {
+    return "xxxxxx";
+  }
+
+  const lastChar = raw[raw.length - 1]?.toLowerCase() || "x";
+
+  return `xxxxx${lastChar}`;
+};
+
+const maskCreatorIdentity = (row) => {
+  const displayName = getDisplayName(row);
+  const maskedDisplayName = maskCreatorDisplayName(displayName);
+
+  return {
+    displayName: maskedDisplayName,
+    name: maskedDisplayName,
+    username: maskedDisplayName,
+  };
+};
+
+const maskRankerIdentity = (row) => {
+  const displayName = getDisplayName(row);
+  const maskedDisplayName = maskRankerDisplayName(displayName);
+
+  return {
+    displayName: maskedDisplayName,
+    name: maskedDisplayName,
+    username: maskedDisplayName,
+  };
+};
+
 export const fetchMalePurchaseRankers = async ({
   page = 1,
   limit = 20,
@@ -107,9 +154,7 @@ export const fetchMalePurchaseRankers = async ({
   const rankers = rows.map((row, index) => ({
     rank: offset + index + 1,
     userId: Number(row.id),
-    username: row.username,
-    name: row.name,
-    displayName: getDisplayName(row),
+    ...maskRankerIdentity(row),
     avatar: row.avatar,
     publicUserId: row.publicUserId,
     online: Boolean(row.online),
@@ -171,9 +216,7 @@ export const fetchMaleTopSupportedCreators = async (maleId, limit = 10) => {
   return rows.map((row, index) => ({
     rank: index + 1,
     creatorId: Number(row.id),
-    username: row.username,
-    name: row.name,
-    displayName: getDisplayName(row),
+    ...maskCreatorIdentity(row),
     avatar: row.avatar,
     publicUserId: row.publicUserId,
     online: Boolean(row.online),
