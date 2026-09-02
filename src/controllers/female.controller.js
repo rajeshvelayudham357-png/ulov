@@ -6,7 +6,7 @@ import {
     from "../models/index.js";
 
 import { getBlockedPeerIds } from "../services/block.service.js";
-import { fetchMalePurchaseRankers, fetchMaleTopSupportedCreators } from "../services/maleRankers.service.js";
+import { fetchMalePurchaseRankers, fetchMaleTopSupportedCreators, maskRankerUserRecord } from "../services/maleRankers.service.js";
     
     
     
@@ -172,7 +172,7 @@ export const getMaleProfileForFemale = async (req, res) => {
     const topCreators = await fetchMaleTopSupportedCreators(male.id, 10);
 
     return res.json({
-      user: male,
+      user: maskRankerUserRecord(male),
       topCreators
     });
   } catch (error) {

@@ -64,6 +64,15 @@ const maskRankerIdentity = (row) => {
   };
 };
 
+export const maskRankerUserRecord = (user) => {
+  const data = typeof user?.toJSON === "function" ? user.toJSON() : { ...user };
+
+  return {
+    ...data,
+    ...maskRankerIdentity(data),
+  };
+};
+
 export const fetchMalePurchaseRankers = async ({
   page = 1,
   limit = 20,
