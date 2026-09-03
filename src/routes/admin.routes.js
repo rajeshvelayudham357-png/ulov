@@ -216,6 +216,9 @@ import {
   getDailyRevenue,
 } from "../controllers/dailyRevenue.controller.js";
 import {
+  getDailyPayout,
+} from "../controllers/dailyPayout.controller.js";
+import {
   getMaleWalletCoins,
 } from "../controllers/maleWalletCoins.controller.js";
 
@@ -1005,6 +1008,12 @@ router.get(
   "/expected-payouts",
   requirePageAccess("payouts"),
   getExpectedPayouts
+);
+
+router.get(
+  "/payouts/daily",
+  requirePageAccess("payouts"),
+  getDailyPayout
 );
 
 export default router;
