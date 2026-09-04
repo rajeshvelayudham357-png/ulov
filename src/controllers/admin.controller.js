@@ -3102,11 +3102,14 @@ data.map(
 let quickConnectCallIds =
 new Set();
 
+const failureReasonByCallId =
+new Map();
+
 if(callIds.length > 0){
 
 const attemptRows =
 await sequelize.query(
-`SELECT DISTINCT callHistoryId AS callHistoryId
+`SELECT callHistoryId, failureReason
  FROM ${QC_TABLES.ATTEMPTS}
  WHERE callHistoryId IN (:callIds)`,
 {
@@ -3125,6 +3128,30 @@ attemptRows
 )
 .filter(Boolean)
 );
+
+for(
+const row of attemptRows
+){
+const callHistoryId =
+Number(row.callHistoryId);
+
+if(
+!Number.isFinite(callHistoryId) ||
+callHistoryId <= 0
+){
+continue;
+}
+
+const reason =
+String(row.failureReason || "").trim();
+
+if(reason){
+failureReasonByCallId.set(
+callHistoryId,
+reason
+);
+}
+}
 
 }
 
@@ -3204,6 +3231,10 @@ type:row.type ||
 
 status:row.status ||
 "completed",
+
+failureReason:
+failureReasonByCallId.get(Number(row.id)) ||
+null,
 
 source:
 quickConnectCallIds.has(Number(row.id))
