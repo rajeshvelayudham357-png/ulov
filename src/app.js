@@ -16,6 +16,8 @@ from "./routes/earning.route.js";
 
 import femaleRoutes
 from "./routes/female.routes.js";
+import maleRoutes
+from "./routes/male.routes.js";
 
 import withdrawRoutes
 from "./routes/withdraw.routes.js";
@@ -150,6 +152,10 @@ app.use(
         app.use(
           "/api/female",
           femaleRoutes
+          );
+        app.use(
+          "/api/male",
+          maleRoutes
           );
           app.use(
             "/api/withdraw",

@@ -208,6 +208,8 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"task-claims", label:"Task Claims", path:"/task-claims" },
 { key:"broadcast", label:"Broadcast", path:"/broadcast" },
 { key:"user-notify", label:"User Notify", path:"/user-notify" },
+{ key:"female-scratch-reward", label:"Female Scratch Reward", path:"/female-scratch-reward" },
+{ key:"male-scratch-reward", label:"Male Scratch Reward", path:"/male-scratch-reward" },
 { key:"support", label:"Support", path:"/support" },
 { key:"withdraw", label:"Withdraw", path:"/withdraw" },
 { key:"kyc", label:"KYC", path:"/kyc" },

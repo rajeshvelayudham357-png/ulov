@@ -435,11 +435,33 @@ export const creditWalletForPayment = async (
       paymentOrder: lockedOrder,
       isFirstPayment: priorPaidCount === 0,
     };
-  }).then((result) => {
+  }).then(async (result) => {
     if (!result.alreadyPaid) {
       emitPaymentGrowthEvents(result.paymentOrder, {
         isFirstPayment: result.isFirstPayment,
       });
+
+      try {
+        const { completeMaleScratchRewardsForPurchase } = await import(
+          "./maleScratchReward.service.js"
+        );
+        await completeMaleScratchRewardsForPurchase({
+          userId: result.paymentOrder.userId,
+          packageId: result.paymentOrder.packageId,
+          coins: result.paymentOrder.coins,
+          amount: result.paymentOrder.amount,
+        });
+
+        const latestWallet = await Wallet.findOne({
+          where: { userId: result.paymentOrder.userId },
+        });
+
+        if (latestWallet) {
+          result.wallet = latestWallet;
+        }
+      } catch (error) {
+        console.log("MALE SCRATCH REWARD COMPLETE ERROR", error.message);
+      }
     }
     return result;
   });

@@ -569,6 +569,116 @@ export const updateLevelConfig = async (gender, rows) => {
   return getLevelConfig(normalizedGender);
 };
 
+const getFemaleDisplayName = (user) =>
+  user?.nickname ||
+  (user?.name && user.name !== "New User" ? user.name : null) ||
+  user?.username ||
+  user?.publicUserId ||
+  user?.phone ||
+  `User ${user?.id ?? ""}`.trim();
+
+export const mapFemaleUserLevelRow = (user, configRows) => {
+  const eligibleCoins = toNumber(user?.eligibleCoins);
+  const resolved = resolveLevelFromEligibleCoins(eligibleCoins, configRows);
+
+  return {
+    id: Number(user?.id) || 0,
+    publicUserId: user?.publicUserId ? String(user.publicUserId) : null,
+    displayName: getFemaleDisplayName(user),
+    phone: user?.phone ? String(user.phone) : null,
+    avatar: user?.avatar ? String(user.avatar) : null,
+    online: Boolean(Number(user?.online)),
+    accountStatus: user?.accountStatus ? String(user.accountStatus) : null,
+    eligibleCoins,
+    level: resolved.level,
+    tier: resolved.tier,
+    levelDisplayName: resolved.displayName,
+    theme: resolved.theme,
+    themeColor: resolved.themeColor,
+    progressPercentage: resolved.progressPercentage,
+    nextLevelMinimumCoins: resolved.nextLevelMinimumCoins,
+    isMaxLevel: resolved.isMaxLevel,
+  };
+};
+
+export const rankFemaleUserLevels = (rows = []) =>
+  [...rows]
+    .sort((left, right) => {
+      if (right.level !== left.level) {
+        return right.level - left.level;
+      }
+
+      if (right.eligibleCoins !== left.eligibleCoins) {
+        return right.eligibleCoins - left.eligibleCoins;
+      }
+
+      return (left.id || 0) - (right.id || 0);
+    })
+    .map((row, index) => ({
+      ...row,
+      rank: index + 1,
+    }));
+
+export const summarizeFemaleUserLevels = (rows = []) => {
+  const levelCounts = {};
+
+  for (let level = USER_LEVEL_MIN; level <= USER_LEVEL_MAX; level += 1) {
+    levelCounts[level] = 0;
+  }
+
+  for (const row of rows) {
+    const level = Number(row.level);
+
+    if (Number.isInteger(level) && levelCounts[level] !== undefined) {
+      levelCounts[level] += 1;
+    }
+  }
+
+  return {
+    totalUsers: rows.length,
+    highestLevel: rows[0]?.level ?? 0,
+    levelFivePlus: rows.filter((row) => Number(row.level) >= 5).length,
+    levelCounts,
+  };
+};
+
+export const listFemaleUserLevels = async () => {
+  const configRows = await getLevelConfig(USER_LEVEL_GENDERS.FEMALE);
+  const users = await sequelize.query(
+    `SELECT
+        users.id,
+        users.publicUserId,
+        users.name,
+        users.nickname,
+        users.username,
+        users.phone,
+        users.avatar,
+        users.online,
+        users.accountStatus,
+        COALESCE(earnings.totalCoins, 0) AS eligibleCoins
+     FROM users
+     LEFT JOIN (
+       SELECT userId, COALESCE(SUM(coins), 0) AS totalCoins
+       FROM earnings
+       WHERE callId IS NOT NULL
+       GROUP BY userId
+     ) earnings ON earnings.userId = users.id
+     WHERE users.gender IN ('Female', 'female')`,
+    {
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  const ranked = rankFemaleUserLevels(
+    users.map((user) => mapFemaleUserLevelRow(user, configRows))
+  );
+
+  return {
+    summary: summarizeFemaleUserLevels(ranked),
+    rows: ranked,
+  };
+};
+
 export const getTierOptions = () => [...USER_LEVEL_TIERS];
 
 /**

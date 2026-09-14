@@ -29,6 +29,13 @@ import {
   updateWornAchievementBadgesHandler,
 } from "../controllers/femaleAchievement.controller.js";
 
+import {
+  getActiveFemaleScratchReward,
+  claimActiveFemaleScratchReward,
+  getMissedFemaleScratchRewardSummary,
+  listMissedFemaleScratchRewards,
+} from "../controllers/femaleScratchReward.controller.js";
+
 
 const router =
 express.Router();
@@ -98,6 +105,26 @@ router.get(
 router.put(
   "/achievements/wear",
   updateWornAchievementBadgesHandler
+);
+
+router.get(
+  "/scratch-reward/:userId/missed/summary",
+  getMissedFemaleScratchRewardSummary
+);
+
+router.get(
+  "/scratch-reward/:userId/missed",
+  listMissedFemaleScratchRewards
+);
+
+router.get(
+  "/scratch-reward/:userId/active",
+  getActiveFemaleScratchReward
+);
+
+router.post(
+  "/scratch-reward/:userId/claim",
+  claimActiveFemaleScratchReward
 );
 
 export default router;

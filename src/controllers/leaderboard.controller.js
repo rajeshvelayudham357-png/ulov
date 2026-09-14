@@ -13,6 +13,9 @@ import {
 import {
     getAppSettings
 } from "../services/appSettings.service.js";
+import {
+    attachUserLevels
+} from "../services/userLevel.service.js";
 
 const FEMALE_GENDERS = [
 "Female",
@@ -86,8 +89,47 @@ index === 2
 0,
 trend:Math.floor(Math.random() * 10),
 creator:entry.creator ?? null,
+userLevel:entry.userLevel ?? entry.creator?.userLevel ?? null,
 isOnlineExtra:Boolean(entry.isOnlineExtra)
 });
+
+const withCreatorLevels =
+async(entries)=>{
+  const creators =
+  entries
+  .map((entry)=>entry.creator)
+  .filter(Boolean);
+
+  if(creators.length === 0){
+    return entries;
+  }
+
+  const leveled =
+  await attachUserLevels(creators);
+
+  const byId =
+  new Map(
+    leveled.map((creator)=>[
+      Number(creator.id),
+      creator
+    ])
+  );
+
+  return entries.map((entry)=>{
+    const creator =
+    entry.creator
+    ?
+    byId.get(Number(entry.creator.id)) ?? entry.creator
+    :
+    null;
+
+    return {
+      ...entry,
+      creator,
+      userLevel:creator?.userLevel ?? null
+    };
+  });
+};
 
 export const leaderboard =
 async(req,res)=>{
@@ -380,10 +422,10 @@ topLimit
 }
 
 return res.json({
-leaderboard:[
+leaderboard: await withCreatorLevels([
 ...topRanked,
 ...onlineExtraEntries
-],
+]),
 topLimit
 });
 

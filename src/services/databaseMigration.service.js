@@ -2,6 +2,10 @@ import { QueryTypes } from "sequelize";
 
 import {
   AdminNotify,
+  FemaleScratchReward,
+  FemaleScratchRewardClaim,
+  MaleScratchReward,
+  MaleScratchRewardClaim,
   Block,
   Broadcast,
   BroadcastSchedule,
@@ -29,6 +33,8 @@ import { ensureUserDeviceRegistrationTable } from "./deviceRegistration.service.
 import { ensurePaymentOrderColumns } from "./payment.service.js";
 import { ensureBroadcastSchema } from "./broadcastSchema.service.js";
 import { ensureUserOnlineLogSchema } from "./userOnlineLog.service.js";
+import { ensureFemaleScratchRewardSchema } from "./femaleScratchReward.service.js";
+import { ensureMaleScratchRewardSchema } from "./maleScratchReward.service.js";
 
 const safeModelSync = async (model, label) => {
   try {
@@ -164,6 +170,12 @@ export const runDatabaseMigrations = async () => {
   await safeModelSync(DeviceToken, "DeviceToken");
   await safeModelSync(NotificationRecord, "NotificationRecord");
   await safeModelSync(AdminNotify, "AdminNotify");
+  await ensureFemaleScratchRewardSchema();
+  await safeModelSync(FemaleScratchReward, "FemaleScratchReward");
+  await safeModelSync(FemaleScratchRewardClaim, "FemaleScratchRewardClaim");
+  await ensureMaleScratchRewardSchema();
+  await safeModelSync(MaleScratchReward, "MaleScratchReward");
+  await safeModelSync(MaleScratchRewardClaim, "MaleScratchRewardClaim");
   await safeModelSync(ChatMessage, "ChatMessage");
   await safeModelSync(CallRating, "CallRating");
   await safeModelSync(Block, "Block");

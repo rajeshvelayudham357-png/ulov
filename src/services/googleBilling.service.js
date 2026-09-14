@@ -249,10 +249,25 @@ export const verifyAndCreditGooglePlayPurchase = async ({ productId, purchaseTok
 
     await auditLog({ userId, action: "CREDIT_SUCCESS", requestData: requestPayload, responseData: successResponse, status: "credited" });
 
+    try {
+      const { completeMaleScratchRewardsForPurchase } = await import("./maleScratchReward.service.js");
+      await completeMaleScratchRewardsForPurchase({
+        userId,
+        packageId: order.packageId || productConfig.id,
+        coins: coinsToCredit,
+        amount: amountToCharge,
+      });
+    } catch (error) {
+      console.log("MALE SCRATCH REWARD COMPLETE ERROR", error.message);
+    }
+
+    const latestWallet = await Wallet.findOne({ where: { userId } });
+    const latestBalance = Number(latestWallet?.balance ?? wallet.balance);
+
     // Emit Socket events if available
     if (ioInstance) {
       try {
-        ioInstance.to(String(userId)).emit("wallet-updated", { balance: wallet.balance, coinsCredited: coinsToCredit });
+        ioInstance.to(String(userId)).emit("wallet-updated", { balance: latestBalance, coinsCredited: coinsToCredit });
         ioInstance.to(String(userId)).emit("purchase-success", { orderId: order.id, coins: coinsToCredit });
       } catch (sErr) {
         console.error("Socket emission error:", sErr);

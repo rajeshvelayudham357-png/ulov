@@ -34,6 +34,12 @@ import {
 initBattleRealtime
 } from "./services/battleRealtime.service.js";
 import {
+initFemaleScratchRewardRealtime
+} from "./services/femaleScratchReward.service.js";
+import {
+initMaleScratchRewardRealtime
+} from "./services/maleScratchReward.service.js";
+import {
 registerBattleSocketHandlers
 } from "./services/battleSocket.handlers.js";
 import {
@@ -191,6 +197,16 @@ onlineUsers
 );
 
 initBattleRealtime(
+io,
+onlineUsers
+);
+
+initFemaleScratchRewardRealtime(
+io,
+onlineUsers
+);
+
+initMaleScratchRewardRealtime(
 io,
 onlineUsers
 );

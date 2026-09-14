@@ -23,6 +23,10 @@ import {
   } from "./BroadcastSchedule.js";
 
 import { AdminNotify } from "./AdminNotify.js";
+import { FemaleScratchReward } from "./FemaleScratchReward.js";
+import { FemaleScratchRewardClaim } from "./FemaleScratchRewardClaim.js";
+import { MaleScratchReward } from "./MaleScratchReward.js";
+import { MaleScratchRewardClaim } from "./MaleScratchRewardClaim.js";
 import { DeviceToken } from "./DeviceToken.js";
 import { NotificationRecord } from "./NotificationRecord.js";
 import { ChatMessage } from "./ChatMessage.js";
@@ -526,6 +530,10 @@ SupportMessage,
 Broadcast,
 BroadcastSchedule,
 AdminNotify,
+FemaleScratchReward,
+FemaleScratchRewardClaim,
+MaleScratchReward,
+MaleScratchRewardClaim,
 DeviceToken,
 NotificationRecord,
 ChatMessage,

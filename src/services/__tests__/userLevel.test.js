@@ -7,7 +7,9 @@ import {
 } from "../../constants/userLevel.js";
 import {
   calculateLevelProgress,
+  rankFemaleUserLevels,
   resolveLevelFromEligibleCoins,
+  summarizeFemaleUserLevels,
   toCardUserLevel,
   validateLevelConfigRows,
 } from "../userLevel.service.js";
@@ -229,6 +231,31 @@ test("resolveLevelFromEligibleCoins uses only provided eligible coins input", ()
 
   assert.equal(result.eligibleCoins, 25000);
   assert.equal(result.level, 5);
+});
+
+test("female admin ranking sorts by level then coins, highest first", () => {
+  const ranked = rankFemaleUserLevels([
+    { id: 3, level: 4, eligibleCoins: 9000 },
+    { id: 1, level: 7, eligibleCoins: 22000 },
+    { id: 2, level: 7, eligibleCoins: 41000 },
+    { id: 4, level: 1, eligibleCoins: 500 },
+  ]);
+
+  assert.deepEqual(
+    ranked.map((row) => row.id),
+    [2, 1, 3, 4]
+  );
+  assert.deepEqual(
+    ranked.map((row) => row.rank),
+    [1, 2, 3, 4]
+  );
+
+  const summary = summarizeFemaleUserLevels(ranked);
+  assert.equal(summary.totalUsers, 4);
+  assert.equal(summary.highestLevel, 7);
+  assert.equal(summary.levelFivePlus, 2);
+  assert.equal(summary.levelCounts[7], 2);
+  assert.equal(summary.levelCounts[4], 1);
 });
 
 test("default config seeds 11 levels per gender with level 0 at 0 coins", () => {

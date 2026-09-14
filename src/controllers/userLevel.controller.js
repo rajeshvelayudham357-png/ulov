@@ -1,6 +1,7 @@
 import {
   getLevelConfig,
   getTierOptions,
+  listFemaleUserLevels,
   updateLevelConfig,
 } from "../services/userLevel.service.js";
 import { normalizeUserLevelGender } from "../constants/userLevel.js";
@@ -24,6 +25,18 @@ export const getUserLevelsAdmin = async (req, res) => {
     });
   } catch (error) {
     console.log("GET USER LEVELS ERROR", error.message);
+    return res.status(error.statusCode || 500).json({
+      message: error.message,
+    });
+  }
+};
+
+export const getFemaleUserLevelsAdmin = async (req, res) => {
+  try {
+    const data = await listFemaleUserLevels();
+    return res.json(data);
+  } catch (error) {
+    console.log("GET FEMALE USER LEVELS ERROR", error.message);
     return res.status(error.statusCode || 500).json({
       message: error.message,
     });

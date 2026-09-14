@@ -160,6 +160,21 @@ import {
 } from "../controllers/adminNotify.controller.js";
 
 import {
+  listScratchRewardUsers,
+  sendScratchReward,
+  listScratchRewardHistory,
+  listScratchRewardClaims,
+} from "../controllers/femaleScratchReward.controller.js";
+
+import {
+  listScratchRewardPackages as listMaleScratchRewardPackages,
+  listScratchRewardUsers as listMaleScratchRewardUsers,
+  sendScratchReward as sendMaleScratchReward,
+  listScratchRewardHistory as listMaleScratchRewardHistory,
+  listScratchRewardClaims as listMaleScratchRewardClaims,
+} from "../controllers/maleScratchReward.controller.js";
+
+import {
   listMaleLoginActivity,
 } from "../controllers/maleLoginActivity.controller.js";
 
@@ -235,6 +250,7 @@ import {
   getMaleWalletCoins,
 } from "../controllers/maleWalletCoins.controller.js";
 import {
+  getFemaleUserLevelsAdmin,
   getUserLevelsAdmin,
   updateUserLevelsAdmin,
 } from "../controllers/userLevel.controller.js";
@@ -335,6 +351,12 @@ router.get(
 "/user-levels",
 requirePageAccess("user-levels"),
 getUserLevelsAdmin
+);
+
+router.get(
+"/female-user-levels",
+requirePageAccess("user-levels"),
+getFemaleUserLevelsAdmin
 );
 
 router.put(
@@ -1004,6 +1026,60 @@ router.delete(
   "/notify/:id",
   requirePageAccess("user-notify"),
   deleteAdminNotify
+);
+
+router.get(
+  "/female-scratch-rewards/users",
+  requirePageAccess("female-scratch-reward"),
+  listScratchRewardUsers
+);
+
+router.get(
+  "/female-scratch-rewards",
+  requirePageAccess("female-scratch-reward"),
+  listScratchRewardHistory
+);
+
+router.post(
+  "/female-scratch-rewards",
+  requirePageAccess("female-scratch-reward"),
+  sendScratchReward
+);
+
+router.get(
+  "/female-scratch-rewards/:id/claims",
+  requirePageAccess("female-scratch-reward"),
+  listScratchRewardClaims
+);
+
+router.get(
+  "/male-scratch-rewards/packages",
+  requirePageAccess("male-scratch-reward"),
+  listMaleScratchRewardPackages
+);
+
+router.get(
+  "/male-scratch-rewards/users",
+  requirePageAccess("male-scratch-reward"),
+  listMaleScratchRewardUsers
+);
+
+router.get(
+  "/male-scratch-rewards",
+  requirePageAccess("male-scratch-reward"),
+  listMaleScratchRewardHistory
+);
+
+router.post(
+  "/male-scratch-rewards",
+  requirePageAccess("male-scratch-reward"),
+  sendMaleScratchReward
+);
+
+router.get(
+  "/male-scratch-rewards/:id/claims",
+  requirePageAccess("male-scratch-reward"),
+  listMaleScratchRewardClaims
 );
 
 router.get(
