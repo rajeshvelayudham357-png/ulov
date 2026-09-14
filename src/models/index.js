@@ -32,6 +32,19 @@ import { PaymentOrder } from "./PaymentOrder.js";
 import { CallGiftRecord } from "./CallGiftRecord.js";
 import { AccountDeletionRequest } from "./AccountDeletionRequest.js";
 import { UserOnlineLog } from "./UserOnlineLog.js";
+import { VoiceRoom } from "./VoiceRoom.js";
+import { VoiceRoomSession } from "./VoiceRoomSession.js";
+import { VoiceRoomSeat } from "./VoiceRoomSeat.js";
+import { VoiceRoomMemberSession } from "./VoiceRoomMemberSession.js";
+import { VoiceRoomBillingTick } from "./VoiceRoomBillingTick.js";
+import { VoiceRoomEarning } from "./VoiceRoomEarning.js";
+import { VoiceRoomMessage } from "./VoiceRoomMessage.js";
+import { VoiceRoomGiftRecord } from "./VoiceRoomGiftRecord.js";
+import { BattleInvite } from "./BattleInvite.js";
+import { BattleRoom } from "./BattleRoom.js";
+import { BattleFighter } from "./BattleFighter.js";
+import { BattleAudienceSession } from "./BattleAudienceSession.js";
+import { BattleGiftRecord } from "./BattleGiftRecord.js";
 
 // =========================
 // USER -> WALLET
@@ -520,8 +533,21 @@ CallRating,
 Block,
 PaymentOrder,
 CallGiftRecord,
-AccountDeletionRequest,
-UserOnlineLog
+  AccountDeletionRequest,
+  UserOnlineLog,
+  VoiceRoom,
+  VoiceRoomSession,
+  VoiceRoomSeat,
+  VoiceRoomMemberSession,
+  VoiceRoomBillingTick,
+  VoiceRoomEarning,
+  VoiceRoomMessage,
+  VoiceRoomGiftRecord,
+  BattleInvite,
+  BattleRoom,
+  BattleFighter,
+  BattleAudienceSession,
+  BattleGiftRecord,
 
 };
 
@@ -533,4 +559,160 @@ User.hasMany(UserOnlineLog, {
 UserOnlineLog.belongsTo(User, {
   foreignKey: "userId",
   as: "user",
+});
+
+VoiceRoom.belongsTo(User, {
+  foreignKey: "hostUserId",
+  as: "host",
+});
+
+User.hasMany(VoiceRoom, {
+  foreignKey: "hostUserId",
+  as: "voiceRooms",
+});
+
+VoiceRoom.hasMany(VoiceRoomSession, {
+  foreignKey: "roomId",
+  as: "sessions",
+});
+
+VoiceRoomSession.belongsTo(VoiceRoom, {
+  foreignKey: "roomId",
+  as: "room",
+});
+
+VoiceRoom.hasMany(VoiceRoomSeat, {
+  foreignKey: "roomId",
+  as: "seats",
+});
+
+VoiceRoomSeat.belongsTo(VoiceRoom, {
+  foreignKey: "roomId",
+  as: "room",
+});
+
+VoiceRoomSeat.belongsTo(VoiceRoomMemberSession, {
+  foreignKey: "memberSessionId",
+  as: "memberSession",
+  constraints: false,
+});
+
+VoiceRoomSession.hasMany(VoiceRoomMemberSession, {
+  foreignKey: "sessionId",
+  as: "memberSessions",
+});
+
+VoiceRoomMemberSession.belongsTo(VoiceRoomSession, {
+  foreignKey: "sessionId",
+  as: "session",
+});
+
+VoiceRoomMemberSession.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+VoiceRoomMemberSession.hasMany(VoiceRoomBillingTick, {
+  foreignKey: "memberSessionId",
+  as: "billingTicks",
+});
+
+VoiceRoomBillingTick.belongsTo(VoiceRoomMemberSession, {
+  foreignKey: "memberSessionId",
+  as: "memberSession",
+});
+
+VoiceRoomSession.hasOne(VoiceRoomEarning, {
+  foreignKey: "sessionId",
+  as: "earning",
+});
+
+VoiceRoomEarning.belongsTo(VoiceRoomSession, {
+  foreignKey: "sessionId",
+  as: "session",
+});
+
+VoiceRoomSession.hasMany(VoiceRoomMessage, {
+  foreignKey: "sessionId",
+  as: "messages",
+});
+
+VoiceRoomMessage.belongsTo(VoiceRoomSession, {
+  foreignKey: "sessionId",
+  as: "session",
+});
+
+VoiceRoomMessage.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+VoiceRoomSession.hasMany(VoiceRoomGiftRecord, {
+  foreignKey: "sessionId",
+  as: "giftRecords",
+});
+
+VoiceRoomGiftRecord.belongsTo(VoiceRoomSession, {
+  foreignKey: "sessionId",
+  as: "session",
+});
+
+BattleInvite.belongsTo(User, {
+  foreignKey: "challengerId",
+  as: "challenger",
+});
+
+BattleInvite.belongsTo(User, {
+  foreignKey: "opponentId",
+  as: "opponent",
+});
+
+BattleRoom.belongsTo(BattleInvite, {
+  foreignKey: "inviteId",
+  as: "invite",
+});
+
+BattleInvite.hasOne(BattleRoom, {
+  foreignKey: "inviteId",
+  as: "battle",
+});
+
+BattleRoom.hasMany(BattleFighter, {
+  foreignKey: "battleId",
+  as: "fighters",
+});
+
+BattleFighter.belongsTo(BattleRoom, {
+  foreignKey: "battleId",
+  as: "battle",
+});
+
+BattleFighter.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+BattleRoom.hasMany(BattleAudienceSession, {
+  foreignKey: "battleId",
+  as: "audienceSessions",
+});
+
+BattleAudienceSession.belongsTo(BattleRoom, {
+  foreignKey: "battleId",
+  as: "battle",
+});
+
+BattleAudienceSession.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+BattleRoom.hasMany(BattleGiftRecord, {
+  foreignKey: "battleId",
+  as: "giftRecords",
+});
+
+BattleGiftRecord.belongsTo(BattleRoom, {
+  foreignKey: "battleId",
+  as: "battle",
 });

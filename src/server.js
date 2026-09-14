@@ -25,6 +25,18 @@ import {
 initSupportRealtime
 } from "./services/supportRealtime.service.js";
 import {
+initVoiceRoomRealtime
+} from "./services/voiceRoomRealtime.service.js";
+import {
+registerVoiceRoomSocketHandlers
+} from "./services/voiceRoomSocket.handlers.js";
+import {
+initBattleRealtime
+} from "./services/battleRealtime.service.js";
+import {
+registerBattleSocketHandlers
+} from "./services/battleSocket.handlers.js";
+import {
 runDatabaseMigrations
 } from "./services/databaseMigration.service.js";
 import {
@@ -57,6 +69,7 @@ import {
 import { CALL_MODES, ATTEMPT_STATUS } from "./constants/quickConnect.js";
 import { startQuickConnectWatchdog } from "./services/quickConnectWatchdog.service.js";
 import { startFemaleOnlineScheduler } from "./services/femaleOnlineScheduler.service.js";
+import { startBattleExpireWatchdog } from "./services/battleExpireWatchdog.service.js";
 
 
 
@@ -172,6 +185,16 @@ io,
 onlineUsers
 );
 
+initVoiceRoomRealtime(
+io,
+onlineUsers
+);
+
+initBattleRealtime(
+io,
+onlineUsers
+);
+
 setAppSettingsSocketInstance(io);
 setGoogleBillingSocketInstance(io);
 setQuickConnectRuntime({ io, onlineUsers });
@@ -231,6 +254,7 @@ startChatRetention();
 startBroadcastScheduleWorker();
 startQuickConnectWatchdog();
 startFemaleOnlineScheduler();
+startBattleExpireWatchdog();
 
 }catch(error){
 
@@ -1238,6 +1262,18 @@ socket.leave(
 `support-ticket-${ticketId}`
 );
 }
+);
+
+registerVoiceRoomSocketHandlers(
+io,
+socket,
+onlineUsers
+);
+
+registerBattleSocketHandlers(
+io,
+socket,
+onlineUsers
 );
 
 // =====================

@@ -6,6 +6,10 @@ import {
   mergeForceUpdateSettings,
   validateForceUpdateSettings,
 } from "../utils/appSettingsForceUpdate.util.js";
+import {
+  DEFAULT_PROFILE_ANIMATIONS,
+  parseProfileAnimationsCatalog,
+} from "../constants/profileAnimations.js";
 
 let ioInstance = null;
 
@@ -163,6 +167,7 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["quickConnectMaxRoutingSeconds", "INT NOT NULL DEFAULT 30"],
     ["quickConnectMinOnlineMinutes", "INT NOT NULL DEFAULT 15"],
     ["creatorQueensTopLimit", "INT NOT NULL DEFAULT 15"],
+    ["profileAnimationsCatalog", "JSON NULL"],
   ]) {
     await ensureColumn("admin_app_settings", column, definition);
   }
@@ -183,6 +188,22 @@ VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :
       replacements: DEFAULT_SETTINGS,
     }
   );
+
+  try {
+    await sequelize.query(
+      `UPDATE admin_app_settings
+       SET profileAnimationsCatalog = :catalog
+       WHERE id = 1
+         AND (profileAnimationsCatalog IS NULL OR JSON_LENGTH(profileAnimationsCatalog) = 0)`,
+      {
+        replacements: {
+          catalog: JSON.stringify(DEFAULT_PROFILE_ANIMATIONS),
+        },
+      }
+    );
+  } catch (error) {
+    console.log("Profile animations catalog seed skipped:", error.message);
+  }
 
   tableReady = true;
 };
@@ -278,6 +299,9 @@ export const getAppSettings = async () => {
             DEFAULT_SETTINGS.creatorQueensTopLimit
         ) || DEFAULT_SETTINGS.creatorQueensTopLimit
       )
+    ),
+    profileAnimationsCatalog: parseProfileAnimationsCatalog(
+      row.profileAnimationsCatalog
     ),
     ...forceUpdate,
     updatedAt: row.updatedAt || null,

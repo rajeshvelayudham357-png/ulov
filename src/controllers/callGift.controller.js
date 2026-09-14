@@ -2,6 +2,7 @@ import {
   listCallGifts,
   sendCallGift as sendCallGiftService,
   fetchFemaleReceivedGifts as fetchFemaleReceivedGiftsService,
+  fetchFemaleReceivedGiftSummary as fetchFemaleReceivedGiftSummaryService,
 } from "../services/callGift.service.js";
 import { getGiftSettings } from "../services/giftSettings.service.js";
 import { getBlockedPeerIds } from "../services/block.service.js";
@@ -72,6 +73,18 @@ export const getFemaleReceivedGifts = async (req, res) => {
     }
 
     const blockedIds = await getBlockedPeerIds(userId);
+
+    if (
+      String(req.query.grouped ?? "") === "1" ||
+      String(req.query.summary ?? "") === "1"
+    ) {
+      const summary = await fetchFemaleReceivedGiftSummaryService({
+        receiverId: userId,
+        excludeUserIds: [...blockedIds],
+      });
+
+      return res.json(summary);
+    }
 
     const data = await fetchFemaleReceivedGiftsService({
       receiverId: userId,

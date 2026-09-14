@@ -24,6 +24,11 @@ import {
 getFemaleReceivedGifts
 } from "../controllers/callGift.controller.js";
 
+import {
+  getFemaleAchievementsHandler,
+  updateWornAchievementBadgesHandler,
+} from "../controllers/femaleAchievement.controller.js";
+
 
 const router =
 express.Router();
@@ -85,6 +90,14 @@ router.post(
 endFemaleOnlineSession
 );
 
+router.get(
+  "/achievements/:userId",
+  getFemaleAchievementsHandler
+);
 
+router.put(
+  "/achievements/wear",
+  updateWornAchievementBadgesHandler
+);
 
 export default router;

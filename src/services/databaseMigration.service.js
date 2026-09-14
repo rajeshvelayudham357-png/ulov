@@ -171,5 +171,13 @@ export const runDatabaseMigrations = async () => {
   await safeModelSync(AccountDeletionRequest, "AccountDeletionRequest");
   await safeModelSync(WalletTransaction, "WalletTransaction");
 
+  console.log("Ensuring voice room schema...");
+  const { ensureVoiceRoomSchema } = await import("./voiceRoomSchema.service.js");
+  await ensureVoiceRoomSchema();
+
+  const { ensureBattleSchema } = await import("./battleSchema.service.js");
+  await ensureBattleSchema();
+  console.log("Voice room schema ready");
+
   console.log("Database migrations completed");
 };

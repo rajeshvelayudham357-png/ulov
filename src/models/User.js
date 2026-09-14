@@ -74,6 +74,10 @@ export const User = sequelize.define(
       type: DataTypes.TEXT,
     },
 
+    coverPhoto: {
+      type: DataTypes.TEXT,
+    },
+
 
     gender: {
       type: DataTypes.STRING,
@@ -215,7 +219,38 @@ export const User = sequelize.define(
     welcomeOfferClaimed: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
-    }
+    },
+
+    profileAnimationId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+
+    entryEffectId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+
+    purchasedEntryEffectIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+
+    profilePhotoUnlocked: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
+    wornAchievementBadgeIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+
+    wornMaleAchievementBadgeIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
 
   },
 

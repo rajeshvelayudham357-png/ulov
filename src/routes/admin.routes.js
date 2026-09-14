@@ -192,6 +192,19 @@ updateMaleUserSpinWheelSettings
 } from "../controllers/spinWheel.controller.js";
 
 import {
+getVoiceRoomAdminSettingsHandler,
+updateVoiceRoomAdminSettingsHandler,
+listAdminLiveVoiceRoomsHandler,
+deleteAdminVoiceRoomHandler,
+} from "../controllers/voiceRoom.controller.js";
+import {
+getBattleAdminSettingsHandler,
+updateBattleAdminSettingsHandler,
+listAdminLiveBattlesHandler,
+deleteAdminBattleHandler,
+} from "../controllers/battle.controller.js";
+
+import {
 getRegularGoldPackagesAdminConfig,
 updateRegularGoldPackagesAdminConfig
 } from "../controllers/regularGoldPackages.controller.js";
@@ -221,6 +234,10 @@ import {
 import {
   getMaleWalletCoins,
 } from "../controllers/maleWalletCoins.controller.js";
+import {
+  getUserLevelsAdmin,
+  updateUserLevelsAdmin,
+} from "../controllers/userLevel.controller.js";
 
 const router = express.Router();
 
@@ -314,6 +331,18 @@ requirePageAccess("regular-gold-packages"),
 updateRegularGoldPackagesAdminConfig
 );
 
+router.get(
+"/user-levels",
+requirePageAccess("user-levels"),
+getUserLevelsAdmin
+);
+
+router.put(
+"/user-levels",
+requirePageAccess("user-levels"),
+updateUserLevelsAdmin
+);
+
 
 router.get(
 "/gst-settings",
@@ -396,6 +425,57 @@ router.patch(
 "/spin-wheel/male-users/:id",
 requirePageAccess("spin-wheel"),
 updateMaleUserSpinWheelSettings
+);
+
+
+router.get(
+"/voice-rooms",
+requirePageAccess("voice-rooms"),
+getVoiceRoomAdminSettingsHandler
+);
+
+router.get(
+"/voice-rooms/live",
+requirePageAccess("voice-rooms"),
+listAdminLiveVoiceRoomsHandler
+);
+
+router.delete(
+"/voice-rooms/:roomId",
+requirePageAccess("voice-rooms"),
+deleteAdminVoiceRoomHandler
+);
+
+
+router.patch(
+"/voice-rooms",
+requirePageAccess("voice-rooms"),
+updateVoiceRoomAdminSettingsHandler
+);
+
+
+router.get(
+"/battles",
+requirePageAccess("battles"),
+getBattleAdminSettingsHandler
+);
+
+router.get(
+"/battles/live",
+requirePageAccess("battles"),
+listAdminLiveBattlesHandler
+);
+
+router.delete(
+"/battles/:battleId",
+requirePageAccess("battles"),
+deleteAdminBattleHandler
+);
+
+router.patch(
+"/battles",
+requirePageAccess("battles"),
+updateBattleAdminSettingsHandler
 );
 
 

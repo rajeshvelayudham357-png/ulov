@@ -7,6 +7,8 @@ import {
 
 import { getBlockedPeerIds } from "../services/block.service.js";
 import { fetchMalePurchaseRankers, fetchMaleTopSupportedCreators, maskRankerUserRecord } from "../services/maleRankers.service.js";
+import { attachUserLevel } from "../services/userLevel.service.js";
+import { resolveVisibleEntryEffectId } from "../services/entryEffect.service.js";
     
     
     
@@ -162,7 +164,7 @@ export const getMaleProfileForFemale = async (req, res) => {
     const { maleId } = req.params;
 
     const male = await User.findByPk(maleId, {
-      attributes: ['id', 'username', 'name', 'avatar', 'publicUserId', 'online', 'gender']
+      attributes: ['id', 'username', 'name', 'avatar', 'coverPhoto', 'publicUserId', 'online', 'gender', 'profileAnimationId', 'entryEffectId', 'purchasedEntryEffectIds']
     });
 
     if (!male || male.gender?.toLowerCase() !== 'male') {
@@ -170,10 +172,18 @@ export const getMaleProfileForFemale = async (req, res) => {
     }
 
     const topCreators = await fetchMaleTopSupportedCreators(male.id, 10);
+    const maleData =
+      typeof male.toJSON === "function" ? male.toJSON() : { ...male };
+    const userLevel = await attachUserLevel(male);
 
     return res.json({
-      user: maskRankerUserRecord(male),
-      topCreators
+      user: {
+        ...maskRankerUserRecord(male),
+        profileAnimationId: maleData.profileAnimationId ?? null,
+        entryEffectId: resolveVisibleEntryEffectId(maleData),
+      },
+      topCreators,
+      userLevel,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });

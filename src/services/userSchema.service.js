@@ -109,6 +109,17 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
     "acceptAutoRoutedCalls",
     "TINYINT(1) NOT NULL DEFAULT 1"
   );
+  await ensureColumn("users", "profileAnimationId", "VARCHAR(64) NULL");
+  await ensureColumn("users", "entryEffectId", "VARCHAR(64) NULL");
+  await ensureColumn("users", "purchasedEntryEffectIds", "JSON NULL");
+  await ensureColumn(
+    "users",
+    "profilePhotoUnlocked",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await ensureColumn("users", "wornAchievementBadgeIds", "JSON NULL");
+  await ensureColumn("users", "wornMaleAchievementBadgeIds", "JSON NULL");
+  await ensureColumn("users", "coverPhoto", "TEXT NULL");
 
   try {
     await sequelize.query(

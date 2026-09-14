@@ -80,6 +80,12 @@ from "./routes/appSettings.routes.js";
 import growthEventsRoutes
 from "./routes/growthEvents.routes.js";
 
+import voiceRoomRoutes
+from "./routes/voiceRoom.routes.js";
+
+import battleRoutes
+from "./routes/battle.routes.js";
+
 /* 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -253,6 +259,16 @@ app.use(
                     app.use(
                       "/api/events",
                       growthEventsRoutes
+                      );
+
+                    app.use(
+                      "/api/voice-rooms",
+                      voiceRoomRoutes
+                      );
+
+                    app.use(
+                      "/api/battles",
+                      battleRoutes
                       );
 
                    

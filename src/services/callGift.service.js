@@ -298,3 +298,77 @@ export const fetchFemaleReceivedGifts = async ({
     },
   };
 };
+
+export const fetchFemaleReceivedGiftSummary = async ({
+  receiverId,
+  excludeUserIds = [],
+} = {}) => {
+  const normalizedReceiverId = Number(receiverId);
+
+  if (!Number.isFinite(normalizedReceiverId)) {
+    throw new Error("Invalid user");
+  }
+
+  const excludeSource =
+    excludeUserIds instanceof Set
+      ? [...excludeUserIds]
+      : Array.isArray(excludeUserIds)
+        ? excludeUserIds
+        : [];
+
+  const excludeIds = excludeSource
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const where = {
+    receiverId: normalizedReceiverId,
+  };
+
+  if (excludeIds.length > 0) {
+    where.senderId = {
+      [Op.notIn]: excludeIds,
+    };
+  }
+
+  const rows = await CallGiftRecord.findAll({
+    where,
+    attributes: [
+      "giftId",
+      [sequelize.fn("MAX", sequelize.col("giftTitle")), "giftTitle"],
+      [sequelize.fn("MAX", sequelize.col("giftEmoji")), "giftEmoji"],
+      [sequelize.fn("COUNT", sequelize.col("id")), "count"],
+      [sequelize.fn("SUM", sequelize.col("femaleCoins")), "coinsEarned"],
+    ],
+    group: ["giftId"],
+    order: [[sequelize.fn("COUNT", sequelize.col("id")), "DESC"]],
+    raw: true,
+  });
+
+  const gifts = rows.map((row) => {
+    const catalogGift = getCallGiftById(String(row.giftId ?? ""));
+    const count = Number(row.count) || 0;
+
+    return {
+      giftId: String(row.giftId ?? ""),
+      giftTitle: row.giftTitle || catalogGift?.title || "Gift",
+      giftEmoji: row.giftEmoji || catalogGift?.emoji || "🎁",
+      count,
+      coinsEarned: Number(row.coinsEarned) || 0,
+    };
+  });
+
+  const totalGifts = gifts.reduce((sum, gift) => sum + gift.count, 0);
+  const totalCoinsEarned = gifts.reduce(
+    (sum, gift) => sum + gift.coinsEarned,
+    0
+  );
+
+  return {
+    gifts,
+    totalGifts,
+    summary: {
+      totalGifts,
+      totalCoinsEarned,
+    },
+  };
+};

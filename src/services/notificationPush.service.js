@@ -2006,3 +2006,69 @@ socketEmitted,
 ...pushResult
 };
 };
+
+export const notifyIncomingBattleInvite = async ({
+  inviteId,
+  challengerId,
+  opponentId,
+  durationSeconds,
+  expiresAt,
+  challengerName = "A fighter",
+  challengerAvatar = "",
+  challenger = null,
+} = {}) => {
+  const normalizedOpponentId = Number(opponentId);
+  const normalizedChallengerId = Number(challengerId);
+  const normalizedInviteId = Number(inviteId);
+
+  if (
+    !Number.isFinite(normalizedOpponentId) ||
+    !Number.isFinite(normalizedInviteId)
+  ) {
+    return {
+      notified: false,
+    };
+  }
+
+  const displayName = String(challengerName || "A fighter").trim();
+  const durationMinutes = Math.max(
+    1,
+    Math.round(Number(durationSeconds || 300) / 60)
+  );
+
+  const pushPayload = buildOutsideAppPushPayload({
+    title: "Battle invite",
+    body: `${displayName} challenged you to a ${durationMinutes}-min gift battle`,
+    data: {
+      type: "incoming_battle_invite",
+      inviteId: String(normalizedInviteId),
+      challengerId: String(normalizedChallengerId),
+      opponentId: String(normalizedOpponentId),
+      durationSeconds: String(durationSeconds ?? 300),
+      expiresAt: expiresAt ? String(expiresAt) : "",
+      challengerName: displayName,
+      avatar: String(challengerAvatar || ""),
+      screen: "/battle/incoming-invite",
+    },
+    ttlSeconds: 120,
+  });
+
+  const pushResult = await sendPushToUser(
+    normalizedOpponentId,
+    pushPayload
+  );
+
+  await saveNotification(normalizedOpponentId, pushPayload);
+
+  console.log("INCOMING BATTLE INVITE PUSH", {
+    inviteId: normalizedInviteId,
+    challengerId: normalizedChallengerId,
+    opponentId: normalizedOpponentId,
+    ...pushResult,
+  });
+
+  return {
+    notified: true,
+    ...pushResult,
+  };
+};

@@ -116,6 +116,13 @@ const buildAuthUserPayload = (user) => ({
   welcomeOfferClaimed: Boolean(user.welcomeOfferClaimed),
   notificationsEnabled: user.notificationsEnabled !== false,
   phoneVerified: Boolean(user.phoneVerified),
+  profileAnimationId: user.profileAnimationId ?? null,
+  entryEffectId: user.entryEffectId ?? null,
+  purchasedEntryEffectIds: Array.isArray(user.purchasedEntryEffectIds)
+    ? user.purchasedEntryEffectIds
+    : [],
+  profilePhotoUnlocked: Boolean(user.profilePhotoUnlocked),
+  coverPhoto: user.coverPhoto ?? null,
 });
 
 const issueAuthToken = (user) =>

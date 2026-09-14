@@ -31,6 +31,10 @@ buildVerificationAudioUrl,
 buildVerificationVideoUrl
 } from "../services/verificationUpload.service.js";
 import {
+buildProfileAvatarUrl,
+buildProfileCoverUrl
+} from "../services/profilePhotoUpload.service.js";
+import {
 ensureUserSchema
 } from "../services/userSchema.service.js";
 import {
@@ -49,6 +53,17 @@ verifyMsg91AccessToken,
 } from "../services/msg91.service.js";
 import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { trackGrowthEventAsync } from "../services/growthEvents.service.js";
+import {
+  attachUserLevel,
+  attachUserLevels,
+} from "../services/userLevel.service.js";
+import { validateProfileAnimationSelection } from "../services/profileAnimation.service.js";
+import { validateEntryEffectSelection, purchaseEntryEffect as purchaseEntryEffectService, buildEntryEffectsCatalog } from "../services/entryEffect.service.js";
+import { purchaseProfilePhotoUnlock as purchaseProfilePhotoUnlockService } from "../services/profilePhotoUnlock.service.js";
+import {
+  PROFILE_PHOTO_UNLOCK_COINS,
+  isProfilePhotoUploadAllowed,
+} from "../constants/profilePhoto.js";
 
 const ensureVerificationAudioColumns =
 ensureUserSchema;
@@ -92,23 +107,28 @@ ensureUserSchema;
             userId:req.user.id
           }
         });
-  
-  
+
+      const userLevel =
+        await attachUserLevel(user);
+
+
       res.json({
-  
+
         user,
-  
+
+        userLevel,
+
         stats:{
-  
+
           calls,
-  
+
           favorites,
-  
+
           gold:
             wallet?.balance || 0
-  
+
         }
-  
+
       });
   
   
@@ -579,8 +599,11 @@ ensureUserSchema;
       offset + limit
       );
 
+      const usersWithLevels =
+      await attachUserLevels(paginatedUsers);
+
       return res.json({
-       users:paginatedUsers,
+       users:usersWithLevels,
        total,
        page,
        limit,
@@ -594,9 +617,12 @@ ensureUserSchema;
       
       
       
+      const usersWithLevels =
+      await attachUserLevels(formattedUsers);
+
       return res.json({
       
-       users:formattedUsers,
+       users:usersWithLevels,
        callRates
       
       });
@@ -948,6 +974,257 @@ message:error.message
 
 };
 
+export const updateProfileAnimation =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const userId = req.user?.id ?? req.body?.userId;
+const {
+ profileAnimationId
+}=req.body;
+
+if (!userId) {
+return res.status(400).json({
+message: "Authentication required",
+});
+}
+
+if (
+req.user?.id &&
+String(req.user.id) !== String(userId)
+) {
+return res.status(403).json({
+message: "Not allowed to update this profile",
+});
+}
+
+const user =
+await User.findByPk(
+userId
+);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+const validation =
+await validateProfileAnimationSelection(profileAnimationId);
+
+if(!validation.valid){
+return res.status(400).json({
+message:validation.message
+});
+}
+
+await user.update({
+profileAnimationId:validation.profileAnimationId
+});
+
+await user.reload();
+
+return res.json({
+message:"Profile animation updated",
+profileAnimationId:user.profileAnimationId ?? null
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+export const updateEntryEffect =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const userId = req.user?.id ?? req.body?.userId;
+const {
+ entryEffectId
+}=req.body;
+
+if (!userId) {
+return res.status(400).json({
+message: "Authentication required",
+});
+}
+
+if (
+req.user?.id &&
+String(req.user.id) !== String(userId)
+) {
+return res.status(403).json({
+message: "Not allowed to update this profile",
+});
+}
+
+const user =
+await User.findByPk(
+userId
+);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+if (String(user.gender ?? "").toLowerCase() !== "male") {
+return res.status(403).json({
+message: "Entry effects are only available for male profiles",
+});
+}
+
+const validation =
+await validateEntryEffectSelection(entryEffectId, user);
+
+if(!validation.valid){
+return res.status(400).json({
+message:validation.message
+});
+}
+
+await user.update({
+entryEffectId:validation.entryEffectId
+});
+
+await user.reload();
+
+return res.json({
+message:"Entry effect updated",
+entryEffectId:user.entryEffectId ?? null
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+export const getEntryEffectsCatalog =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const userId = req.user?.id;
+
+if (!userId) {
+return res.status(401).json({
+message: "Authentication required",
+});
+}
+
+const user =
+await User.findByPk(
+userId
+);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+if (String(user.gender ?? "").toLowerCase() !== "male") {
+return res.status(403).json({
+message: "Entry effects are only available for male profiles",
+});
+}
+
+return res.json({
+effects: buildEntryEffectsCatalog(user),
+purchasedEntryEffectIds: user.purchasedEntryEffectIds ?? [],
+entryEffectId: user.entryEffectId ?? null,
+});
+
+}catch(error){
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+export const purchaseEntryEffect =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const userId = req.user?.id;
+const { effectId } = req.body;
+
+if (!userId) {
+return res.status(401).json({
+message: "Authentication required",
+});
+}
+
+if (!effectId) {
+return res.status(400).json({
+message: "Entry effect is required",
+});
+}
+
+const result =
+await purchaseEntryEffectService(
+userId,
+effectId
+);
+
+const user =
+await User.findByPk(userId);
+
+return res.json({
+message: result.alreadyOwned
+  ? "Entry effect already unlocked"
+  : "Entry effect purchased",
+effectId: result.effectId,
+purchasedEntryEffectIds: result.purchasedEntryEffectIds,
+balance: result.balance,
+priceCoins: result.priceCoins ?? null,
+entryEffectId: user?.entryEffectId ?? null,
+});
+
+}catch(error){
+
+if (
+error.message === "Insufficient gold balance" ||
+error.message === "Low balance"
+) {
+return res.status(400).json({
+message: "Insufficient gold balance",
+});
+}
+
+return res.status(400).json({
+message: error.message || "Could not purchase entry effect",
+});
+
+}
+
+};
+
 export const updateCallPreferences =
 async(req,res)=>{
 
@@ -1126,6 +1403,8 @@ attributes:[
 
 "avatar",
 
+"coverPhoto",
+
 "gender",
 
 "age",
@@ -1151,6 +1430,14 @@ attributes:[
 "acceptVideoCalls",
 
 "notificationsEnabled",
+
+"profileAnimationId",
+
+"entryEffectId",
+
+"purchasedEntryEffectIds",
+
+"profilePhotoUnlocked",
 
 "createdAt"
 
@@ -1181,14 +1468,20 @@ message:"User not found"
 const [userWithRates] =
 await attachCreatorCallRates([user]);
 
+const userLevel =
+await attachUserLevel(userWithRates ?? user);
 
+const payload =
+typeof (userWithRates ?? user)?.toJSON === "function"
+?
+(userWithRates ?? user).toJSON()
+:
+(userWithRates ?? user);
 
-
-return res.json(
-
-userWithRates ?? user
-
-);
+return res.json({
+...(payload || {}),
+userLevel,
+});
 
 
 
@@ -1366,6 +1659,206 @@ error
 );
 
 return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+
+const assertProfilePhotoUploadAllowed = async (user) => {
+  const userLevel = await attachUserLevel(user);
+
+  if (!isProfilePhotoUploadAllowed(user, userLevel)) {
+    const error = new Error(
+      "Unlock profile photos at Level 3, or purchase using 10,000 coins."
+    );
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
+export const purchaseProfilePhotoUnlock = async (req, res) => {
+  try {
+    await ensureUserSchema();
+
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    const result = await purchaseProfilePhotoUnlockService(userId);
+
+    return res.json({
+      message: result.alreadyUnlocked
+        ? "Profile photos already unlocked"
+        : "Profile photos unlocked",
+      profilePhotoUnlocked: true,
+      balance: result.balance,
+      priceCoins: result.priceCoins ?? PROFILE_PHOTO_UNLOCK_COINS,
+      alreadyUnlocked: Boolean(result.alreadyUnlocked),
+    });
+  } catch (error) {
+    if (
+      error.message === "Insufficient gold balance" ||
+      error.message === "Low balance"
+    ) {
+      return res.status(400).json({
+        message: "Insufficient gold balance",
+      });
+    }
+
+    return res.status(error?.statusCode === 403 ? 403 : 400).json({
+      message: error.message || "Could not unlock profile photos",
+    });
+  }
+};
+
+
+export const uploadProfileAvatar =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const {
+userId
+} = req.body;
+
+if(!userId){
+return res.status(400).json({
+message:"userId required"
+});
+}
+
+if(!req.file){
+return res.status(400).json({
+message:"Photo file required"
+});
+}
+
+const user =
+await User.findByPk(userId);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+await assertProfilePhotoUploadAllowed(user);
+
+const avatar =
+buildProfileAvatarUrl(
+req.file.filename
+);
+
+await user.update({
+avatar
+});
+
+const host =
+req.get("host");
+
+const protocol =
+req.protocol;
+
+return res.json({
+success:true,
+avatar,
+avatarFullUrl:
+`${protocol}://${host}${avatar}`,
+coverPhoto:user.coverPhoto ?? null,
+user
+});
+
+}catch(error){
+
+console.log(
+"UPLOAD PROFILE AVATAR ERROR",
+error
+);
+
+return res.status(error?.statusCode === 403 ? 403 : 500).json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const uploadProfileCoverPhoto =
+async(req,res)=>{
+
+try{
+
+await ensureUserSchema();
+
+const {
+userId
+} = req.body;
+
+if(!userId){
+return res.status(400).json({
+message:"userId required"
+});
+}
+
+if(!req.file){
+return res.status(400).json({
+message:"Photo file required"
+});
+}
+
+const user =
+await User.findByPk(userId);
+
+if(!user){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+await assertProfilePhotoUploadAllowed(user);
+
+const coverPhoto =
+buildProfileCoverUrl(
+req.file.filename
+);
+
+await user.update({
+coverPhoto
+});
+
+const host =
+req.get("host");
+
+const protocol =
+req.protocol;
+
+return res.json({
+success:true,
+coverPhoto,
+coverPhotoFullUrl:
+`${protocol}://${host}${coverPhoto}`,
+avatar:user.avatar ?? null,
+user
+});
+
+}catch(error){
+
+console.log(
+"UPLOAD PROFILE COVER ERROR",
+error
+);
+
+return res.status(error?.statusCode === 403 ? 403 : 500).json({
 message:error.message
 });
 
