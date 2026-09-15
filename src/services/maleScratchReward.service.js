@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 
 import { sequelize } from "../config/database.js";
 import { getAllPurchasablePackages, resolveGoldPackageById } from "../constants/goldPackages.js";
@@ -22,6 +22,11 @@ export const DEFAULT_RECHARGE_EXPIRY_HOURS = 24;
 export const MALE_SCRATCH_REWARD_EVENT = "male-scratch-reward";
 export const MALE_SCRATCH_REWARD_CLAIMED_EVENT = "male-scratch-reward-claimed";
 export const PAID_ORDER_STATUSES = ["PAID", "SUCCESS", "CAPTURED", "credited"];
+export const MALE_SCRATCH_TARGET_ALL = "all";
+export const MALE_SCRATCH_TARGET_USERS = "users";
+export const MALE_SCRATCH_TARGET_TODAY_NEW = "today_new";
+export const MALE_SCRATCH_TARGET_NEVER_RECHARGED = "never_recharged";
+export const INDIA_TIME_ZONE = "Asia/Kolkata";
 
 let ioRef = null;
 let onlineUsersRef = null;
@@ -139,10 +144,38 @@ const parseTargetUserIds = (value) => {
   return [];
 };
 
-export const isScratchRewardTargetedAtUser = (reward, userId) => {
-  const targetType = String(reward?.targetType || "all").toLowerCase();
+export const normalizeScratchTargetMode = (mode) => {
+  const value = String(mode || MALE_SCRATCH_TARGET_ALL).toLowerCase();
 
-  if (targetType !== "users") {
+  if (
+    value === MALE_SCRATCH_TARGET_USERS ||
+    value === MALE_SCRATCH_TARGET_TODAY_NEW ||
+    value === MALE_SCRATCH_TARGET_NEVER_RECHARGED
+  ) {
+    return value;
+  }
+
+  return MALE_SCRATCH_TARGET_ALL;
+};
+
+export const getIndiaDayBounds = (now = new Date()) => {
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: INDIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+
+  return {
+    start: new Date(`${date}T00:00:00+05:30`),
+    end: new Date(`${date}T24:00:00+05:30`),
+  };
+};
+
+export const isScratchRewardTargetedAtUser = (reward, userId) => {
+  const targetType = normalizeScratchTargetMode(reward?.targetType);
+
+  if (targetType === MALE_SCRATCH_TARGET_ALL) {
     return true;
   }
 
@@ -342,8 +375,83 @@ export const listMaleScratchRewardUsers = async (search = "") => {
   return users.map(serializeNotifyUser);
 };
 
+const audienceQueryReplacements = (now = new Date()) => {
+  const { start, end } = getIndiaDayBounds(now);
+
+  return {
+    todayStart: start,
+    todayEnd: end,
+    paymentStatuses: PAID_ORDER_STATUSES,
+  };
+};
+
+const audienceWhereSql = (mode) => {
+  const maleSql = "LOWER(u.gender) = 'male'";
+
+  if (mode === MALE_SCRATCH_TARGET_TODAY_NEW) {
+    return `${maleSql} AND u.createdAt >= :todayStart AND u.createdAt < :todayEnd`;
+  }
+
+  return `${maleSql}
+    AND u.createdAt < :todayStart
+    AND NOT EXISTS (
+      SELECT 1
+      FROM payment_orders po
+      WHERE po.userId = u.id
+        AND po.status IN (:paymentStatuses)
+    )`;
+};
+
+const findMaleUsersByAudience = async (mode) => {
+  const rows = await sequelize.query(
+    `SELECT u.id, u.gender, u.username, u.name, u.nickname
+     FROM users u
+     WHERE ${audienceWhereSql(mode)}`,
+    {
+      replacements: audienceQueryReplacements(),
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    gender: row.gender,
+    username: row.username,
+    name: row.name,
+    nickname: row.nickname,
+  }));
+};
+
+export const countMaleScratchAudience = async (mode) => {
+  const targetMode = normalizeScratchTargetMode(mode);
+
+  if (
+    targetMode !== MALE_SCRATCH_TARGET_TODAY_NEW &&
+    targetMode !== MALE_SCRATCH_TARGET_NEVER_RECHARGED
+  ) {
+    return { mode: targetMode, count: 0 };
+  }
+
+  const rows = await sequelize.query(
+    `SELECT COUNT(*) AS count
+     FROM users u
+     WHERE ${audienceWhereSql(targetMode)}`,
+    {
+      replacements: audienceQueryReplacements(),
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return {
+    mode: targetMode,
+    count: Number(rows[0]?.count) || 0,
+  };
+};
+
 const resolveTargetUsers = async ({ mode, userIds, search }) => {
-  if (mode === "users") {
+  const targetMode = normalizeScratchTargetMode(mode);
+
+  if (targetMode === MALE_SCRATCH_TARGET_USERS) {
     const ids = [
       ...new Set(
         (Array.isArray(userIds) ? userIds : [])
@@ -363,6 +471,13 @@ const resolveTargetUsers = async ({ mode, userIds, search }) => {
       },
       attributes: ["id", "gender", "username", "name", "nickname"],
     });
+  }
+
+  if (
+    targetMode === MALE_SCRATCH_TARGET_TODAY_NEW ||
+    targetMode === MALE_SCRATCH_TARGET_NEVER_RECHARGED
+  ) {
+    return findMaleUsersByAudience(targetMode);
   }
 
   const where = { ...maleUserWhere };
@@ -530,7 +645,7 @@ export const sendMaleScratchReward = async ({
     throw new Error("Select a recharge package users must buy to claim");
   }
 
-  const targetMode = mode === "users" ? "users" : "all";
+  const targetMode = normalizeScratchTargetMode(mode);
   const users = await resolveTargetUsers({
     mode: targetMode,
     userIds,
@@ -554,7 +669,7 @@ export const sendMaleScratchReward = async ({
     requiredPackageCoins: goldPackage.coins,
     requiredPackagePrice: goldPackage.price,
     targetType: targetMode,
-    targetUserIds: targetMode === "users" ? ids : null,
+    targetUserIds: targetMode === MALE_SCRATCH_TARGET_ALL ? null : ids,
     sentCount: ids.length,
     claimedCount: 0,
     createdByAdminId: adminId || null,

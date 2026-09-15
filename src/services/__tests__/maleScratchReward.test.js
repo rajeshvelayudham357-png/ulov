@@ -6,8 +6,11 @@ import {
   clampDurationSeconds,
   clampRechargeExpiryHours,
   clampRewardCoins,
+  getIndiaDayBounds,
   isRechargeClaimExpired,
   isScratchRewardExpired,
+  isScratchRewardTargetedAtUser,
+  normalizeScratchTargetMode,
   purchaseMatchesRequiredPackage,
 } from "../maleScratchReward.service.js";
 
@@ -92,4 +95,28 @@ test("qualifying recharge matches package id or coins+price", () => {
     }),
     false
   );
+});
+
+test("target modes and India-day bounds support today-new and never-recharged audiences", () => {
+  assert.equal(normalizeScratchTargetMode("today_new"), "today_new");
+  assert.equal(normalizeScratchTargetMode("never_recharged"), "never_recharged");
+  assert.equal(normalizeScratchTargetMode("something-else"), "all");
+
+  const { start, end } = getIndiaDayBounds(
+    new Date("2026-09-15T01:00:00.000Z")
+  );
+
+  assert.equal(start.toISOString(), "2026-09-14T18:30:00.000Z");
+  assert.equal(end.toISOString(), "2026-09-15T18:30:00.000Z");
+});
+
+test("non-all scratch rewards only target listed users", () => {
+  const reward = {
+    targetType: "today_new",
+    targetUserIds: [11, 22],
+  };
+
+  assert.equal(isScratchRewardTargetedAtUser(reward, 11), true);
+  assert.equal(isScratchRewardTargetedAtUser(reward, 33), false);
+  assert.equal(isScratchRewardTargetedAtUser({ targetType: "all" }, 33), true);
 });

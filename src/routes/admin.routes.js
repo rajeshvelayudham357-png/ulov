@@ -169,6 +169,7 @@ import {
 import {
   listScratchRewardPackages as listMaleScratchRewardPackages,
   listScratchRewardUsers as listMaleScratchRewardUsers,
+  getScratchRewardAudienceCount as getMaleScratchRewardAudienceCount,
   sendScratchReward as sendMaleScratchReward,
   listScratchRewardHistory as listMaleScratchRewardHistory,
   listScratchRewardClaims as listMaleScratchRewardClaims,
@@ -1062,6 +1063,12 @@ router.get(
   "/male-scratch-rewards/users",
   requirePageAccess("male-scratch-reward"),
   listMaleScratchRewardUsers
+);
+
+router.get(
+  "/male-scratch-rewards/audience-count",
+  requirePageAccess("male-scratch-reward"),
+  getMaleScratchRewardAudienceCount
 );
 
 router.get(

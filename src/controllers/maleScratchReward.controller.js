@@ -1,5 +1,6 @@
 import {
   claimMaleScratchReward,
+  countMaleScratchAudience,
   getActiveScratchRewardForUser,
   getMaleScratchRewardClaims,
   getMissedScratchRewardsForUser,
@@ -59,6 +60,17 @@ export const listScratchRewardUsers = async (req, res) => {
     return res.json(users);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getScratchRewardAudienceCount = async (req, res) => {
+  try {
+    const result = await countMaleScratchAudience(req.query.mode);
+    return res.json(result);
+  } catch (error) {
+    return res.status(errorStatus(error.message)).json({
+      message: error.message,
+    });
   }
 };
 
