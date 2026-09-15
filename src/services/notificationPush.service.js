@@ -1223,7 +1223,8 @@ title:broadcast.title,
 body:broadcast.message,
 data:{
 type:"broadcast",
-broadcastId:String(broadcast.id)
+broadcastId:String(broadcast.id),
+screen:broadcastScreenForGender(user.gender)
 }
 });
 
@@ -1325,6 +1326,20 @@ all:{
 }
 };
 
+const broadcastScreenForGender =
+(gender)=>{
+const value =
+String(gender || "")
+.trim()
+.toLowerCase();
+
+return value === "male"
+?
+"/updates"
+:
+"/broadcast";
+};
+
 const notifyUsersOnBroadcast =
 async(
 broadcast,
@@ -1339,7 +1354,7 @@ await User.findAll({
 where:{
 gender:genderFilter
 },
-attributes:["id","username","name","languages"]
+attributes:["id","username","name","gender","languages"]
 });
 
 const languageFilter =
@@ -1392,7 +1407,8 @@ title:broadcast.title,
 body:broadcast.message,
 data:{
 type:"broadcast",
-broadcastId:String(broadcast.id)
+broadcastId:String(broadcast.id),
+screen:broadcastScreenForGender(user.gender)
 }
 });
 
@@ -2072,3 +2088,84 @@ export const notifyIncomingBattleInvite = async ({
     ...pushResult,
   };
 };
+
+export const notifyMaleScratchRewards = async ({
+  userIds,
+  rewardId,
+  rewardCoins,
+  durationSeconds,
+  expiresAt,
+  requiredPackage = null,
+} = {}) => {
+  const uniqueIds = [
+    ...new Set(
+      (Array.isArray(userIds) ? userIds : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    ),
+  ];
+
+  if (!uniqueIds.length) {
+    return {
+      notified: 0,
+      pushSent: 0,
+    };
+  }
+
+  const coins = Number(rewardCoins) || 0;
+  const title = "Lucky scratch card";
+  const body = `Scratch now to win ${coins} coins. Claim in time, then recharge to collect.`;
+  const data = {
+    type: "male_scratch_reward",
+    rewardId: String(rewardId || ""),
+    rewardCoins: String(coins),
+    durationSeconds: String(durationSeconds ?? ""),
+    expiresAt: expiresAt ? String(expiresAt) : "",
+    requiredPackageId: String(requiredPackage?.id || ""),
+    requiredPackageCoins: String(requiredPackage?.coins || ""),
+    requiredPackagePrice: String(requiredPackage?.price || ""),
+    requiredPackageLabel: String(requiredPackage?.label || ""),
+  };
+
+  const pushPayload = buildOutsideAppPushPayload({
+    title,
+    body,
+    data,
+  });
+
+  let pushSent = 0;
+  const batchSize = 25;
+
+  for (let index = 0; index < uniqueIds.length; index += batchSize) {
+    const batch = uniqueIds.slice(index, index + batchSize);
+
+    const results = await Promise.all(
+      batch.map(async (userId) => {
+        const pushResult = await sendPushToUser(userId, pushPayload);
+        await saveNotification(userId, {
+          title,
+          body,
+          data,
+        });
+
+        return (
+          Number(pushResult?.expoSent || 0) + Number(pushResult?.fcmSent || 0)
+        );
+      })
+    );
+
+    pushSent += results.reduce((sum, count) => sum + count, 0);
+  }
+
+  console.log("MALE SCRATCH NOTIFY SENT", {
+    rewardId,
+    notified: uniqueIds.length,
+    pushSent,
+  });
+
+  return {
+    notified: uniqueIds.length,
+    pushSent,
+  };
+};
+

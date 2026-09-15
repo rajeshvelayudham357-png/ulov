@@ -41,6 +41,11 @@ export const MaleScratchRewardClaim = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+
+    rechargeExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     timestamps: true,

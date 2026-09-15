@@ -27,6 +27,12 @@ export const MaleScratchReward = sequelize.define(
       allowNull: false,
     },
 
+    rechargeExpiryHours: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 24,
+    },
+
     requiredPackageId: {
       type: DataTypes.INTEGER,
       allowNull: false,

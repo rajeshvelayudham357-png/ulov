@@ -10,11 +10,15 @@ import {
   Wallet,
   WalletTransaction,
 } from "../models/index.js";
+import { ensureColumn } from "./schemaUtil.service.js";
 
 export const MIN_SCRATCH_DURATION_SECONDS = 0;
 export const MAX_SCRATCH_DURATION_SECONDS = 60;
 export const MIN_SCRATCH_REWARD_COINS = 1;
 export const MAX_SCRATCH_REWARD_COINS = 100000;
+export const MIN_RECHARGE_EXPIRY_HOURS = 1;
+export const MAX_RECHARGE_EXPIRY_HOURS = 168;
+export const DEFAULT_RECHARGE_EXPIRY_HOURS = 24;
 export const MALE_SCRATCH_REWARD_EVENT = "male-scratch-reward";
 export const MALE_SCRATCH_REWARD_CLAIMED_EVENT = "male-scratch-reward-claimed";
 export const PAID_ORDER_STATUSES = ["PAID", "SUCCESS", "CAPTURED", "credited"];
@@ -49,6 +53,53 @@ export const clampRewardCoins = (value) => {
   }
 
   return Math.min(MAX_SCRATCH_REWARD_COINS, coins);
+};
+
+export const clampRechargeExpiryHours = (value) => {
+  const hours = Math.round(Number(value));
+
+  if (!Number.isFinite(hours)) {
+    return DEFAULT_RECHARGE_EXPIRY_HOURS;
+  }
+
+  return Math.min(
+    MAX_RECHARGE_EXPIRY_HOURS,
+    Math.max(MIN_RECHARGE_EXPIRY_HOURS, hours)
+  );
+};
+
+export const buildRechargeExpiresAt = (fromDate, hours, now = new Date()) => {
+  const start = fromDate ? new Date(fromDate) : now;
+  const startMs = start.getTime();
+  const windowHours = clampRechargeExpiryHours(hours);
+
+  if (!Number.isFinite(startMs)) {
+    return new Date(now.getTime() + windowHours * 60 * 60 * 1000);
+  }
+
+  return new Date(startMs + windowHours * 60 * 60 * 1000);
+};
+
+export const resolveClaimRechargeExpiresAt = (claim, reward, now = new Date()) => {
+  if (claim?.rechargeExpiresAt) {
+    return new Date(claim.rechargeExpiresAt);
+  }
+
+  return buildRechargeExpiresAt(
+    claim?.claimedAt || now,
+    reward?.rechargeExpiryHours,
+    now
+  );
+};
+
+export const isRechargeClaimExpired = (rechargeExpiresAt, now = Date.now()) => {
+  const expiresMs = new Date(rechargeExpiresAt).getTime();
+
+  if (!Number.isFinite(expiresMs)) {
+    return false;
+  }
+
+  return now >= expiresMs;
 };
 
 export const isScratchRewardExpired = (expiresAt, now = Date.now()) => {
@@ -160,6 +211,7 @@ export const ensureMaleScratchRewardSchema = async () => {
       rewardCoins INT NOT NULL,
       durationSeconds INT NOT NULL DEFAULT 30,
       expiresAt DATETIME NOT NULL,
+      rechargeExpiryHours INT NOT NULL DEFAULT 24,
       requiredPackageId INT NOT NULL,
       requiredPackageCoins INT NOT NULL DEFAULT 0,
       requiredPackagePrice FLOAT NOT NULL DEFAULT 0,
@@ -182,11 +234,23 @@ export const ensureMaleScratchRewardSchema = async () => {
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       claimedAt DATETIME NOT NULL,
       paidAt DATETIME NULL,
+      rechargeExpiresAt DATETIME NULL,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY unique_male_scratch_reward_claim (rewardId, userId)
     )
   `);
+
+  await ensureColumn(
+    "male_scratch_rewards",
+    "rechargeExpiryHours",
+    "INT NOT NULL DEFAULT 24"
+  );
+  await ensureColumn(
+    "male_scratch_reward_claims",
+    "rechargeExpiresAt",
+    "DATETIME NULL"
+  );
 
   schemaReady = true;
 };
@@ -333,6 +397,7 @@ const serializeScratchRewardForAdmin = (row, now = Date.now()) => {
     id: Number(data.id),
     rewardCoins: Number(data.rewardCoins) || 0,
     durationSeconds: Number(data.durationSeconds) || 0,
+    rechargeExpiryHours: clampRechargeExpiryHours(data.rechargeExpiryHours),
     expiresAt: data.expiresAt,
     requiredPackageId: Number(data.requiredPackageId),
     requiredPackageCoins: Number(data.requiredPackageCoins) || 0,
@@ -398,18 +463,41 @@ export const serializeScratchRewardForClient = async (
     return null;
   }
 
+  if (status === "expired") {
+    return null;
+  }
+
+  const rechargeExpiresAt =
+    status === "pending" ? resolveClaimRechargeExpiresAt(claim, data, new Date(now)) : null;
+
+  if (status === "pending" && rechargeExpiresAt && isRechargeClaimExpired(rechargeExpiresAt, now)) {
+    if (claim?.id && String(claim.status).toLowerCase() === "pending") {
+      await claim.update({
+        status: "expired",
+        rechargeExpiresAt,
+      });
+    }
+
+    return null;
+  }
+
   const hasRecharged = await hasQualifyingRecharge(userId, data);
 
   return {
     id: Number(data.id),
     rewardCoins: Number(data.rewardCoins) || 0,
     durationSeconds: Number(data.durationSeconds) || 0,
+    rechargeExpiryHours: clampRechargeExpiryHours(data.rechargeExpiryHours),
     expiresAt: data.expiresAt ? new Date(data.expiresAt).toISOString() : null,
     sentAt: data.createdAt ? new Date(data.createdAt).toISOString() : null,
     remainingSeconds: remainingSeconds(data.expiresAt, now),
     requiredPackage: requiredPackageSnapshot(data),
     hasRecharged,
     claimStatus: status || null,
+    rechargeExpiresAt: rechargeExpiresAt ? rechargeExpiresAt.toISOString() : null,
+    rechargeRemainingSeconds: rechargeExpiresAt
+      ? remainingSeconds(rechargeExpiresAt, now)
+      : 0,
   };
 };
 
@@ -417,6 +505,7 @@ export const sendMaleScratchReward = async ({
   coins,
   durationSeconds,
   packageId,
+  rechargeExpiryHours,
   mode = "all",
   userIds,
   search,
@@ -426,6 +515,7 @@ export const sendMaleScratchReward = async ({
 
   const rewardCoins = clampRewardCoins(coins);
   const duration = clampDurationSeconds(durationSeconds);
+  const rechargeHours = clampRechargeExpiryHours(rechargeExpiryHours);
   const goldPackage = await resolveGoldPackageById(packageId);
 
   if (rewardCoins == null) {
@@ -459,6 +549,7 @@ export const sendMaleScratchReward = async ({
     rewardCoins,
     durationSeconds: duration,
     expiresAt,
+    rechargeExpiryHours: rechargeHours,
     requiredPackageId: goldPackage.id,
     requiredPackageCoins: goldPackage.coins,
     requiredPackagePrice: goldPackage.price,
@@ -473,12 +564,15 @@ export const sendMaleScratchReward = async ({
     id: Number(record.id),
     rewardCoins,
     durationSeconds: duration,
+    rechargeExpiryHours: rechargeHours,
     expiresAt: expiresAt.toISOString(),
     sentAt: sentAt.toISOString(),
     remainingSeconds: duration,
     requiredPackage: requiredPackageSnapshot(record),
     hasRecharged: false,
     claimStatus: null,
+    rechargeExpiresAt: null,
+    rechargeRemainingSeconds: 0,
   };
 
   let emittedCount = 0;
@@ -489,6 +583,21 @@ export const sendMaleScratchReward = async ({
         emittedCount += 1;
       }
     }
+
+    import("./notificationPush.service.js")
+      .then(({ notifyMaleScratchRewards }) =>
+        notifyMaleScratchRewards({
+          userIds: ids,
+          rewardId: Number(record.id),
+          rewardCoins,
+          durationSeconds: duration,
+          expiresAt: expiresAt.toISOString(),
+          requiredPackage: payloadBase.requiredPackage,
+        })
+      )
+      .catch((error) => {
+        console.log("MALE SCRATCH NOTIFY ERROR", error.message);
+      });
   }
 
   return {
@@ -557,6 +666,12 @@ export const getMaleScratchRewardClaims = async (rewardId) => {
   const rows = claims.map((claim) => {
     const data = claim.toJSON();
     const user = userMap.get(Number(data.userId));
+    const rechargeExpiresAt = resolveClaimRechargeExpiresAt(data, reward);
+    const status =
+      String(data.status || "").toLowerCase() === "pending" &&
+      isRechargeClaimExpired(rechargeExpiresAt)
+        ? "expired"
+        : data.status;
 
     return {
       id: Number(data.id),
@@ -568,20 +683,24 @@ export const getMaleScratchRewardClaims = async (rewardId) => {
       online: Boolean(user?.online),
       accountStatus: user?.accountStatus || "",
       coins: Number(data.coins) || Number(reward.rewardCoins) || 0,
-      status: data.status,
+      status,
       claimedAt: data.claimedAt || data.createdAt,
       paidAt: data.paidAt || null,
+      rechargeExpiresAt: rechargeExpiresAt ? rechargeExpiresAt.toISOString() : null,
     };
   });
 
-  const paidRows = rows.filter((row) => row.status === "paid");
+  const paidRows = rows.filter((row) => String(row.status).toLowerCase() === "paid");
+  const pendingRows = rows.filter((row) => String(row.status).toLowerCase() === "pending");
+  const expiredRows = rows.filter((row) => String(row.status).toLowerCase() === "expired");
 
   return {
     reward: serializeScratchRewardForAdmin(reward),
     summary: {
       sentCount: Number(reward.sentCount) || 0,
       claimedCount: paidRows.length,
-      pendingCount: rows.filter((row) => row.status === "pending").length,
+      pendingCount: pendingRows.length,
+      expiredCount: expiredRows.length,
       claimedCoins: paidRows.reduce((sum, row) => sum + Number(row.coins || 0), 0),
     },
     rows,
@@ -725,6 +844,10 @@ export const claimMaleScratchReward = async (userId, rewardId) => {
       throw new Error("Reward already claimed");
     }
 
+    if (String(claim?.status || "").toLowerCase() === "expired") {
+      throw new Error("Recharge time has expired");
+    }
+
     const expired = isScratchRewardExpired(reward.expiresAt);
 
     if (expired && !claim) {
@@ -733,6 +856,21 @@ export const claimMaleScratchReward = async (userId, rewardId) => {
 
     const recharged = await hasQualifyingRecharge(numericUserId, reward);
     const coins = Number(reward.rewardCoins) || 0;
+    const rechargeExpiresAt = claim
+      ? resolveClaimRechargeExpiresAt(claim, reward)
+      : buildRechargeExpiresAt(new Date(), reward.rechargeExpiryHours);
+
+    if (claim && isRechargeClaimExpired(rechargeExpiresAt)) {
+      await claim.update(
+        {
+          status: "expired",
+          rechargeExpiresAt,
+        },
+        { transaction }
+      );
+      await transaction.commit();
+      throw new Error("Recharge time has expired");
+    }
 
     if (!claim) {
       if (expired) {
@@ -747,9 +885,12 @@ export const claimMaleScratchReward = async (userId, rewardId) => {
           status: "pending",
           claimedAt: new Date(),
           paidAt: null,
+          rechargeExpiresAt,
         },
         { transaction }
       );
+    } else if (!claim.rechargeExpiresAt) {
+      await claim.update({ rechargeExpiresAt }, { transaction });
     }
 
     if (recharged && String(claim.status).toLowerCase() !== "paid") {
@@ -810,10 +951,14 @@ export const claimMaleScratchReward = async (userId, rewardId) => {
       claimStatus: "pending",
       needsRecharge: true,
       requiredPackage: requiredPackageSnapshot(reward),
+      rechargeExpiresAt: rechargeExpiresAt ? new Date(rechargeExpiresAt).toISOString() : null,
+      rechargeRemainingSeconds: remainingSeconds(rechargeExpiresAt),
       message: "Recharge the required package to receive these coins",
     };
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
 
     if (String(error?.message ?? "").includes("unique_male_scratch_reward_claim")) {
       throw new Error("Reward already claimed");
@@ -884,6 +1029,20 @@ export const completeMaleScratchRewardsForPurchase = async ({
         continue;
       }
 
+      const rechargeExpiresAt = resolveClaimRechargeExpiresAt(locked, reward);
+
+      if (isRechargeClaimExpired(rechargeExpiresAt)) {
+        await locked.update(
+          {
+            status: "expired",
+            rechargeExpiresAt,
+          },
+          { transaction }
+        );
+        await transaction.commit();
+        continue;
+      }
+
       const lockedReward = await MaleScratchReward.findByPk(reward.id, {
         transaction,
         lock: transaction.LOCK.UPDATE,
@@ -921,7 +1080,9 @@ export const completeMaleScratchRewardsForPurchase = async ({
         claimStatus: "paid",
       });
     } catch (error) {
-      await transaction.rollback();
+      if (transaction && !transaction.finished) {
+        await transaction.rollback();
+      }
       console.log("MALE SCRATCH UNLOCK ERROR", error.message);
     }
   }
@@ -966,6 +1127,21 @@ export const getMissedScratchRewardsForUser = async (userId, { since } = {}) => 
         },
       })
     : [];
+  const pendingRewardMap = new Map(
+    pendingRewards.map((row) => [Number(row.id), row])
+  );
+
+  for (const claim of pendingClaims) {
+    const reward = pendingRewardMap.get(Number(claim.rewardId));
+    const rechargeExpiresAt = resolveClaimRechargeExpiresAt(claim, reward, now);
+
+    if (isRechargeClaimExpired(rechargeExpiresAt, now.getTime())) {
+      await claim.update({
+        status: "expired",
+        rechargeExpiresAt,
+      });
+    }
+  }
 
   const where = {
     expiresAt: {
@@ -1041,6 +1217,13 @@ export const getMissedScratchRewardsForUser = async (userId, { since } = {}) => 
     missedRewards: missed.map((reward) => {
       const data = reward.toJSON();
       const claim = claimMap.get(Number(data.id));
+      const claimStatus = String(claim?.status || "").toLowerCase() || null;
+      const rechargeExpiresAt = claim
+        ? resolveClaimRechargeExpiresAt(claim, data)
+        : null;
+      const rechargeExpired =
+        claimStatus === "expired" ||
+        (claimStatus === "pending" && isRechargeClaimExpired(rechargeExpiresAt));
 
       return {
         id: Number(data.id),
@@ -1049,7 +1232,11 @@ export const getMissedScratchRewardsForUser = async (userId, { since } = {}) => 
         expiresAt: data.expiresAt,
         sentAt: data.createdAt,
         requiredPackage: requiredPackageSnapshot(data),
-        claimStatus: claim?.status || null,
+        claimStatus: rechargeExpired ? "expired" : claim?.status || null,
+        rechargeExpiresAt: rechargeExpiresAt
+          ? rechargeExpiresAt.toISOString()
+          : null,
+        rechargeExpired,
       };
     }),
   };
