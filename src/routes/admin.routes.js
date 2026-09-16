@@ -180,6 +180,11 @@ import {
 } from "../controllers/maleLoginActivity.controller.js";
 
 import {
+  getStarFriendsAdmin,
+  searchStarFriendsAdminUsers,
+} from "../controllers/starFriends.controller.js";
+
+import {
   listFemaleOnlineStatus,
   offlineFemaleCreator,
   offlineAllFemaleCreators,
@@ -332,6 +337,18 @@ requirePageAccess([
 "user-verification"
 ]),
 updateAppSettingsConfig
+);
+
+router.get(
+  "/star-friends",
+  requirePageAccess("app-settings"),
+  getStarFriendsAdmin
+);
+
+router.get(
+  "/star-friends/users",
+  requirePageAccess("app-settings"),
+  searchStarFriendsAdminUsers
 );
 
 

@@ -4,6 +4,8 @@ import { Earning, Withdraw } from "../models/index.js";
 
 const toAmount = (value) => Number(value || 0);
 
+export const MIN_FEMALE_WITHDRAW_AMOUNT = 200;
+
 export const getTotalEarnedAmount = async (userId) => {
   const total = await Earning.sum("amount", {
     where: { userId },
@@ -60,8 +62,8 @@ export const assertWithdrawRequestAllowed = async ({
 }) => {
   const requestAmount = toAmount(amount);
 
-  if (requestAmount < 100) {
-    throw new Error("Minimum withdraw ₹100");
+  if (requestAmount < MIN_FEMALE_WITHDRAW_AMOUNT) {
+    throw new Error(`Minimum withdraw ₹${MIN_FEMALE_WITHDRAW_AMOUNT}`);
   }
 
   const summary = await getFemaleWithdrawSummary(userId);

@@ -120,6 +120,16 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
   await ensureColumn("users", "wornAchievementBadgeIds", "JSON NULL");
   await ensureColumn("users", "wornMaleAchievementBadgeIds", "JSON NULL");
   await ensureColumn("users", "coverPhoto", "TEXT NULL");
+  await ensureColumn(
+    "users",
+    "starFriendsPopupSeen",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await ensureColumn(
+    "users",
+    "maleDailyBonusClaimedOn",
+    "VARCHAR(10) NULL"
+  );
 
   try {
     await sequelize.query(

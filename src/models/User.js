@@ -221,6 +221,16 @@ export const User = sequelize.define(
       defaultValue: false,
     },
 
+    starFriendsPopupSeen: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+
+    maleDailyBonusClaimedOn: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+    },
+
     profileAnimationId: {
       type: DataTypes.STRING(64),
       allowNull: true,

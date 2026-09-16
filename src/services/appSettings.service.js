@@ -55,6 +55,13 @@ const DEFAULT_SETTINGS = {
   quickConnectMaxRoutingSeconds: 30,
   quickConnectMinOnlineMinutes: 15,
   creatorQueensTopLimit: 15,
+  starFriendsEnabled: 0,
+  starFriendsUserIds: [],
+  starFriendsAudience: "new",
+  starFriendsCallMode: "both",
+  maleDailyBonusEnabled: 0,
+  maleDailyBonusCoins: 10,
+  maleDailyBonusAudience: "new",
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -168,6 +175,13 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["quickConnectMinOnlineMinutes", "INT NOT NULL DEFAULT 15"],
     ["creatorQueensTopLimit", "INT NOT NULL DEFAULT 15"],
     ["profileAnimationsCatalog", "JSON NULL"],
+    ["starFriendsEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["starFriendsUserIds", "JSON NULL"],
+    ["starFriendsAudience", "VARCHAR(16) NOT NULL DEFAULT 'new'"],
+    ["starFriendsCallMode", "VARCHAR(16) NOT NULL DEFAULT 'both'"],
+    ["maleDailyBonusEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["maleDailyBonusCoins", "INT NOT NULL DEFAULT 10"],
+    ["maleDailyBonusAudience", "VARCHAR(16) NOT NULL DEFAULT 'new'"],
   ]) {
     await ensureColumn("admin_app_settings", column, definition);
   }
@@ -206,6 +220,69 @@ VALUES (1, :languageMatchingEnabled, :welcomeOfferEnabled, :welcomeOfferCoins, :
   }
 
   tableReady = true;
+};
+
+const parseStarFriendsAudience = (value) =>
+  String(value || "new").trim().toLowerCase() === "all" ? "all" : "new";
+
+const parseStarFriendsCallMode = (value) => {
+  const mode = String(value || "both").trim().toLowerCase();
+
+  if (mode === "voice" || mode === "audio") {
+    return "voice";
+  }
+
+  if (mode === "video") {
+    return "video";
+  }
+
+  return "both";
+};
+
+const parseStarFriendsUserIds = (value) => {
+  let ids = value;
+
+  if (Buffer.isBuffer(ids)) {
+    ids = ids.toString("utf8");
+  }
+
+  if (typeof ids === "string" && ids.trim()) {
+    try {
+      ids = JSON.parse(ids);
+    } catch {
+      return [];
+    }
+  }
+
+  if (typeof ids === "string" && ids.trim()) {
+    try {
+      ids = JSON.parse(ids);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+
+  const unique = [];
+
+  for (const item of ids) {
+    const id = Number(item);
+
+    if (!Number.isFinite(id) || id <= 0 || unique.includes(id)) {
+      continue;
+    }
+
+    unique.push(id);
+
+    if (unique.length >= 3) {
+      break;
+    }
+  }
+
+  return unique;
 };
 
 export const getAppSettings = async () => {
@@ -303,6 +380,18 @@ export const getAppSettings = async () => {
     profileAnimationsCatalog: parseProfileAnimationsCatalog(
       row.profileAnimationsCatalog
     ),
+    starFriendsEnabled: Boolean(Number(row.starFriendsEnabled ?? 0)),
+    starFriendsUserIds: parseStarFriendsUserIds(row.starFriendsUserIds),
+    starFriendsAudience: parseStarFriendsAudience(row.starFriendsAudience),
+    starFriendsCallMode: parseStarFriendsCallMode(row.starFriendsCallMode),
+    maleDailyBonusEnabled: Boolean(Number(row.maleDailyBonusEnabled ?? 0)),
+    maleDailyBonusCoins: Math.min(
+      10000,
+      Math.max(1, Number(row.maleDailyBonusCoins ?? 10) || 10)
+    ),
+    maleDailyBonusAudience: parseStarFriendsAudience(
+      row.maleDailyBonusAudience
+    ),
     ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
@@ -338,6 +427,13 @@ export const updateAppSettings = async ({
   quickConnectMaxRoutingSeconds,
   quickConnectMinOnlineMinutes,
   creatorQueensTopLimit,
+  starFriendsEnabled,
+  starFriendsUserIds,
+  starFriendsAudience,
+  starFriendsCallMode,
+  maleDailyBonusEnabled,
+  maleDailyBonusCoins,
+  maleDailyBonusAudience,
   forceUpdateEnabled,
   minAndroidVersionCode,
   minIosBuildNumber,
@@ -348,6 +444,41 @@ export const updateAppSettings = async ({
   appStoreUrl,
 }) => {
   await ensureAppSettingsTable();
+  await ensureColumn(
+    "admin_app_settings",
+    "starFriendsEnabled",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await ensureColumn(
+    "admin_app_settings",
+    "starFriendsUserIds",
+    "JSON NULL"
+  );
+  await ensureColumn(
+    "admin_app_settings",
+    "starFriendsAudience",
+    "VARCHAR(16) NOT NULL DEFAULT 'new'"
+  );
+  await ensureColumn(
+    "admin_app_settings",
+    "starFriendsCallMode",
+    "VARCHAR(16) NOT NULL DEFAULT 'both'"
+  );
+  await ensureColumn(
+    "admin_app_settings",
+    "maleDailyBonusEnabled",
+    "TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await ensureColumn(
+    "admin_app_settings",
+    "maleDailyBonusCoins",
+    "INT NOT NULL DEFAULT 10"
+  );
+  await ensureColumn(
+    "admin_app_settings",
+    "maleDailyBonusAudience",
+    "VARCHAR(16) NOT NULL DEFAULT 'new'"
+  );
 
   const current = await getAppSettings();
   const nextForceUpdate = mergeForceUpdateSettings(current, {
@@ -590,6 +721,63 @@ export const updateAppSettings = async ({
     )
   );
 
+  const nextStarFriendsUserIds =
+    starFriendsUserIds === undefined
+      ? current.starFriendsUserIds
+      : parseStarFriendsUserIds(starFriendsUserIds);
+
+  const nextStarFriendsEnabled =
+    starFriendsEnabled === undefined
+      ? current.starFriendsEnabled
+        ? 1
+        : 0
+      : starFriendsEnabled
+        ? 1
+        : 0;
+
+  if (starFriendsEnabled && nextStarFriendsUserIds.length !== 3) {
+    const error = new Error(
+      "Select exactly 3 approved female users before turning Star Friends on"
+    );
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const nextStarFriendsAudience = parseStarFriendsAudience(
+    starFriendsAudience === undefined
+      ? current.starFriendsAudience
+      : starFriendsAudience
+  );
+
+  const nextStarFriendsCallMode = parseStarFriendsCallMode(
+    starFriendsCallMode === undefined
+      ? current.starFriendsCallMode
+      : starFriendsCallMode
+  );
+
+  const nextMaleDailyBonusEnabled =
+    maleDailyBonusEnabled === undefined
+      ? current.maleDailyBonusEnabled
+        ? 1
+        : 0
+      : maleDailyBonusEnabled
+        ? 1
+        : 0;
+
+  const parsedDailyBonusCoins = Number(maleDailyBonusCoins);
+  const nextMaleDailyBonusCoins =
+    maleDailyBonusCoins === undefined
+      ? current.maleDailyBonusCoins
+      : Number.isFinite(parsedDailyBonusCoins) && parsedDailyBonusCoins > 0
+        ? Math.min(10000, Math.round(parsedDailyBonusCoins))
+        : current.maleDailyBonusCoins;
+
+  const nextMaleDailyBonusAudience = parseStarFriendsAudience(
+    maleDailyBonusAudience === undefined
+      ? current.maleDailyBonusAudience
+      : maleDailyBonusAudience
+  );
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -621,6 +809,13 @@ quickConnectRingTimeoutSeconds = :quickConnectRingTimeoutSeconds,
 quickConnectMaxRoutingSeconds = :quickConnectMaxRoutingSeconds,
 quickConnectMinOnlineMinutes = :quickConnectMinOnlineMinutes,
 creatorQueensTopLimit = :creatorQueensTopLimit,
+starFriendsEnabled = :starFriendsEnabled,
+starFriendsUserIds = :starFriendsUserIds,
+starFriendsAudience = :starFriendsAudience,
+starFriendsCallMode = :starFriendsCallMode,
+maleDailyBonusEnabled = :maleDailyBonusEnabled,
+maleDailyBonusCoins = :maleDailyBonusCoins,
+maleDailyBonusAudience = :maleDailyBonusAudience,
 forceUpdateEnabled = :forceUpdateEnabled,
 minAndroidVersionCode = :minAndroidVersionCode,
 minIosBuildNumber = :minIosBuildNumber,
@@ -661,6 +856,13 @@ WHERE id = 1`,
         quickConnectMaxRoutingSeconds: nextQuickConnectMaxRoutingSeconds,
         quickConnectMinOnlineMinutes: nextQuickConnectMinOnlineMinutes,
         creatorQueensTopLimit: nextCreatorQueensTopLimit,
+        starFriendsEnabled: nextStarFriendsEnabled,
+        starFriendsUserIds: JSON.stringify(nextStarFriendsUserIds || []),
+        starFriendsAudience: nextStarFriendsAudience,
+        starFriendsCallMode: nextStarFriendsCallMode,
+        maleDailyBonusEnabled: nextMaleDailyBonusEnabled,
+        maleDailyBonusCoins: nextMaleDailyBonusCoins,
+        maleDailyBonusAudience: nextMaleDailyBonusAudience,
         forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
         minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
         minIosBuildNumber: nextForceUpdate.minIosBuildNumber,

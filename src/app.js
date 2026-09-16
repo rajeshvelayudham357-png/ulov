@@ -61,6 +61,12 @@ from "./routes/spinWheel.routes.js";
 import welcomeOfferRoutes
 from "./routes/welcomeOffer.routes.js";
 
+import starFriendsRoutes
+from "./routes/starFriends.routes.js";
+
+import maleDailyBonusRoutes
+from "./routes/maleDailyBonus.routes.js";
+
 import lowBalanceOfferRoutes
 from "./routes/lowBalanceOffer.routes.js";
 
@@ -225,6 +231,16 @@ app.use(
                     app.use(
                       "/api/welcome-offer",
                       welcomeOfferRoutes
+                      );
+
+                    app.use(
+                      "/api/star-friends",
+                      starFriendsRoutes
+                      );
+
+                    app.use(
+                      "/api/male-daily-bonus",
+                      maleDailyBonusRoutes
                       );
 
                     app.use(
