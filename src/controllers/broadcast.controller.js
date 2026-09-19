@@ -18,6 +18,7 @@
     notifyAllUsersOnBroadcast,
     notifySingleUserOnBroadcast
     } from "../services/notificationPush.service.js";
+    import { formatUtcAsIst } from "../services/broadcastSchedule.service.js";
     
     
     
@@ -369,17 +370,7 @@
 
     updatedAt:data.updatedAt,
 
-    time:data.createdAt ?
-    new Date(data.createdAt).toLocaleString(
-    "en-IN",
-    {
-    hour:"2-digit",
-    minute:"2-digit",
-    day:"2-digit",
-    month:"short"
-    }
-    ) :
-    ""
+    time:formatUtcAsIst(data.createdAt)
 
     };
 
