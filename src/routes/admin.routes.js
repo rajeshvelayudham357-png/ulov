@@ -250,6 +250,11 @@ import {
   getDailyRevenue,
 } from "../controllers/dailyRevenue.controller.js";
 import {
+  getRevenueExcludeUsersConfig,
+  searchRevenueExcludeUsers,
+  updateRevenueExcludeUsersConfig,
+} from "../controllers/revenueExcludeUsers.controller.js";
+import {
   getDailyPayout,
 } from "../controllers/dailyPayout.controller.js";
 import {
@@ -1183,6 +1188,9 @@ router.get('/revenue/recharges', requirePageAccess('recharge-revenue'), revenueR
 router.get('/revenue/summary', requirePageAccess('recharge-revenue'), revenueSummary);
 router.get('/revenue/analytics', requirePageAccess('recharge-revenue'), revenueAnalytics);
 router.get('/revenue/daily', requirePageAccess('recharge-revenue'), getDailyRevenue);
+router.get('/revenue/exclude-users', requirePageAccess('recharge-revenue'), getRevenueExcludeUsersConfig);
+router.get('/revenue/exclude-users/search', requirePageAccess('recharge-revenue'), searchRevenueExcludeUsers);
+router.put('/revenue/exclude-users', requirePageAccess('recharge-revenue'), updateRevenueExcludeUsersConfig);
 
 router.get(
   "/expected-payouts",

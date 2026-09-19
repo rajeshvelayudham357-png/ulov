@@ -121,6 +121,10 @@ import {
   toIstDateKey,
 } from "../services/adminRevenueTime.service.js";
 import {
+  getRevenueExcludeUserIds,
+  revenueExcludeUserSql,
+} from "../services/revenueExcludeUsers.service.js";
+import {
 getGiftSettings,
 updateGiftSettings,
 } from "../services/giftSettings.service.js";
@@ -7817,9 +7821,12 @@ export const getAnalyticsSystem = async (req, res) => {
 
 export const revenueRecharges = async (req, res) => {
   try {
+    const isExport = ["1", "true", "yes"].includes(
+      String(req.query.export || "").trim().toLowerCase()
+    );
     const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const offset = (page - 1) * limit;
+    const limit = isExport ? null : Math.min(Number(req.query.limit) || 50, 200);
+    const offset = isExport ? 0 : (page - 1) * limit;
     const search = String(req.query.search || '').trim().toLowerCase();
     const gateway = String(req.query.gateway || '').trim();
     const status = String(req.query.status || '').trim();
@@ -7831,9 +7838,17 @@ export const revenueRecharges = async (req, res) => {
     const gstSettings = await getGstSettings();
     const gstPercent = Number(gstSettings.gstPercent) || 0;
 
+    const excludeUserIds = await getRevenueExcludeUserIds();
     const where = {
       status: { [Op.in]: ['PAID', 'SUCCESS', 'CAPTURED', 'credited'] },
     };
+
+    if (excludeUserIds.length > 0) {
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { userId: { [Op.notIn]: excludeUserIds } },
+      ];
+    }
 
     if (gateway) {
       where.gateway = gateway;
@@ -7926,15 +7941,29 @@ export const revenueRecharges = async (req, res) => {
     const totalGst = splitInclusiveGst(totalAmountRaw, gstPercent).gstAmount;
     const totalNetRevenue = splitInclusiveGst(totalAmountRaw, gstPercent).baseRevenue;
 
-    const { rows: orderRows, count } = await PaymentOrder.findAndCountAll({
+    const listQuery = {
       where,
       include: queryInclude,
       order: [["updatedAt", "DESC"]],
-      limit,
-      offset,
       distinct: true,
       subQuery: false,
-    });
+    };
+
+    let orderRows;
+    let count;
+
+    if (isExport) {
+      orderRows = await PaymentOrder.findAll(listQuery);
+      count = orderRows.length;
+    } else {
+      const result = await PaymentOrder.findAndCountAll({
+        ...listQuery,
+        limit,
+        offset,
+      });
+      orderRows = result.rows;
+      count = result.count;
+    }
 
     const userIds = [...new Set(orderRows.map((o) => o.userId))];
 
@@ -8025,12 +8054,44 @@ export const revenueSummary = async (req, res) => {
   try {
     const gstSettings = await getGstSettings();
     const gstPercent = Number(gstSettings.gstPercent) || 0;
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
 
     const successStatuses = ['PAID', 'SUCCESS', 'CAPTURED', 'credited'];
+    const excludeUserIds = await getRevenueExcludeUserIds();
+    const dateReplacements = {};
+    const queryReplacements = {};
+    const orderWhere = { status: { [Op.in]: successStatuses } };
+
+    if (excludeUserIds.length > 0) {
+      orderWhere.userId = { [Op.notIn]: excludeUserIds };
+      queryReplacements.excludeUserIds = excludeUserIds;
+    }
+
+    if (startDate) {
+      const fromUtc = istDateKeyToUtcRange(startDate).start;
+      orderWhere.updatedAt = { ...(orderWhere.updatedAt || {}), [Op.gte]: fromUtc };
+      dateReplacements.fromUtc = fromUtc;
+    }
+
+    if (endDate) {
+      const toUtc = istDateKeyToUtcRange(endDate).end;
+      orderWhere.updatedAt = { ...(orderWhere.updatedAt || {}), [Op.lte]: toUtc };
+      dateReplacements.toUtc = toUtc;
+    }
+
+    const dateSql = (column = 'updatedAt') => {
+      const parts = [];
+      if (dateReplacements.fromUtc) parts.push(`${column} >= :fromUtc`);
+      if (dateReplacements.toUtc) parts.push(`${column} <= :toUtc`);
+      return parts.length ? ` AND ${parts.join(' AND ')}` : '';
+    };
+    const sqlReplacements = { ...dateReplacements, ...queryReplacements };
+    const userExcludeSql = revenueExcludeUserSql(excludeUserIds);
 
     // All successful payment orders
     const orders = await PaymentOrder.findAll({
-      where: { status: { [Op.in]: successStatuses } },
+      where: orderWhere,
       attributes: ['amount', 'coins', 'gateway', 'userId'],
     });
 
@@ -8055,36 +8116,38 @@ export const revenueSummary = async (req, res) => {
 
     // Coins used (sum of all negative wallet transactions)
     const [coinsUsedRow] = await sequelize.query(
-      `SELECT ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed FROM wallet_transactions WHERE amount < 0`,
-      { type: QueryTypes.SELECT }
+      `SELECT ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed
+       FROM wallet_transactions
+       WHERE amount < 0${dateSql('createdAt')}${userExcludeSql}`,
+      { replacements: sqlReplacements, type: QueryTypes.SELECT }
     );
     const totalCoinsUsed = Number(coinsUsedRow?.coinsUsed) || 0;
 
     // Current wallet coins
     const [walletRow] = await sequelize.query(
-      `SELECT SUM(balance) AS totalBalance FROM wallets`,
-      { type: QueryTypes.SELECT }
+      `SELECT SUM(balance) AS totalBalance FROM wallets WHERE 1=1${userExcludeSql}`,
+      { replacements: queryReplacements, type: QueryTypes.SELECT }
     );
     const totalWalletBalance = Number(walletRow?.totalBalance) || 0;
 
     // Creator earnings from Earning model
     const [earningRow] = await sequelize.query(
-      `SELECT SUM(amount) AS totalEarnings FROM earnings`,
-      { type: QueryTypes.SELECT }
+      `SELECT SUM(amount) AS totalEarnings FROM earnings WHERE 1=1${dateSql('createdAt')}${userExcludeSql}`,
+      { replacements: sqlReplacements, type: QueryTypes.SELECT }
     );
     const totalCreatorEarnings = Number(earningRow?.totalEarnings) || 0;
 
     // Approved payouts
     const [approvedPayoutRow] = await sequelize.query(
-      `SELECT SUM(amount) AS total FROM withdraws WHERE status='approved'`,
-      { type: QueryTypes.SELECT }
+      `SELECT SUM(amount) AS total FROM withdraws WHERE status='approved'${dateSql('updatedAt')}${userExcludeSql}`,
+      { replacements: sqlReplacements, type: QueryTypes.SELECT }
     );
     const approvedPayout = Number(approvedPayoutRow?.total) || 0;
 
     // Pending payouts
     const [pendingPayoutRow] = await sequelize.query(
-      `SELECT SUM(amount) AS total FROM withdraws WHERE status='pending'`,
-      { type: QueryTypes.SELECT }
+      `SELECT SUM(amount) AS total FROM withdraws WHERE status='pending'${dateSql('createdAt')}${userExcludeSql}`,
+      { replacements: sqlReplacements, type: QueryTypes.SELECT }
     );
     const pendingPayout = Number(pendingPayoutRow?.total) || 0;
 
@@ -8128,6 +8191,10 @@ export const revenueSummary = async (req, res) => {
         platformRevenue: totalNetRevenue - totalCreatorEarnings,
       },
       gatewayPie,
+      period: {
+        startDate: startDate || null,
+        endDate: endDate || null,
+      },
     });
   } catch (error) {
     console.error('REVENUE SUMMARY ERROR', error);

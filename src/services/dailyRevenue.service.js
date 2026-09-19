@@ -6,6 +6,10 @@ import {
   istDateKeyToUtcRange,
 } from "./adminRevenueTime.service.js";
 import { getGstSettings, splitInclusiveGst } from "./gstSettings.service.js";
+import {
+  getRevenueExcludeUserIds,
+  revenueExcludeUserSql,
+} from "./revenueExcludeUsers.service.js";
 import { sequelize } from "../config/database.js";
 
 const SUCCESS_STATUSES = ["PAID", "SUCCESS", "CAPTURED", "credited"];
@@ -30,6 +34,16 @@ export const getDailyRevenueReport = async ({
 
   const gstSettings = await getGstSettings();
   const gstPercent = Number(gstSettings.gstPercent) || 0;
+  const excludeUserIds = await getRevenueExcludeUserIds();
+  const replacements = {
+    statuses: SUCCESS_STATUSES,
+    fromUtc,
+    toUtc,
+  };
+
+  if (excludeUserIds.length > 0) {
+    replacements.excludeUserIds = excludeUserIds;
+  }
 
   const dailyRows = await sequelize.query(
     `SELECT
@@ -42,14 +56,11 @@ export const getDailyRevenueReport = async ({
      WHERE status IN (:statuses)
        AND updatedAt >= :fromUtc
        AND updatedAt <= :toUtc
+       ${revenueExcludeUserSql(excludeUserIds)}
      GROUP BY ${IST_DATE_SQL}
      ORDER BY date DESC`,
     {
-      replacements: {
-        statuses: SUCCESS_STATUSES,
-        fromUtc,
-        toUtc,
-      },
+      replacements,
       type: QueryTypes.SELECT,
     }
   );

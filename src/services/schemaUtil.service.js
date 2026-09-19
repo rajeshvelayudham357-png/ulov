@@ -21,6 +21,15 @@ export const columnExists = async (tableName, columnName) => {
   return Number(rows[0]?.columnCount ?? 0) > 0;
 };
 
+const isDuplicateColumnError = (error) => {
+  const code = String(error?.original?.code || error?.parent?.code || error?.code || "");
+  const message = String(error?.message || "");
+  return (
+    code === "ER_DUP_FIELDNAME" ||
+    message.includes("Duplicate column")
+  );
+};
+
 export const ensureColumn = async (tableName, columnName, definition) => {
   const exists = await columnExists(tableName, columnName);
 
@@ -28,9 +37,16 @@ export const ensureColumn = async (tableName, columnName, definition) => {
     return;
   }
 
-  await sequelize.query(
-    `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
-  );
+  try {
+    await sequelize.query(
+      `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
+    );
+    console.log(`Added column ${tableName}.${columnName}`);
+  } catch (error) {
+    if (isDuplicateColumnError(error)) {
+      return;
+    }
 
-  console.log(`Added column ${tableName}.${columnName}`);
+    throw error;
+  }
 };

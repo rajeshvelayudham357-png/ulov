@@ -97,9 +97,20 @@ const ensureColumn = async (tableName, columnName, definition) => {
     return;
   }
 
-  await sequelize.query(
-    `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
-  );
+  try {
+    await sequelize.query(
+      `ALTER TABLE \`${tableName}\` ADD COLUMN \`${columnName}\` ${definition}`
+    );
+  } catch (error) {
+    const message = String(error?.message || "");
+    const code = String(error?.original?.code || error?.parent?.code || error?.code || "");
+
+    if (code === "ER_DUP_FIELDNAME" || message.includes("Duplicate column")) {
+      return;
+    }
+
+    throw error;
+  }
 };
 
 const ensureAppSettingsTable = async () => {
