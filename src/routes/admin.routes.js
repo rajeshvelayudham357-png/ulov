@@ -222,6 +222,8 @@ import {
 getBattleAdminSettingsHandler,
 updateBattleAdminSettingsHandler,
 listAdminLiveBattlesHandler,
+listAdminFinishedBattlesHandler,
+getAdminBattleViewersHandler,
 deleteAdminBattleHandler,
 } from "../controllers/battle.controller.js";
 
@@ -509,6 +511,18 @@ router.get(
 "/battles/live",
 requirePageAccess("battles"),
 listAdminLiveBattlesHandler
+);
+
+router.get(
+"/battles/finished",
+requirePageAccess("battles"),
+listAdminFinishedBattlesHandler
+);
+
+router.get(
+"/battles/:battleId/viewers",
+requirePageAccess("battles"),
+getAdminBattleViewersHandler
 );
 
 router.delete(

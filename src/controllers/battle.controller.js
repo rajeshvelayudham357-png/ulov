@@ -18,6 +18,10 @@ import {
   listLiveBattles,
 } from "../services/battle.service.js";
 import {
+  getAdminBattleViewerGifts,
+  listAdminFinishedBattles,
+} from "../services/adminBattle.service.js";
+import {
   getBattleAgoraCredentials,
 } from "../services/battleAgora.service.js";
 import {
@@ -352,6 +356,32 @@ export const listAdminLiveBattlesHandler = async (_req, res) => {
     const battles = await listAdminLiveBattles();
     return res.json({ battles });
   } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const listAdminFinishedBattlesHandler = async (req, res) => {
+  try {
+    const report = await listAdminFinishedBattles({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+    });
+    return res.json(report);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAdminBattleViewersHandler = async (req, res) => {
+  try {
+    const report = await getAdminBattleViewerGifts(req.params.battleId);
+    return res.json(report);
+  } catch (error) {
+    if (/not found/i.test(error?.message || "")) {
+      return res.status(404).json({ message: error.message });
+    }
+
     return res.status(500).json({ message: error.message });
   }
 };
