@@ -1,5 +1,6 @@
 import {
-    Earning
+    Earning,
+    User
    }
    from "../models/index.js";
    
@@ -82,6 +83,17 @@ import {
 
    const withdrawSummary =
    await getFemaleWithdrawSummary(userId);
+
+   const owner =
+   await User.findByPk(userId, {
+     attributes: ["profileFrameSpentCoins"],
+   });
+
+   const spendableGold =
+   Math.max(
+     0,
+     totalGold - (Number(owner?.profileFrameSpentCoins) || 0)
+   );
    
    
    
@@ -89,7 +101,8 @@ import {
    return res.json({
    
    
-   totalGold,
+   totalGold: spendableGold,
+   earnedGold: totalGold,
    
    
    totalAmount,

@@ -130,6 +130,14 @@ export const ensureUserSchema = async ({ force = false } = {}) => {
     "maleDailyBonusClaimedOn",
     "VARCHAR(10) NULL"
   );
+  await ensureColumn("users", "profileFrameId", "VARCHAR(64) NULL");
+  await ensureColumn("users", "profileFrameExpiresAt", "DATETIME NULL");
+  await ensureColumn("users", "purchasedProfileFrames", "JSON NULL");
+  await ensureColumn(
+    "users",
+    "profileFrameSpentCoins",
+    "INT NOT NULL DEFAULT 0"
+  );
 
   try {
     await sequelize.query(

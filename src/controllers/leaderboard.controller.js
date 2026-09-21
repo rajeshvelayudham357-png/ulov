@@ -16,6 +16,33 @@ import {
 import {
     attachUserLevels
 } from "../services/userLevel.service.js";
+import {
+    resolveVisibleProfileFrame,
+} from "../services/profileFrame.service.js";
+
+const CREATOR_ATTRIBUTES = [
+  "id",
+  "username",
+  "nickname",
+  "name",
+  "avatar",
+  "online",
+  "gender",
+  "profileFrameId",
+  "profileFrameExpiresAt",
+  "purchasedProfileFrames",
+];
+
+const serializeLeaderboardCreator = (creator) => {
+  const data = creator?.toJSON ? creator.toJSON() : creator;
+  const visible = resolveVisibleProfileFrame(data);
+
+  return {
+    ...data,
+    profileFrameId: visible.profileFrameId,
+    profileFrameExpiresAt: visible.profileFrameExpiresAt,
+  };
+};
 
 const FEMALE_GENDERS = [
 "Female",
@@ -230,15 +257,7 @@ id:{
 [Op.in]:rankedUserIds
 }
 },
-attributes:[
-"id",
-"username",
-"nickname",
-"name",
-"avatar",
-"online",
-"gender"
-]
+attributes: CREATOR_ATTRIBUTES
 });
 
 const creatorMap =
@@ -246,7 +265,7 @@ new Map(
 rankedCreators.map(
 (creator)=>[
 creator.id,
-creator.toJSON()
+serializeLeaderboardCreator(creator)
 ]
 )
 );
@@ -294,15 +313,7 @@ topUserIds
 [0]
 }
 },
-attributes:[
-"id",
-"username",
-"nickname",
-"name",
-"avatar",
-"online",
-"gender"
-]
+attributes: CREATOR_ATTRIBUTES
 });
 
 const extraUserIds =
@@ -398,7 +409,7 @@ return buildLeaderboardEntry(
 userId,
 totalGold:stats.totalGold,
 totalCalls:stats.totalCalls,
-creator:creator.toJSON(),
+creator:serializeLeaderboardCreator(creator),
 isOnlineExtra:true,
 rank:rankByUserId.get(userId) ?? null
 },

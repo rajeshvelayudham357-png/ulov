@@ -59,6 +59,7 @@ import {
 } from "../services/userLevel.service.js";
 import { validateProfileAnimationSelection } from "../services/profileAnimation.service.js";
 import { validateEntryEffectSelection, purchaseEntryEffect as purchaseEntryEffectService, buildEntryEffectsCatalog } from "../services/entryEffect.service.js";
+import { resolveVisibleProfileFrame } from "../services/profileFrame.service.js";
 import { purchaseProfilePhotoUnlock as purchaseProfilePhotoUnlockService } from "../services/profilePhotoUnlock.service.js";
 import {
   PROFILE_PHOTO_UNLOCK_COINS,
@@ -1433,6 +1434,12 @@ attributes:[
 
 "profileAnimationId",
 
+"profileFrameId",
+
+"profileFrameExpiresAt",
+
+"purchasedProfileFrames",
+
 "entryEffectId",
 
 "purchasedEntryEffectIds",
@@ -1478,8 +1485,12 @@ typeof (userWithRates ?? user)?.toJSON === "function"
 :
 (userWithRates ?? user);
 
+const visibleFrame =
+resolveVisibleProfileFrame(payload || {});
+
 return res.json({
 ...(payload || {}),
+...visibleFrame,
 userLevel,
 });
 

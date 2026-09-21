@@ -28,6 +28,11 @@ import {
   getFemaleAchievementsHandler,
   updateWornAchievementBadgesHandler,
 } from "../controllers/femaleAchievement.controller.js";
+import {
+  equipProfileFrameHandler,
+  getProfileFramesCatalog,
+  purchaseProfileFrameHandler,
+} from "../controllers/profileFrame.controller.js";
 
 import {
   getActiveFemaleScratchReward,
@@ -105,6 +110,21 @@ router.get(
 router.put(
   "/achievements/wear",
   updateWornAchievementBadgesHandler
+);
+
+router.get(
+  "/profile-frames/:userId",
+  getProfileFramesCatalog
+);
+
+router.post(
+  "/profile-frames/:userId/purchase",
+  purchaseProfileFrameHandler
+);
+
+router.put(
+  "/profile-frames/:userId/equip",
+  equipProfileFrameHandler
 );
 
 router.get(

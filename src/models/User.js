@@ -262,6 +262,27 @@ export const User = sequelize.define(
       allowNull: true,
     },
 
+    profileFrameId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+
+    profileFrameExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+
+    purchasedProfileFrames: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+
+    profileFrameSpentCoins: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+
   },
 
   {

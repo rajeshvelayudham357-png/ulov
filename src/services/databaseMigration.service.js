@@ -157,6 +157,10 @@ export const runDatabaseMigrations = async () => {
     "./adminGrowthSchema.service.js"
   );
   await ensureGrowthAnalyticsIndexes();
+  const { ensureAdminRevenueIndexes } = await import(
+    "./adminRevenueSchema.service.js"
+  );
+  await ensureAdminRevenueIndexes();
   const { ensureGrowthEventSchema } = await import(
     "./growthEventSchema.service.js"
   );

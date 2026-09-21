@@ -118,6 +118,12 @@ const buildAuthUserPayload = (user) => ({
   notificationsEnabled: user.notificationsEnabled !== false,
   phoneVerified: Boolean(user.phoneVerified),
   profileAnimationId: user.profileAnimationId ?? null,
+  profileFrameId: user.profileFrameId ?? null,
+  profileFrameExpiresAt: user.profileFrameExpiresAt ?? null,
+  purchasedProfileFrames: Array.isArray(user.purchasedProfileFrames)
+    ? user.purchasedProfileFrames
+    : [],
+  profileFrameSpentCoins: Number(user.profileFrameSpentCoins) || 0,
   entryEffectId: user.entryEffectId ?? null,
   purchasedEntryEffectIds: Array.isArray(user.purchasedEntryEffectIds)
     ? user.purchasedEntryEffectIds

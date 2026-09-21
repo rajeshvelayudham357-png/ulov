@@ -164,7 +164,7 @@ export const getMaleProfileForFemale = async (req, res) => {
     const { maleId } = req.params;
 
     const male = await User.findByPk(maleId, {
-      attributes: ['id', 'username', 'name', 'avatar', 'coverPhoto', 'publicUserId', 'online', 'gender', 'profileAnimationId', 'entryEffectId', 'purchasedEntryEffectIds']
+      attributes: ['id', 'username', 'name', 'avatar', 'coverPhoto', 'publicUserId', 'online', 'gender', 'profileAnimationId', 'entryEffectId', 'purchasedEntryEffectIds', 'profileFrameId', 'profileFrameExpiresAt', 'purchasedProfileFrames']
     });
 
     if (!male || male.gender?.toLowerCase() !== 'male') {

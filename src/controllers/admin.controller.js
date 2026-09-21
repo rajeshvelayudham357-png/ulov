@@ -125,6 +125,12 @@ import {
   revenueExcludeUserSql,
 } from "../services/revenueExcludeUsers.service.js";
 import {
+  getRevenueRechargesReport,
+  getRevenueSummaryReport,
+} from "../services/adminRevenue.service.js";
+import { getAdminUsersList } from "../services/adminUsers.service.js";
+import { getAdminCallsReport } from "../services/adminCalls.service.js";
+import {
 getGiftSettings,
 updateGiftSettings,
 } from "../services/giftSettings.service.js";
@@ -2414,143 +2420,31 @@ message:error.message
 // USERS
 // ===================================
 
-export const users =
-async(
-req,
-res
-)=>{
-
-
-try{
-
-
-await ensureBlockedColumn();
-
-
-await ensureAccountStatusColumn();
-
-
-await backfillPublicUserIds();
-
-
-const search =
-String(
-req.query.search ||
-""
-).trim();
-
-
-const where =
-search
-? {
-
-[Op.or]:[
-
-{ name:{ [Op.like]:`%${search}%` } },
-
-{ nickname:{ [Op.like]:`%${search}%` } },
-
-{ username:{ [Op.like]:`%${search}%` } },
-
-{ publicUserId:{ [Op.like]:`%${search}%` } },
-
-{ phone:{ [Op.like]:`%${search}%` } },
-
-{ email:{ [Op.like]:`%${search}%` } },
-
-{ gender:{ [Op.like]:`%${search}%` } }
-
-]
-
-}
-: {};
-
-
-
-
-const usersList =
-await User.findAll({
-
-
-where,
-
-
-attributes:{
-
-include:[
-
-[
-sequelize.literal(
-"COALESCE(users.blocked, 0)"
-),
-"blocked"
-],
-
-[
-sequelize.literal(
-"COALESCE(users.accountStatus, 'pending')"
-),
-"accountStatus"
-]
-
-]
-
-},
-
-
-order:[
-
-[
-"createdAt",
-
-"DESC"
-
-]
-
-]
-
-
-});
-
-
-
-
-const formatted =
-usersList.map(
-formatAdminUser
-);
-
-
-
-
-res.json(
-
-formatted
-
-);
-
-
-
-}catch(error){
-
-
-console.log(
-"ADMIN USERS ERROR",
-error
-);
-
-
-res.status(500)
-.json({
-
-message:error.message
-
-});
-
-
-}
-
-
+export const users = async (req, res) => {
+  try {
+    await ensureBlockedColumn();
+    await ensureAccountStatusColumn();
+
+    const search = String(req.query.search || "").trim();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(Number(req.query.limit) || 25, 100);
+    const wantsLegacyArray = String(req.query.legacy || "").trim() === "1";
+
+    const report = await getAdminUsersList({
+      page,
+      limit,
+      search,
+    });
+
+    if (wantsLegacyArray) {
+      return res.json(report.rows);
+    }
+
+    return res.json(report);
+  } catch (error) {
+    console.log("ADMIN USERS ERROR", error);
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 
@@ -2997,315 +2891,20 @@ message:error.message
 // ===================================
 
 
-export const calls =
-async(
-req,
-res
-)=>{
+export const calls = async (req, res) => {
+  try {
+    const report = await getAdminCallsReport({
+      date: req.query.date,
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+    });
 
-
-try{
-
-const rawDate =
-String(req.query.date || "").trim();
-
-const targetDateStr =
-/^\d{4}-\d{2}-\d{2}$/.test(rawDate)
-? rawDate
-: toIstDateKey(new Date());
-
-const startDate =
-istDateKeyToUtcRange(targetDateStr).start;
-
-const endDate =
-istDateKeyToUtcRange(
-addIstDays(targetDateStr, 1)
-).start;
-
-const where = {
-createdAt:{
-[Op.gte]:startDate,
-[Op.lt]:endDate
-}
+    return res.json(report);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
 };
-
-
-const data =
-await CallHistory.findAll({
-
-
-limit:500,
-
-where,
-
-
-include:[
-
-{
-
-model:User,
-
-as:"caller",
-
-attributes:[
-
-"id",
-
-"name",
-
-"nickname",
-
-"username"
-
-]
-
-},
-
-{
-
-model:User,
-
-as:"receiver",
-
-attributes:[
-
-"id",
-
-"name",
-
-"nickname",
-
-"username"
-
-]
-
-},
-
-{
-
-model:Earning,
-
-as:"earning",
-
-attributes:[
-
-"coins",
-
-"amount"
-
-]
-
-}
-
-],
-
-
-order:[
-
-[
-"createdAt",
-
-"DESC"
-
-]
-
-]
-
-
-});
-
-
-
-const callIds =
-data.map(
-(call)=>Number(call.id)
-).filter(Boolean);
-
-let quickConnectCallIds =
-new Set();
-
-const failureReasonByCallId =
-new Map();
-
-if(callIds.length > 0){
-
-const attemptRows =
-await sequelize.query(
-`SELECT callHistoryId, failureReason
- FROM ${QC_TABLES.ATTEMPTS}
- WHERE callHistoryId IN (:callIds)`,
-{
-replacements:{
-callIds
-},
-type:QueryTypes.SELECT
-}
-);
-
-quickConnectCallIds =
-new Set(
-attemptRows
-.map(
-(row)=>Number(row.callHistoryId)
-)
-.filter(Boolean)
-);
-
-for(
-const row of attemptRows
-){
-const callHistoryId =
-Number(row.callHistoryId);
-
-if(
-!Number.isFinite(callHistoryId) ||
-callHistoryId <= 0
-){
-continue;
-}
-
-const reason =
-String(row.failureReason || "").trim();
-
-if(reason){
-failureReasonByCallId.set(
-callHistoryId,
-reason
-);
-}
-}
-
-}
-
-
-
-const formatDuration =
-(seconds)=>{
-
-
-const total =
-Number(seconds) || 0;
-
-
-const mins =
-Math.floor(
-total / 60
-);
-
-
-const secs =
-total % 60;
-
-
-return `${String(mins).padStart(2,"0")}:${String(secs).padStart(2,"0")}`;
-
-
-};
-
-
-
-
-
-const formatted =
-data.map(
-(call)=>{
-
-
-const row =
-call.toJSON();
-
-
-const coins =
-row.coinsSpent ||
-row.earning?.coins ||
-0;
-
-
-const earning =
-row.earning?.amount ??
-Math.floor(
-coins * 0.5
-);
-
-
-return {
-
-id:row.id,
-
-male:getDisplayName(
-row.caller
-),
-
-female:getDisplayName(
-row.receiver
-),
-
-duration:formatDuration(
-row.duration
-),
-
-coins,
-
-earning,
-
-type:row.type ||
-"video",
-
-status:row.status ||
-"completed",
-
-failureReason:
-failureReasonByCallId.get(Number(row.id)) ||
-null,
-
-source:
-quickConnectCallIds.has(Number(row.id))
-?
-"quick_connect"
-:
-"direct",
-
-startedAt:row.createdAt,
-
-createdAt:row.createdAt
-
-};
-
-
-}
-);
-
-
-
-
-res.json(
-
-formatted
-
-);
-
-
-
-
-}catch(error){
-
-
-res.status(500)
-.json({
-
-message:error.message
-
-});
-
-
-}
-
-
-
-};
-
-
-
 
 
 
@@ -7825,223 +7424,39 @@ export const revenueRecharges = async (req, res) => {
       String(req.query.export || "").trim().toLowerCase()
     );
     const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = isExport ? null : Math.min(Number(req.query.limit) || 50, 200);
-    const offset = isExport ? 0 : (page - 1) * limit;
-    const search = String(req.query.search || '').trim().toLowerCase();
-    const gateway = String(req.query.gateway || '').trim();
-    const status = String(req.query.status || '').trim();
-    const startDate = String(req.query.startDate || '').trim();
-    const endDate = String(req.query.endDate || '').trim();
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const search = String(req.query.search || "").trim();
+    const gateway = String(req.query.gateway || "").trim();
+    const status = String(req.query.status || "").trim();
+    const startDate = String(req.query.startDate || "").trim();
+    const endDate = String(req.query.endDate || "").trim();
     const minAmount = Number(req.query.minAmount) || 0;
     const maxAmount = Number(req.query.maxAmount) || 0;
 
-    const gstSettings = await getGstSettings();
+    const [gstSettings, excludeUserIds] = await Promise.all([
+      getGstSettings(),
+      getRevenueExcludeUserIds(),
+    ]);
     const gstPercent = Number(gstSettings.gstPercent) || 0;
 
-    const excludeUserIds = await getRevenueExcludeUserIds();
-    const where = {
-      status: { [Op.in]: ['PAID', 'SUCCESS', 'CAPTURED', 'credited'] },
-    };
-
-    if (excludeUserIds.length > 0) {
-      where[Op.and] = [
-        ...(where[Op.and] || []),
-        { userId: { [Op.notIn]: excludeUserIds } },
-      ];
-    }
-
-    if (gateway) {
-      where.gateway = gateway;
-    }
-
-    if (status && ['PAID', 'SUCCESS', 'CAPTURED', 'credited'].includes(status)) {
-      where.status = status;
-    }
-
-    if (startDate) {
-      where.updatedAt = where.updatedAt || {};
-      where.updatedAt[Op.gte] = istDateKeyToUtcRange(startDate).start;
-    }
-
-    if (endDate) {
-      where.updatedAt = where.updatedAt || {};
-      where.updatedAt[Op.lte] = istDateKeyToUtcRange(endDate).end;
-    }
-
-    if (minAmount > 0) {
-      where.amount = { ...(where.amount || {}), [Op.gte]: minAmount };
-    }
-
-    if (maxAmount > 0) {
-      where.amount = { ...(where.amount || {}), [Op.lte]: maxAmount };
-    }
-
-    const userInclude = {
-      model: User,
-      as: "user",
-      attributes: ["id", "publicUserId", "name", "nickname", "username", "phone", "gender"],
-      required: false,
-    };
-
-    if (search) {
-      const like = `%${search}%`;
-      const searchConditions = [
-        { orderId: { [Op.like]: like } },
-        { cashfreePaymentId: { [Op.like]: like } },
-        { razorpayPaymentId: { [Op.like]: like } },
-      ];
-
-      const numericSearch = Number(search);
-
-      if (Number.isFinite(numericSearch) && search === String(numericSearch)) {
-        searchConditions.push({ amount: numericSearch });
-      }
-
-      const matchingUsers = await User.findAll({
-        where: {
-          [Op.or]: [
-            { name: { [Op.like]: like } },
-            { nickname: { [Op.like]: like } },
-            { username: { [Op.like]: like } },
-            { phone: { [Op.like]: like } },
-            { publicUserId: { [Op.like]: like } },
-          ],
-        },
-        attributes: ["id"],
-        raw: true,
-      });
-
-      const matchedUserIds = matchingUsers.map((row) => row.id);
-
-      if (matchedUserIds.length > 0) {
-        searchConditions.push({ userId: { [Op.in]: matchedUserIds } });
-      }
-
-      where[Op.and] = [
-        ...(where[Op.and] || []),
-        { [Op.or]: searchConditions },
-      ];
-    }
-
-    const queryInclude = [userInclude];
-
-    const summaryAgg = await PaymentOrder.findOne({
-      where,
-      attributes: [
-        [fn('COUNT', fn('DISTINCT', col('payment_orders.id'))), 'totalRecharges'],
-        [fn('COALESCE', fn('SUM', col('payment_orders.amount')), 0), 'totalAmount'],
-        [fn('COALESCE', fn('SUM', col('payment_orders.coins')), 0), 'totalCoins'],
-      ],
-      raw: true,
-    });
-
-    const totalRecharges = Number(summaryAgg?.totalRecharges) || 0;
-    const totalAmountRaw = Number(summaryAgg?.totalAmount) || 0;
-    const totalCoins = Number(summaryAgg?.totalCoins) || 0;
-    const totalGst = splitInclusiveGst(totalAmountRaw, gstPercent).gstAmount;
-    const totalNetRevenue = splitInclusiveGst(totalAmountRaw, gstPercent).baseRevenue;
-
-    const listQuery = {
-      where,
-      include: queryInclude,
-      order: [["updatedAt", "DESC"]],
-      distinct: true,
-      subQuery: false,
-    };
-
-    let orderRows;
-    let count;
-
-    if (isExport) {
-      orderRows = await PaymentOrder.findAll(listQuery);
-      count = orderRows.length;
-    } else {
-      const result = await PaymentOrder.findAndCountAll({
-        ...listQuery,
-        limit,
-        offset,
-      });
-      orderRows = result.rows;
-      count = result.count;
-    }
-
-    const userIds = [...new Set(orderRows.map((o) => o.userId))];
-
-    let walletMap = {};
-
-    if (userIds.length > 0) {
-      const wallets = await Wallet.findAll({
-        where: { userId: userIds },
-        attributes: ["userId", "balance"],
-      });
-
-      wallets.forEach((wallet) => {
-        walletMap[wallet.userId] = Number(wallet.balance) || 0;
-      });
-    }
-
-    let coinsUsedMap = {};
-
-    if (userIds.length > 0) {
-      const usedRows = await sequelize.query(
-        `SELECT userId, ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed
-         FROM wallet_transactions
-         WHERE userId IN (:userIds) AND amount < 0
-         GROUP BY userId`,
-        { replacements: { userIds }, type: QueryTypes.SELECT }
-      );
-
-      usedRows.forEach((r) => {
-        coinsUsedMap[r.userId] = Number(r.coinsUsed) || 0;
-      });
-    }
-
-    const rows = orderRows.map((order) => {
-      const data = order.toJSON();
-      const { gstAmount, baseRevenue } = splitInclusiveGst(Number(data.amount) || 0, gstPercent);
-      const walletBalance = walletMap[data.userId] ?? 0;
-      const coinsUsed = coinsUsedMap[data.userId] || 0;
-      const displayName = getDisplayName(data.user);
-
-      return {
-        id: data.id,
-        orderId: data.orderId,
-        userId: data.userId,
-        publicUserId: data.user?.publicUserId,
-        userName: displayName,
-        phone: data.user?.phone || '—',
-        rechargeDate: data.updatedAt,
-        amount: Number(data.amount) || 0,
-        gstPercent,
-        gstAmount,
-        netRevenue: baseRevenue,
-        coinsPurchased: Number(data.coins) || 0,
-        coinsUsed,
-        walletBalance,
-        gateway: data.gateway || 'cashfree',
-        transactionId: data.cashfreePaymentId || data.razorpayPaymentId || data.orderId || '—',
-        status: data.status,
-        paymentMethod: data.paymentMethod || '—',
-      };
-    });
-
-    return res.json({
-      rows,
-      total: count,
+    const report = await getRevenueRechargesReport({
       page,
       limit,
-      totalPages: Math.max(1, Math.ceil(count / limit)),
-      summary: {
-        totalRecharges,
-        totalAmount: totalAmountRaw,
-        totalGst,
-        totalNetRevenue,
-        totalCoins,
-        gstPercent,
-      },
+      isExport,
+      search,
+      gateway: gateway === "all" ? "" : gateway,
+      status,
+      startDate,
+      endDate,
+      minAmount,
+      maxAmount,
+      excludeUserIds,
+      gstPercent,
     });
+
+    return res.json(report);
   } catch (error) {
-    console.error('REVENUE RECHARGES ERROR', error);
+    console.error("REVENUE RECHARGES ERROR", error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -8052,152 +7467,25 @@ export const revenueRecharges = async (req, res) => {
 
 export const revenueSummary = async (req, res) => {
   try {
-    const gstSettings = await getGstSettings();
+    const startDate = String(req.query.startDate || "").trim();
+    const endDate = String(req.query.endDate || "").trim();
+
+    const [gstSettings, excludeUserIds] = await Promise.all([
+      getGstSettings(),
+      getRevenueExcludeUserIds(),
+    ]);
     const gstPercent = Number(gstSettings.gstPercent) || 0;
-    const startDate = String(req.query.startDate || '').trim();
-    const endDate = String(req.query.endDate || '').trim();
 
-    const successStatuses = ['PAID', 'SUCCESS', 'CAPTURED', 'credited'];
-    const excludeUserIds = await getRevenueExcludeUserIds();
-    const dateReplacements = {};
-    const queryReplacements = {};
-    const orderWhere = { status: { [Op.in]: successStatuses } };
-
-    if (excludeUserIds.length > 0) {
-      orderWhere.userId = { [Op.notIn]: excludeUserIds };
-      queryReplacements.excludeUserIds = excludeUserIds;
-    }
-
-    if (startDate) {
-      const fromUtc = istDateKeyToUtcRange(startDate).start;
-      orderWhere.updatedAt = { ...(orderWhere.updatedAt || {}), [Op.gte]: fromUtc };
-      dateReplacements.fromUtc = fromUtc;
-    }
-
-    if (endDate) {
-      const toUtc = istDateKeyToUtcRange(endDate).end;
-      orderWhere.updatedAt = { ...(orderWhere.updatedAt || {}), [Op.lte]: toUtc };
-      dateReplacements.toUtc = toUtc;
-    }
-
-    const dateSql = (column = 'updatedAt') => {
-      const parts = [];
-      if (dateReplacements.fromUtc) parts.push(`${column} >= :fromUtc`);
-      if (dateReplacements.toUtc) parts.push(`${column} <= :toUtc`);
-      return parts.length ? ` AND ${parts.join(' AND ')}` : '';
-    };
-    const sqlReplacements = { ...dateReplacements, ...queryReplacements };
-    const userExcludeSql = revenueExcludeUserSql(excludeUserIds);
-
-    // All successful payment orders
-    const orders = await PaymentOrder.findAll({
-      where: orderWhere,
-      attributes: ['amount', 'coins', 'gateway', 'userId'],
+    const report = await getRevenueSummaryReport({
+      startDate,
+      endDate,
+      excludeUserIds,
+      gstPercent,
     });
 
-    // Aggregate recharge stats
-    let totalAmount = 0, totalGst = 0, totalNetRevenue = 0, totalCoins = 0;
-    const gatewayCounts = {};
-    const gatewayAmounts = {};
-    const uniqueUsers = new Set();
-
-    orders.forEach((o) => {
-      const amt = Number(o.amount) || 0;
-      const { gstAmount, baseRevenue } = splitInclusiveGst(amt, gstPercent);
-      totalAmount += amt;
-      totalGst += gstAmount;
-      totalNetRevenue += baseRevenue;
-      totalCoins += Number(o.coins) || 0;
-      const gw = o.gateway || 'cashfree';
-      gatewayCounts[gw] = (gatewayCounts[gw] || 0) + 1;
-      gatewayAmounts[gw] = (gatewayAmounts[gw] || 0) + amt;
-      uniqueUsers.add(o.userId);
-    });
-
-    // Coins used (sum of all negative wallet transactions)
-    const [coinsUsedRow] = await sequelize.query(
-      `SELECT ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) AS coinsUsed
-       FROM wallet_transactions
-       WHERE amount < 0${dateSql('createdAt')}${userExcludeSql}`,
-      { replacements: sqlReplacements, type: QueryTypes.SELECT }
-    );
-    const totalCoinsUsed = Number(coinsUsedRow?.coinsUsed) || 0;
-
-    // Current wallet coins
-    const [walletRow] = await sequelize.query(
-      `SELECT SUM(balance) AS totalBalance FROM wallets WHERE 1=1${userExcludeSql}`,
-      { replacements: queryReplacements, type: QueryTypes.SELECT }
-    );
-    const totalWalletBalance = Number(walletRow?.totalBalance) || 0;
-
-    // Creator earnings from Earning model
-    const [earningRow] = await sequelize.query(
-      `SELECT SUM(amount) AS totalEarnings FROM earnings WHERE 1=1${dateSql('createdAt')}${userExcludeSql}`,
-      { replacements: sqlReplacements, type: QueryTypes.SELECT }
-    );
-    const totalCreatorEarnings = Number(earningRow?.totalEarnings) || 0;
-
-    // Approved payouts
-    const [approvedPayoutRow] = await sequelize.query(
-      `SELECT SUM(amount) AS total FROM withdraws WHERE status='approved'${dateSql('updatedAt')}${userExcludeSql}`,
-      { replacements: sqlReplacements, type: QueryTypes.SELECT }
-    );
-    const approvedPayout = Number(approvedPayoutRow?.total) || 0;
-
-    // Pending payouts
-    const [pendingPayoutRow] = await sequelize.query(
-      `SELECT SUM(amount) AS total FROM withdraws WHERE status='pending'${dateSql('createdAt')}${userExcludeSql}`,
-      { replacements: sqlReplacements, type: QueryTypes.SELECT }
-    );
-    const pendingPayout = Number(pendingPayoutRow?.total) || 0;
-
-    const remainingRevenue = totalNetRevenue - approvedPayout;
-    const rechargeCount = orders.length;
-    const avgRecharge = rechargeCount > 0 ? totalAmount / rechargeCount : 0;
-    const maleUsersRecharged = uniqueUsers.size;
-    const avgRevenuePerUser = maleUsersRecharged > 0 ? totalNetRevenue / maleUsersRecharged : 0;
-
-    // Gateway pie data
-    const allGateways = ['cashfree', 'razorpay', 'payu', 'phonepe', 'google_play'];
-    const gatewayLabel = (gw) => {
-      if (gw === 'google_play') return 'Google Play';
-      if (gw === 'razorpay') return 'Razorpay';
-      if (gw === 'payu') return 'PayU';
-      if (gw === 'phonepe') return 'PhonePe';
-      return 'Cashfree';
-    };
-
-    const gatewayPie = allGateways.map((gw) => ({
-      name: gatewayLabel(gw),
-      value: gatewayAmounts[gw] || 0,
-      count: gatewayCounts[gw] || 0,
-      percentage: totalAmount > 0 ? (((gatewayAmounts[gw] || 0) / totalAmount) * 100).toFixed(1) : '0.0',
-    }));
-
-    return res.json({
-      cards: {
-        totalAmount, totalGst, totalNetRevenue, totalCoins, totalCoinsUsed, totalWalletBalance,
-        totalCreatorEarnings, approvedPayout, pendingPayout, remainingRevenue,
-        rechargeCount, avgRecharge, avgRevenuePerUser, maleUsersRecharged, gstPercent,
-      },
-      breakdown: {
-        rechargeRevenue: totalAmount,
-        gst: totalGst,
-        netRevenue: totalNetRevenue,
-        creatorEarnings: totalCreatorEarnings,
-        approvedPayout,
-        pendingPayout,
-        remainingRevenue,
-        platformRevenue: totalNetRevenue - totalCreatorEarnings,
-      },
-      gatewayPie,
-      period: {
-        startDate: startDate || null,
-        endDate: endDate || null,
-      },
-    });
+    return res.json(report);
   } catch (error) {
-    console.error('REVENUE SUMMARY ERROR', error);
+    console.error("REVENUE SUMMARY ERROR", error);
     return res.status(500).json({ message: error.message });
   }
 };
