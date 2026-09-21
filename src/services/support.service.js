@@ -1,5 +1,6 @@
 import {
-Op
+Op,
+QueryTypes,
 } from "sequelize";
 
 import {
@@ -7,6 +8,7 @@ SupportTicket,
 SupportMessage,
 User
 } from "../models/index.js";
+import { sequelize } from "../config/database.js";
 
 import {
 emitSupportTicketMessage
@@ -140,62 +142,133 @@ lastMessage
 return results;
 };
 
-export const listAdminSupportTickets =
-async({
-status,
-search
-}={})=>{
-const where={};
-
-if(
-status &&
-status !== "all"
-){
-where.status = status;
-}
-
-if(search?.trim()){
-const term = `%${search.trim()}%`;
-where[Op.or]=[
-{subject:{[Op.like]:term}},
-{message:{[Op.like]:term}}
-];
-}
-
-const tickets =
-await SupportTicket.findAll({
-where,
-include:[
-{
-model:User,
-as:"user",
-attributes:[
-"id",
-"name",
-"username",
-"phone",
-"gender",
-"avatar"
-]
-}
-],
-order:[["updatedAt","DESC"]]
+const mapAdminSupportTicketRow = (row) => ({
+  id: row.id,
+  userId: row.userId,
+  subject: row.subject,
+  message: row.message,
+  status: row.status,
+  reply: row.reply,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+  user: row.user_id
+    ? {
+        id: row.user_id,
+        name: row.user_name || row.user_username,
+        username: row.user_username,
+        phone: row.user_phone,
+        gender: row.user_gender,
+        avatar: row.user_avatar,
+      }
+    : undefined,
+  lastMessage: row.last_message
+    ? {
+        message: row.last_message,
+        senderType: row.last_senderType,
+        createdAt: row.last_createdAt,
+      }
+    : {
+        message: row.message,
+        senderType: "user",
+        createdAt: row.createdAt,
+      },
 });
 
-const results =
-await Promise.all(
-tickets.map(async(ticket)=>{
-const lastMessage =
-await getLastMessageForTicket(ticket.id);
+export const listAdminSupportTickets = async ({
+  status,
+  search,
+  page = 1,
+  limit = 50,
+} = {}) => {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const offset = (safePage - 1) * safeLimit;
 
-return formatTicket(
-ticket,
-lastMessage
-);
-})
-);
+  const whereParts = ["1=1"];
+  const replacements = {
+    limit: safeLimit,
+    offset,
+  };
 
-return results;
+  if (status && status !== "all") {
+    whereParts.push("st.status = :status");
+    replacements.status = status;
+  }
+
+  if (search?.trim()) {
+    whereParts.push(`(
+      st.subject LIKE :searchLike OR
+      st.message LIKE :searchLike OR
+      u.name LIKE :searchLike OR
+      u.username LIKE :searchLike OR
+      u.phone LIKE :searchLike
+    )`);
+    replacements.searchLike = `%${search.trim()}%`;
+  }
+
+  const whereSql = whereParts.join(" AND ");
+  const fromSql = `
+    FROM support_tickets st
+    LEFT JOIN users u ON u.id = st.userId
+    LEFT JOIN (
+      SELECT sm.ticketId, sm.message, sm.senderType, sm.createdAt
+      FROM support_messages sm
+      INNER JOIN (
+        SELECT ticketId, MAX(id) AS maxId
+        FROM support_messages
+        GROUP BY ticketId
+      ) latest ON latest.maxId = sm.id
+    ) lm ON lm.ticketId = st.id
+  `;
+
+  const [countRow, rows] = await Promise.all([
+    sequelize.query(
+      `SELECT COUNT(DISTINCT st.id) AS total
+       ${fromSql}
+       WHERE ${whereSql}`,
+      {
+        replacements,
+        type: QueryTypes.SELECT,
+      }
+    ).then((result) => result[0]),
+    sequelize.query(
+      `SELECT st.id,
+              st.userId,
+              st.subject,
+              st.message,
+              st.status,
+              st.reply,
+              st.createdAt,
+              st.updatedAt,
+              u.id AS user_id,
+              u.name AS user_name,
+              u.username AS user_username,
+              u.phone AS user_phone,
+              u.gender AS user_gender,
+              u.avatar AS user_avatar,
+              lm.message AS last_message,
+              lm.senderType AS last_senderType,
+              lm.createdAt AS last_createdAt
+       ${fromSql}
+       WHERE ${whereSql}
+       ORDER BY st.updatedAt DESC
+       LIMIT :limit OFFSET :offset`,
+      {
+        replacements,
+        type: QueryTypes.SELECT,
+      }
+    ),
+  ]);
+
+  const total = Number(countRow?.total) || 0;
+
+  return {
+    rows: rows.map(mapAdminSupportTicketRow),
+    total,
+    page: safePage,
+    limit: safeLimit,
+    totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
 };
 
 export const getSupportTicketForUser =

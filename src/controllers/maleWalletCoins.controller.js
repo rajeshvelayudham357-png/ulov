@@ -11,6 +11,9 @@ export const getMaleWalletCoins = async (req, res) => {
       search: req.query.search || req.query.q || "",
       minBalance: req.query.minBalance,
       onlyWithBalance,
+      balanceFilter: req.query.balanceFilter || "all",
+      page: req.query.page,
+      limit: req.query.limit,
     });
 
     return res.json(report);

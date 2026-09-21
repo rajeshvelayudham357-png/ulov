@@ -12,7 +12,9 @@ try{
 const data =
 await listAdminSupportTickets({
 status:req.query.status,
-search:req.query.search
+search:req.query.search,
+page:req.query.page,
+limit:req.query.limit,
 });
 
 res.json(data);

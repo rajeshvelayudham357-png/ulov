@@ -131,6 +131,11 @@ import {
 import { getAdminUsersList } from "../services/adminUsers.service.js";
 import { getAdminCallsReport } from "../services/adminCalls.service.js";
 import {
+  getAdminCreatorsList,
+  getAdminKycList,
+  getAdminMaleUsersList,
+} from "../services/adminPanelLists.service.js";
+import {
 getGiftSettings,
 updateGiftSettings,
 } from "../services/giftSettings.service.js";
@@ -142,9 +147,6 @@ import {
 getAdminAgoraSettingsView,
 updateAgoraSettings,
 } from "../services/agoraSettings.service.js";
-import {
-backfillPublicUserIds
-} from "../services/publicUserId.service.js";
 import {
 createMasterFemaleTask,
 getMasterFemaleTasks,
@@ -1453,7 +1455,6 @@ res
 
 try{
 
-await backfillPublicUserIds();
 
 const creators =
 await getCreatorCallRateSettings();
@@ -2453,269 +2454,27 @@ export const users = async (req, res) => {
 // ===================================
 
 
-export const maleUsers =
-async(
-req,
-res
-)=>{
-
-try{
-
-await backfillPublicUserIds();
-
-const search =
-String(
-req.query.search || ""
-).trim();
-
-const where = {
-gender:{
-[Op.in]:[
-"Male",
-"male"
-]
-}
+export const maleUsers = async (req, res) => {
+  try {
+    const report = await getAdminMaleUsersList({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+    });
+    return res.json({
+      summary: report.summary,
+      rows: report.rows,
+      total: report.total,
+      page: report.page,
+      limit: report.limit,
+      totalPages: report.totalPages,
+    });
+  } catch (error) {
+    console.log("ADMIN MALE USERS ERROR", error);
+    return res.status(500).json({ message: error.message });
+  }
 };
 
-const usersList =
-await User.findAll({
-where,
-include:[
-{
-model:Wallet,
-as:"wallet",
-required:false,
-attributes:[
-"balance"
-]
-}
-],
-order:[
-[
-"createdAt",
-"DESC"
-]
-]
-});
-
-const userIds =
-usersList.map((user) => user.id);
-
-const paymentOrdersByUserId =
-new Map();
-
-if(userIds.length > 0){
-const paidStatuses = [
-"PAID",
-"SUCCESS",
-"CAPTURED",
-"credited"
-];
-
-const paymentRows =
-await PaymentOrder.findAll({
-where:{
-userId:{
-[Op.in]:userIds
-},
-status:{
-[Op.in]:paidStatuses
-}
-},
-attributes:[
-"id",
-"userId",
-"orderId",
-"coins",
-"amount",
-"paymentMethod",
-"cashfreePaymentId",
-"updatedAt"
-],
-order:[
-[
-"updatedAt",
-"DESC"
-]
-],
-raw:true
-});
-
-paymentRows.forEach((payment)=>{
-const list =
-paymentOrdersByUserId.get(payment.userId) ||
-[];
-
-list.push(payment);
-paymentOrdersByUserId.set(
-payment.userId,
-list
-);
-});
-}
-
-const rowsAll =
-usersList.map(
-(user)=>{
-
-const data =
-user.toJSON();
-
-const payments =
-paymentOrdersByUserId.get(data.id) ||
-[];
-
-const totalRechargeAmount =
-payments.reduce(
-(sum,payment)=>
-sum + Number(payment.amount || 0),
-0
-);
-
-const totalRechargeCoins =
-payments.reduce(
-(sum,payment)=>
-sum + Number(payment.coins || 0),
-0
-);
-
-const latestPayment =
-payments
-.slice()
-.sort(
-(a,b)=>
-new Date(b.updatedAt).getTime() -
-new Date(a.updatedAt).getTime()
-)[0];
-
-return {
-id:data.id,
-publicUserId:data.publicUserId,
-displayName:getDisplayName(
-data
-),
-name:data.name,
-username:data.username,
-phone:data.phone,
-email:data.email,
-avatar:data.avatar,
-gender:data.gender,
-online:data.online,
-walletBalance:Number(data.wallet?.balance || 0),
-totalRechargeAmount,
-totalRechargeCoins,
-rechargeCount:payments.length,
-latestRechargeAt:latestPayment?.updatedAt || null,
-latestOrderId:latestPayment?.orderId || "—",
-latestPaymentMethod:latestPayment?.paymentMethod || "—",
-createdAt:data.createdAt
-};
-
-}
-);
-
-const compactSearch =
-search
-.toLowerCase()
-.replace(
-/[^a-z0-9]/g,
-""
-);
-
-const rows =
-search
-? rowsAll.filter(
-(row)=>{
-
-const values = [
-row.id,
-row.publicUserId,
-row.displayName,
-row.name,
-row.username,
-row.phone,
-row.email,
-row.walletBalance,
-row.totalRechargeAmount,
-row.totalRechargeCoins,
-row.rechargeCount,
-row.latestOrderId,
-row.latestPaymentMethod,
-row.latestRechargeAt
-]
-.filter(Boolean)
-.map(
-(value)=>
-String(value).toLowerCase()
-);
-
-return values.some(
-(value)=>{
-
-const compactValue =
-value.replace(
-/[^a-z0-9]/g,
-""
-);
-
-return value.includes(search.toLowerCase()) ||
-(
-compactSearch &&
-compactValue.includes(
-compactSearch
-)
-);
-
-}
-);
-
-}
-)
-: rowsAll;
-
-const summary =
-rows.reduce(
-(acc,row)=>{
-
-acc.totalUsers += 1;
-acc.totalRechargeAmount += row.totalRechargeAmount;
-acc.totalRechargeCoins += row.totalRechargeCoins;
-acc.totalRecharges += row.rechargeCount;
-acc.walletBalance += row.walletBalance;
-
-return acc;
-
-},
-{
-totalUsers:0,
-totalRechargeAmount:0,
-totalRechargeCoins:0,
-totalRecharges:0,
-walletBalance:0
-}
-);
-
-return res.json({
-summary,
-rows
-});
-
-}catch(error){
-
-console.log(
-"ADMIN MALE USERS ERROR",
-error
-);
-
-return res
-.status(500)
-.json({
-message:error.message
-});
-
-}
-
-};
 
 
 
@@ -3541,236 +3300,24 @@ message:error.message
 // ===================================
 
 
-export const creators =
-async(
-req,
-res
-)=>{
-
-
-try{
-
-
-await backfillPublicUserIds();
-
-
-const creators =
-await User.findAll({
-
-
-where:{
-
-gender:"Female"
-
-},
-
-
-attributes:[
-
-"id",
-
-"publicUserId",
-
-"name",
-
-"nickname",
-
-"username",
-
-"avatar",
-
-"gender",
-
-"verified",
-
-"profileCompleted",
-
-"online",
-
-"createdAt",
-
-[
-
-fn(
-"COALESCE",
-fn(
-"SUM",
-col("earnings.coins")
-),
-0
-),
-
-"totalCoins"
-
-],
-
-[
-
-fn(
-"COALESCE",
-fn(
-"SUM",
-col("earnings.amount")
-),
-0
-),
-
-"totalAmount"
-
-]
-
-],
-
-
-
-include:[
-
-{
-
-model:Earning,
-
-as:"earnings",
-
-attributes:[]
-
-}
-
-],
-
-
-group:[
-
-"users.id"
-
-],
-
-
-subQuery:false,
-
-
-order:[
-
-[
-"createdAt",
-
-"DESC"
-
-]
-
-]
-
-
-});
-
-
-
-
-
-const formatted =
-creators.map(
-(creator)=>{
-
-
-const data =
-creator.toJSON();
-
-
-return {
-
-id:data.id,
-
-publicUserId:data.publicUserId,
-
-name:data.name,
-
-username:data.username,
-
-displayName:getDisplayName(
-data
-),
-
-nickname:
-data.nickname ||
-(
-data.name !== "New User"
-? data.name
-: null
-) ||
-data.username ||
-"Unknown",
-
-image:data.avatar,
-
-gender:data.gender,
-
-verified:data.verified,
-
-profileCompleted:data.profileCompleted,
-
-online:data.online,
-
-createdAt:data.createdAt,
-
-earnings:{
-
-coins:
-Number(data.totalCoins) || 0,
-
-amount:
-Number(data.totalAmount) || 0
-
-}
-
+export const creators = async (req, res) => {
+  try {
+    const report = await getAdminCreatorsList({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+      online: req.query.online,
+      profileCompleted: req.query.profileCompleted,
+      verified: req.query.verified,
+    });
+    if (req.query.legacy === "1") return res.json(report.rows);
+    return res.json(report);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 
-}
-);
-
-
-
-
-res.json(
-
-formatted
-
-);
-
-
-
-
-}catch(error){
-
-
-console.log(
-"CREATOR ERROR",
-error
-);
-
-
-res.status(500)
-.json({
-
-message:error.message
-
-});
-
-
-}
-
-
-};
-
-
-
-
-
-
-
-
-
-
-// ===================================
 // CREATOR DETAILS
 // ===================================
 
@@ -3791,7 +3338,6 @@ await ensureAccountStatusColumn();
 await ensureBlockedColumn();
 
 
-await backfillPublicUserIds();
 
 
 const user =
@@ -5097,7 +4643,6 @@ search.replace(
 ""
 );
 
-await backfillPublicUserIds();
 
 const gstSettings =
 await getGstSettings();
@@ -6580,64 +6125,19 @@ message:error.message
 // ===================================
 
 
-export const kycRequests =
-async(
-req,
-res
-)=>{
-
-
-try{
-
-
-const data =
-await Kyc.findAll({
-
-
-include:[
-
-{
-model:User
-}
-
-],
-
-
-order:[
-
-[
-"createdAt",
-"DESC"
-]
-
-]
-
-
-});
-
-
-
-
-res.json(
-data
-);
-
-
-
-}catch(error){
-
-
-res.status(500)
-.json({
-
-message:error.message
-
-});
-
-
-}
-
-
+export const kycRequests = async (req, res) => {
+  try {
+    const report = await getAdminKycList({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+      status: req.query.status,
+    });
+    if (req.query.legacy === "1") return res.json(report.rows);
+    return res.json(report);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 

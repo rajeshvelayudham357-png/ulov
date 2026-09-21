@@ -11,6 +11,7 @@ import {
 import {
   getFemaleWithdrawSummary,
 } from "../services/withdraw.service.js";
+import { getAdminPayoutsList } from "../services/adminPanelLists.service.js";
 
 import {
   notifyWithdrawalProcessed
@@ -146,94 +147,28 @@ kycStatus:kyc?.status || "—"
 // ================================
 
 
-export const getPayouts =
-async(
-req,
-res
-)=>{
+export const getPayouts = async (req, res) => {
+  try {
+    const report = await getAdminPayoutsList({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+      status: req.query.status,
+      kycStatus: req.query.kycStatus,
+    });
 
+    if (req.query.legacy === "1") {
+      return res.json(report.rows);
+    }
 
-try{
-
-
-const payouts =
-await Withdraw.findAll({
-
-
-include:[
-
-{
-
-model:User,
-
-where:{
-
-gender:"Female"
-
-},
-
-required:true,
-
-include:[
-
-{
-
-model:Kyc,
-
-required:false
-
-}
-
-]
-
-}
-
-],
-
-
-order:[
-
-[
-"createdAt",
-
-"DESC"
-
-]
-
-]
-
-
-});
-
-
-
-
-res.json(
-payouts.map(formatPayout)
-);
-
-
-
-}catch(error){
-
-
-console.log(
+    return res.json(report);
+  } catch (error) {
+    console.log(
 "PAYOUT ERROR",
 error
 );
-
-
-res.status(500)
-.json({
-
-message:error.message
-
-});
-
-
-}
-
-
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 
