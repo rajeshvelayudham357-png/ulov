@@ -49,9 +49,6 @@ import {
 purgeOldChatMessages
 } from "./controllers/chat.controller.js";
 import {
-getPendingIncomingCallForReceiver,
-} from "./services/callIncomingRecovery.service.js";
-import {
 findActiveCallByPair,
 findActiveCallForReceiver,
 isReceiverBusyWithOther,
@@ -397,7 +394,7 @@ socket.id
 
 socket.on(
 "register-user",
-async(data)=>{
+(data)=>{
 
 
 const userId =
@@ -425,28 +422,6 @@ console.log(
 "ONLINE USERS:",
 onlineUsers
 );
-
-try {
-  const pendingIncoming =
-  await getPendingIncomingCallForReceiver(
-  Number(userId)
-  );
-
-  if(
-  pendingIncoming?.active &&
-  pendingIncoming?.callerId
-  ){
-   socket.emit(
-   "incoming-call",
-   pendingIncoming
-   );
-  }
-} catch (replayError) {
-  console.log(
-  "INCOMING CALL REPLAY ERROR",
-  replayError.message
-  );
-}
 
 
 
