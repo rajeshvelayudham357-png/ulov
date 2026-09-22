@@ -1335,6 +1335,8 @@ maleDailyBonusCoins:
 req.body.maleDailyBonusCoins,
 maleDailyBonusAudience:
 req.body.maleDailyBonusAudience,
+femaleStoreEnabled:
+req.body.femaleStoreEnabled,
 forceUpdateEnabled:
 req.body.forceUpdateEnabled,
 minAndroidVersionCode:

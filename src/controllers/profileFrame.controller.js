@@ -1,4 +1,5 @@
 import { User } from "../models/index.js";
+import { assertFemaleStoreEnabled } from "../services/appSettings.service.js";
 import {
   buildProfileFramesCatalog,
   equipProfileFrame,
@@ -8,6 +9,7 @@ import {
 
 export const getProfileFramesCatalog = async (req, res) => {
   try {
+    await assertFemaleStoreEnabled();
     await ensureProfileFrameSchema();
 
     const userId = Number(req.params.userId || req.query.userId || req.user?.id);
@@ -24,12 +26,14 @@ export const getProfileFramesCatalog = async (req, res) => {
 
     return res.json(await buildProfileFramesCatalog(user));
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    const status = error.statusCode || 500;
+    return res.status(status).json({ message: error.message });
   }
 };
 
 export const purchaseProfileFrameHandler = async (req, res) => {
   try {
+    await assertFemaleStoreEnabled();
     const userId = Number(req.body?.userId || req.params.userId || req.user?.id);
     const result = await purchaseProfileFrame(userId, req.body?.frameId);
 

@@ -3,6 +3,7 @@ import {
   cancelQuickConnect,
   createVideoCall,
   getIncomingCallStatus,
+  getPendingIncomingCall,
   reportCallDeliveryEvent,
 } from "../controllers/call.controller.js";
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -27,6 +28,11 @@ router.get(
   "/incoming-status",
   authMiddleware,
   getIncomingCallStatus
+);
+router.get(
+  "/pending-incoming",
+  authMiddleware,
+  getPendingIncomingCall
 );
 router.get("/gifts", getCallGifts);
 router.post("/send-gift", sendCallGift);

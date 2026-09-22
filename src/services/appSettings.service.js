@@ -62,6 +62,7 @@ const DEFAULT_SETTINGS = {
   maleDailyBonusEnabled: 0,
   maleDailyBonusCoins: 10,
   maleDailyBonusAudience: "new",
+  femaleStoreEnabled: 0,
 };
 
 const normalizeFemaleVerificationMethod = (value) => {
@@ -193,6 +194,7 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
     ["maleDailyBonusEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
     ["maleDailyBonusCoins", "INT NOT NULL DEFAULT 10"],
     ["maleDailyBonusAudience", "VARCHAR(16) NOT NULL DEFAULT 'new'"],
+    ["femaleStoreEnabled", "TINYINT(1) NOT NULL DEFAULT 0"],
   ]) {
     await ensureColumn("admin_app_settings", column, definition);
   }
@@ -403,9 +405,25 @@ export const getAppSettings = async () => {
     maleDailyBonusAudience: parseStarFriendsAudience(
       row.maleDailyBonusAudience
     ),
+    femaleStoreEnabled: Boolean(Number(row.femaleStoreEnabled ?? 0)),
     ...forceUpdate,
     updatedAt: row.updatedAt || null,
   };
+};
+
+export const isFemaleStoreEnabled = async () => {
+  const settings = await getAppSettings();
+  return Boolean(settings.femaleStoreEnabled);
+};
+
+export const assertFemaleStoreEnabled = async () => {
+  const enabled = await isFemaleStoreEnabled();
+
+  if (!enabled) {
+    const error = new Error("Female store is currently disabled");
+    error.statusCode = 403;
+    throw error;
+  }
 };
 
 export const updateAppSettings = async ({
@@ -445,6 +463,7 @@ export const updateAppSettings = async ({
   maleDailyBonusEnabled,
   maleDailyBonusCoins,
   maleDailyBonusAudience,
+  femaleStoreEnabled,
   forceUpdateEnabled,
   minAndroidVersionCode,
   minIosBuildNumber,
@@ -789,6 +808,15 @@ export const updateAppSettings = async ({
       : maleDailyBonusAudience
   );
 
+  const nextFemaleStoreEnabled =
+    femaleStoreEnabled === undefined
+      ? current.femaleStoreEnabled
+        ? 1
+        : 0
+      : femaleStoreEnabled
+        ? 1
+        : 0;
+
   await sequelize.query(
     `UPDATE admin_app_settings
 SET languageMatchingEnabled = :languageMatchingEnabled,
@@ -827,6 +855,7 @@ starFriendsCallMode = :starFriendsCallMode,
 maleDailyBonusEnabled = :maleDailyBonusEnabled,
 maleDailyBonusCoins = :maleDailyBonusCoins,
 maleDailyBonusAudience = :maleDailyBonusAudience,
+femaleStoreEnabled = :femaleStoreEnabled,
 forceUpdateEnabled = :forceUpdateEnabled,
 minAndroidVersionCode = :minAndroidVersionCode,
 minIosBuildNumber = :minIosBuildNumber,
@@ -874,6 +903,7 @@ WHERE id = 1`,
         maleDailyBonusEnabled: nextMaleDailyBonusEnabled,
         maleDailyBonusCoins: nextMaleDailyBonusCoins,
         maleDailyBonusAudience: nextMaleDailyBonusAudience,
+        femaleStoreEnabled: nextFemaleStoreEnabled,
         forceUpdateEnabled: nextForceUpdate.forceUpdateEnabled ? 1 : 0,
         minAndroidVersionCode: nextForceUpdate.minAndroidVersionCode,
         minIosBuildNumber: nextForceUpdate.minIosBuildNumber,

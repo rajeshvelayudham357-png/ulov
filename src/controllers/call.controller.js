@@ -24,6 +24,9 @@ import {
 createQuickConnectSession,
 cancelQuickConnectSession,
 } from "../services/quickConnect.service.js";
+import {
+getPendingIncomingCallForReceiver,
+} from "../services/callIncomingRecovery.service.js";
 
 export const createVideoCall =
 async(req,res)=>{
@@ -317,6 +320,23 @@ export const reportCallDeliveryEvent = async (req, res) => {
     return res.json(result);
   } catch (error) {
     return res.status(400).json({ message: error.message });
+  }
+};
+
+export const getPendingIncomingCall = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const payload = await getPendingIncomingCallForReceiver(userId);
+    return res.json(payload);
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };
 
