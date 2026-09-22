@@ -129,6 +129,14 @@ import {
   getRevenueSummaryReport,
 } from "../services/adminRevenue.service.js";
 import { getAdminUsersList } from "../services/adminUsers.service.js";
+import {
+  getAdminSuspiciousUsersList,
+  getAdminSuspiciousUserIdsForFilters,
+} from "../services/adminSuspiciousUsers.service.js";
+import {
+  deleteAdminUserById,
+  AdminUserNotFoundError,
+} from "../services/adminUserDelete.service.js";
 import { getAdminCallsReport } from "../services/adminCalls.service.js";
 import {
   getAdminCreatorsList,
@@ -195,41 +203,118 @@ allowedPages:["*"]
 
 const ADMIN_PAGE_PERMISSIONS = [
 { key:"dashboard", label:"Dashboard", path:"/dashboard" },
+{ key:"analytics", label:"Analytics", path:"/analytics" },
+{ key:"analytics-growth", label:"Growth & Business", path:"/analytics/growth" },
 { key:"users", label:"Users", path:"/users" },
+{ key:"suspicious-users", label:"Suspicious Users", path:"/suspicious-users" },
 { key:"online-activity", label:"Online Activity", path:"/online-activity" },
 { key:"female-online", label:"Female Online Control", path:"/female-online" },
 { key:"male-users", label:"Male Users", path:"/male-users" },
+{ key:"male-wallet-coins", label:"Male Wallet Coins", path:"/male-wallet-coins" },
 { key:"male-last-login", label:"Male Last Login", path:"/male-last-login" },
 { key:"male-wallet-credit", label:"Male Wallet Credit", path:"/male-wallet-credit" },
+{ key:"creators", label:"Creators", path:"/creators" },
+{ key:"female-user-levels", label:"Female Levels", path:"/female-user-levels" },
 { key:"calls", label:"Calls", path:"/calls" },
+{ key:"call-history-male", label:"Male Call History", path:"/call-history-male" },
 { key:"live-calls", label:"Live Calls", path:"/live-calls" },
 { key:"call-rates", label:"Call Rates", path:"/call-rates" },
 { key:"agora-settings", label:"Agora Settings", path:"/agora-settings" },
-{ key:"gift-master", label:"Gift Master", path:"/gift-master" },
-{ key:"recharge-revenue", label:"Revenue", path:"/recharge-revenue" },
+{ key:"payouts", label:"Payouts", path:"/payouts" },
+{ key:"expected-payouts", label:"Expected Payouts", path:"/expected-payouts" },
+{ key:"daily-payouts", label:"Day-wise Payouts", path:"/daily-payouts" },
+{ key:"kyc", label:"KYC", path:"/kyc" },
+{ key:"recharge-revenue", label:"Recharge Revenue (Legacy)", path:"/recharge-revenue" },
+{ key:"revenue", label:"Revenue", path:"/revenue" },
+{ key:"daily-revenue", label:"Day-wise Revenue", path:"/daily-revenue" },
+{ key:"broadcast", label:"Broadcast", path:"/broadcast" },
+{ key:"scheduled-broadcast", label:"Scheduled Broadcast", path:"/scheduled-broadcast" },
+{ key:"user-notify", label:"User Notify", path:"/user-notify" },
+{ key:"female-scratch-reward", label:"Female Scratch Reward", path:"/female-scratch-reward" },
+{ key:"female-scratch-claims", label:"Female Scratch Claims", path:"/female-scratch-claims" },
+{ key:"male-scratch-reward", label:"Male Scratch Reward", path:"/male-scratch-reward" },
+{ key:"male-scratch-claims", label:"Male Scratch Claims", path:"/male-scratch-claims" },
+{ key:"support", label:"Support", path:"/support" },
+{ key:"withdraw", label:"Withdraw", path:"/withdraw" },
 { key:"gst-master", label:"GST Master", path:"/gst-master" },
 { key:"payment-settings", label:"Payment Settings", path:"/payment-settings" },
 { key:"auth-settings", label:"Auth Settings", path:"/auth-settings" },
 { key:"user-verification", label:"User Verification", path:"/user-verification" },
 { key:"app-settings", label:"App Settings", path:"/app-settings" },
 { key:"regular-gold-packages", label:"Regular Gold Packages", path:"/regular-gold-packages" },
-{ key:"user-levels", label:"User Levels", path:"/user-levels" },
+{ key:"user-levels", label:"User Levels (Male)", path:"/user-levels" },
+{ key:"gift-master", label:"Gift Master", path:"/gift-master" },
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
 { key:"voice-rooms", label:"Voice Rooms", path:"/voice-rooms" },
+{ key:"battles", label:"Gift Battles Settings", path:"/battles" },
+{ key:"live-battles", label:"Live Battles", path:"/battles/live" },
+{ key:"finished-battles", label:"Finished Battles", path:"/battles/finished" },
 { key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
 { key:"task-claims", label:"Task Claims", path:"/task-claims" },
-{ key:"broadcast", label:"Broadcast", path:"/broadcast" },
-{ key:"user-notify", label:"User Notify", path:"/user-notify" },
-{ key:"female-scratch-reward", label:"Female Scratch Reward", path:"/female-scratch-reward" },
-{ key:"male-scratch-reward", label:"Male Scratch Reward", path:"/male-scratch-reward" },
-{ key:"support", label:"Support", path:"/support" },
-{ key:"withdraw", label:"Withdraw", path:"/withdraw" },
-{ key:"kyc", label:"KYC", path:"/kyc" },
-{ key:"creators", label:"Creators", path:"/creators" },
-{ key:"payouts", label:"Payouts", path:"/payouts" },
-{ key:"account-deletion", label:"Account Deletion", path:"/account-deletion" },
-{ key:"analytics", label:"Analytics", path:"/analytics" }
+{ key:"account-deletion", label:"Account Deletion", path:"/account-deletion" }
 ];
+
+const ADMIN_PAGE_ACCESS_ALIASES = {
+"analytics-growth":["analytics"],
+"male-wallet-coins":["male-users"],
+"female-user-levels":["user-levels"],
+"call-history-male":["calls"],
+revenue:["recharge-revenue"],
+"daily-revenue":["recharge-revenue"],
+"expected-payouts":["payouts"],
+"daily-payouts":["payouts"],
+"scheduled-broadcast":["broadcast"],
+"female-scratch-claims":["female-scratch-reward"],
+"male-scratch-claims":["male-scratch-reward"],
+"live-battles":["battles"],
+"finished-battles":["battles"]
+};
+
+const hasPageAccess = (
+allowedPages,
+pageKey
+)=>{
+
+if(
+!Array.isArray(
+allowedPages
+)
+){
+
+return false;
+
+}
+
+if(
+allowedPages.includes(
+"*"
+)
+){
+
+return true;
+
+}
+
+if(
+allowedPages.includes(
+pageKey
+)
+){
+
+return true;
+
+}
+
+const legacyKeys =
+ADMIN_PAGE_ACCESS_ALIASES[pageKey] || [];
+
+return legacyKeys.some(
+(key)=>allowedPages.includes(
+key
+)
+);
+
+};
 
 let adminUsersTableReady =
 false;
@@ -653,7 +738,10 @@ Array.isArray(pageKey)
 
 if(
 requiredPages.some(
-(key)=>allowedPages.includes(key)
+(key)=>hasPageAccess(
+allowedPages,
+key
+)
 )
 ){
 
@@ -1000,6 +1088,81 @@ message:error.message
 
 };
 
+
+
+
+export const deleteAdminUser =
+async (
+req,
+res
+)=>{
+
+try{
+
+await ensureAdminUsersTable();
+
+const id =
+String(req.params.id || "").trim();
+
+if(
+!id
+){
+
+return res
+.status(400)
+.json({
+message:"Admin user id is required"
+});
+
+}
+
+const existing =
+await sequelize.query(
+"SELECT id FROM admin_users WHERE id = :id LIMIT 1",
+{
+replacements:{
+id
+},
+type:QueryTypes.SELECT
+}
+);
+
+if(
+!existing.length
+){
+
+return res
+.status(404)
+.json({
+message:"Admin user not found"
+});
+
+}
+
+await sequelize.query(
+"DELETE FROM admin_users WHERE id = :id",
+{
+replacements:{
+id
+}
+}
+);
+
+return res.json({
+message:"Admin user deleted"
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
 
 export const getCallRateConfig =
 async(
@@ -2444,6 +2607,82 @@ export const users = async (req, res) => {
     return res.json(report);
   } catch (error) {
     console.log("ADMIN USERS ERROR", error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+
+// ===================================
+// SUSPICIOUS USERS (PHONE RULES)
+// ===================================
+
+
+export const listSuspiciousUsers = async (req, res) => {
+  try {
+    const report = await getAdminSuspiciousUsersList({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+      gender: req.query.gender,
+      reason: req.query.reason,
+    });
+    return res.json(report);
+  } catch (error) {
+    console.log("ADMIN SUSPICIOUS USERS ERROR", error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+const SUSPICIOUS_USERS_BULK_DELETE_BATCH = 150;
+
+const readSuspiciousUserFilters = (req) => ({
+  search: req.body?.search ?? req.query.search ?? "",
+  gender: req.body?.gender ?? req.query.gender ?? "all",
+  reason: req.body?.reason ?? req.query.reason ?? "all",
+});
+
+export const bulkDeleteSuspiciousUsers = async (req, res) => {
+  try {
+    const filters = readSuspiciousUserFilters(req);
+    const userIds = await getAdminSuspiciousUserIdsForFilters(filters);
+
+    if (userIds.length === 0) {
+      return res.status(400).json({
+        message: "No suspicious users match the current filters.",
+      });
+    }
+
+    const batchIds = userIds.slice(0, SUSPICIOUS_USERS_BULK_DELETE_BATCH);
+
+    let deleted = 0;
+    const failures = [];
+
+    for (const id of batchIds) {
+      try {
+        await deleteAdminUserById(id);
+        deleted += 1;
+      } catch (error) {
+        failures.push({
+          id,
+          message: error?.message || "Delete failed",
+        });
+      }
+    }
+
+    const processed = deleted + failures.length;
+    const remaining = Math.max(0, userIds.length - processed);
+
+    return res.json({
+      success: failures.length === 0,
+      deleted,
+      failed: failures.length,
+      matched: userIds.length,
+      remaining,
+      hasMore: remaining > 0,
+      failures: failures.slice(0, 25),
+    });
+  } catch (error) {
+    console.log("ADMIN SUSPICIOUS USERS BULK DELETE ERROR", error);
     return res.status(500).json({ message: error.message });
   }
 };
@@ -5603,233 +5842,19 @@ message:error.message
 // ===================================
 
 
-export const deleteUser =
-async(
-req,
-res
-)=>{
-
-const userId =
-req.params.id;
-
-const transaction =
-await sequelize.transaction();
-
-try{
-
-const user =
-await User.findByPk(
-userId,
-{
-transaction
-}
-);
-
-if(
-!user
-){
-
-await transaction.rollback();
-
-return res
-.status(404)
-.json({
-message:"User not found"
-});
-
-}
-
-const callRows =
-await CallHistory.findAll({
-where:{
-[Op.or]:[
-{ callerId:userId },
-{ receiverId:userId }
-]
-},
-attributes:[
-"id"
-],
-transaction
-});
-
-const callIds =
-callRows.map(
-(row)=>row.id
-);
-
-if(
-callIds.length
-){
-
-await Earning.destroy({
-where:{
-callId:{
-[Op.in]:callIds
-}
-},
-transaction
-});
-
-await CallRating.destroy({
-where:{
-[Op.or]:[
-{
-callHistoryId:{
-[Op.in]:callIds
-}
-},
-{ callerId:userId },
-{ femaleId:userId }
-]
-},
-transaction
-});
-
-}
-
-await Promise.all([
-WalletTransaction.destroy({
-where:{ userId },
-transaction
-}),
-PaymentOrder.destroy({
-where:{ userId },
-transaction
-}),
-Wallet.destroy({
-where:{ userId },
-transaction
-}),
-Favorite.destroy({
-where:{
-[Op.or]:[
-{ userId },
-{ favoriteUserId:userId }
-]
-},
-transaction
-}),
-Earning.destroy({
-where:{ userId },
-transaction
-}),
-Withdraw.destroy({
-where:{ userId },
-transaction
-}),
-Kyc.destroy({
-where:{ userId },
-transaction
-}),
-DeviceToken.destroy({
-where:{ userId },
-transaction
-}),
-NotificationRecord.destroy({
-where:{ userId },
-transaction
-}),
-ChatMessage.destroy({
-where:{
-[Op.or]:[
-{ senderId:userId },
-{ receiverId:userId }
-]
-},
-transaction
-}),
-CallGiftRecord.destroy({
-where:{
-[Op.or]:[
-{ senderId:userId },
-{ receiverId:userId }
-]
-},
-transaction
-}),
-Block.destroy({
-where:{
-[Op.or]:[
-{ blockerId:userId },
-{ blockedUserId:userId }
-]
-},
-transaction
-}),
-AccountDeletionRequest.destroy({
-where:{ userId },
-transaction
-})
-]);
-
-const tickets =
-await SupportTicket.findAll({
-where:{ userId },
-attributes:[
-"id"
-],
-transaction
-});
-
-const ticketIds =
-tickets.map(
-(ticket)=>ticket.id
-);
-
-if(
-ticketIds.length
-){
-
-await SupportMessage.destroy({
-where:{
-ticketId:{
-[Op.in]:ticketIds
-}
-},
-transaction
-});
-
-await SupportTicket.destroy({
-where:{ userId },
-transaction
-});
-
-}
-
-await CallHistory.destroy({
-where:{
-[Op.or]:[
-{ callerId:userId },
-{ receiverId:userId }
-]
-},
-transaction
-});
-
-await user.destroy({
-transaction
-});
-
-await transaction.commit();
-
-return res.json({
-success:true,
-message:"User deleted"
-});
-
-}catch(error){
-
-await transaction.rollback();
-
-return res
-.status(500)
-.json({
-message:error.message
-});
-
-}
-
+export const deleteUser = async (req, res) => {
+  try {
+    await deleteAdminUserById(req.params.id);
+    return res.json({
+      success: true,
+      message: "User deleted",
+    });
+  } catch (error) {
+    if (error instanceof AdminUserNotFoundError) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 

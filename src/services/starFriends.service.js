@@ -193,6 +193,9 @@ export const getStarFriendsProfiles = async (userIds) => {
 export const searchStarFriendsCandidates = async (search = "") => {
   const where = {
     ...femaleUserWhere,
+    online: {
+      [Op.in]: [true, 1],
+    },
     [Op.or]: [
       {
         accountStatus: {

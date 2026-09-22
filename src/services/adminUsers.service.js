@@ -24,6 +24,12 @@ export const getAdminUserDisplayName = (user = {}) =>
   user.phone ||
   `User ${user.id ?? ""}`.trim();
 
+/** Matches Users admin grid: Profile column shows "Pending" when profileCompleted is falsy. */
+export const isAdminProfilePending = (user = {}) => {
+  const data = user?.toJSON ? user.toJSON() : user;
+  return !data.profileCompleted;
+};
+
 export const buildAdminUsersSearchWhere = (search = "") => {
   const trimmed = String(search || "").trim();
 

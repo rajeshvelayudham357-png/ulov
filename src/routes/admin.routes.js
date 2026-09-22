@@ -21,6 +21,8 @@ import {
 
     updateAdminUser,
 
+    deleteAdminUser,
+
     getCallRateConfig,
 
     updateCallRateConfig,
@@ -60,6 +62,10 @@ import {
     dashboard,
     
     users,
+
+    listSuspiciousUsers,
+
+    bulkDeleteSuspiciousUsers,
 
     maleUsers,
 
@@ -310,6 +316,12 @@ requireSuperAdmin,
 updateAdminUser
 );
 
+router.delete(
+"/admin-users/:id",
+requireSuperAdmin,
+deleteAdminUser
+);
+
 
 router.get(
 "/call-rates",
@@ -380,7 +392,7 @@ getUserLevelsAdmin
 
 router.get(
 "/female-user-levels",
-requirePageAccess("user-levels"),
+requirePageAccess("female-user-levels"),
 getFemaleUserLevelsAdmin
 );
 
@@ -509,25 +521,25 @@ getBattleAdminSettingsHandler
 
 router.get(
 "/battles/live",
-requirePageAccess("battles"),
+requirePageAccess("live-battles"),
 listAdminLiveBattlesHandler
 );
 
 router.get(
 "/battles/finished",
-requirePageAccess("battles"),
+requirePageAccess("finished-battles"),
 listAdminFinishedBattlesHandler
 );
 
 router.get(
 "/battles/:battleId/viewers",
-requirePageAccess("battles"),
+requirePageAccess("finished-battles"),
 getAdminBattleViewersHandler
 );
 
 router.delete(
 "/battles/:battleId",
-requirePageAccess("battles"),
+requirePageAccess("live-battles"),
 deleteAdminBattleHandler
 );
 
@@ -593,6 +605,18 @@ requirePageAccess("users"),
 users
 );
 
+router.get(
+"/suspicious-users",
+requirePageAccess("suspicious-users"),
+listSuspiciousUsers
+);
+
+router.post(
+"/suspicious-users/bulk-delete",
+requirePageAccess("suspicious-users"),
+bulkDeleteSuspiciousUsers
+);
+
 
 router.get(
 "/online-activity",
@@ -609,7 +633,7 @@ maleUsers
 
 router.get(
   "/male-wallet-coins",
-  requirePageAccess("male-users"),
+  requirePageAccess("male-wallet-coins"),
   getMaleWalletCoins
 );
 
@@ -644,7 +668,7 @@ calls
 
 router.get(
 "/male-call-history",
-requirePageAccess("calls"),
+requirePageAccess("call-history-male"),
 maleCallHistory
 );
 
@@ -758,74 +782,74 @@ router.get(
 
 router.get(
   "/analytics/growth/bootstrap",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthBootstrap
 );
 
 router.get(
   "/analytics/growth/calls",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthCalls
 );
 
 router.get(
   "/analytics/growth/creators",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthCreators
 );
 
 router.get(
   "/analytics/growth/monetization",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthMonetization
 );
 
 router.get(
   "/analytics/growth/revenue",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthRevenue
 );
 
 router.get(
   "/analytics/growth/retention",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthRetention
 );
 
 router.get(
   "/analytics/growth/activity",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthActivity
 );
 
 router.get(
   "/analytics/growth/health",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthHealth
 );
 
 router.get(
   "/analytics/growth/insights",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthInsights
 );
 
 router.get(
   "/analytics/growth/acquisition",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthAcquisition
 );
 
 router.get(
   "/analytics/growth/attribution",
-  requirePageAccess("analytics"),
+  requirePageAccess("analytics-growth"),
   getGrowthAttribution
 );
 
 
 router.get(
 "/revenue",
-requirePageAccess("recharge-revenue"),
+requirePageAccess("revenue"),
 revenue
 );
 
@@ -895,7 +919,7 @@ router.post(
 
     router.delete(
       "/users/:id",
-      requirePageAccess("users"),
+      requirePageAccess(["users", "suspicious-users"]),
       deleteUser
     );
     
@@ -1013,31 +1037,31 @@ createIndividualBroadcast
 
 router.get(
 "/broadcast/schedules/summary",
-requirePageAccess("broadcast"),
+requirePageAccess("scheduled-broadcast"),
 getBroadcastScheduleSummary
 );
 
 router.get(
 "/broadcast/schedules",
-requirePageAccess("broadcast"),
+requirePageAccess("scheduled-broadcast"),
 getBroadcastSchedules
 );
 
 router.post(
 "/broadcast/schedules",
-requirePageAccess("broadcast"),
+requirePageAccess("scheduled-broadcast"),
 createBroadcastScheduleHandler
 );
 
 router.patch(
 "/broadcast/schedules/:id",
-requirePageAccess("broadcast"),
+requirePageAccess("scheduled-broadcast"),
 updateBroadcastScheduleHandler
 );
 
 router.delete(
 "/broadcast/schedules/:id",
-requirePageAccess("broadcast"),
+requirePageAccess("scheduled-broadcast"),
 cancelBroadcastScheduleHandler
 );
 
@@ -1085,7 +1109,7 @@ router.post(
 
 router.get(
   "/female-scratch-rewards/:id/claims",
-  requirePageAccess("female-scratch-reward"),
+  requirePageAccess("female-scratch-claims"),
   listScratchRewardClaims
 );
 
@@ -1121,7 +1145,7 @@ router.post(
 
 router.get(
   "/male-scratch-rewards/:id/claims",
-  requirePageAccess("male-scratch-reward"),
+  requirePageAccess("male-scratch-claims"),
   listMaleScratchRewardClaims
 );
 
@@ -1201,20 +1225,20 @@ adminUpdateStatus
 router.get('/revenue/recharges', requirePageAccess('recharge-revenue'), revenueRecharges);
 router.get('/revenue/summary', requirePageAccess('recharge-revenue'), revenueSummary);
 router.get('/revenue/analytics', requirePageAccess('recharge-revenue'), revenueAnalytics);
-router.get('/revenue/daily', requirePageAccess('recharge-revenue'), getDailyRevenue);
+router.get('/revenue/daily', requirePageAccess('daily-revenue'), getDailyRevenue);
 router.get('/revenue/exclude-users', requirePageAccess('recharge-revenue'), getRevenueExcludeUsersConfig);
 router.get('/revenue/exclude-users/search', requirePageAccess('recharge-revenue'), searchRevenueExcludeUsers);
 router.put('/revenue/exclude-users', requirePageAccess('recharge-revenue'), updateRevenueExcludeUsersConfig);
 
 router.get(
   "/expected-payouts",
-  requirePageAccess("payouts"),
+  requirePageAccess("expected-payouts"),
   getExpectedPayouts
 );
 
 router.get(
   "/payouts/daily",
-  requirePageAccess("payouts"),
+  requirePageAccess("daily-payouts"),
   getDailyPayout
 );
 
