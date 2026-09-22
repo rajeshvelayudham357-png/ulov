@@ -101,8 +101,11 @@ import {
    return res.json({
    
    
-   totalGold: spendableGold,
+   // Keep totalGold as lifetime earned coins for older app builds.
+   totalGold,
    earnedGold: totalGold,
+   spendableGold,
+   goldBalance: spendableGold,
    
    
    totalAmount,
