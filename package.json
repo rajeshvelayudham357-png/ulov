@@ -7,6 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/scripts/runMigrations.js",
+    "backfill:engagement": "node src/scripts/runEngagementBackfill.js",
+    "cleanup:engagement-epoch": "node src/scripts/runEngagementEpochCleanup.js",
     "test": "node --test --test-concurrency=1 src/services/__tests__/*.test.js src/services/__tests__/*.integration.test.js"
   },
   "keywords": [],

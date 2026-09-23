@@ -185,6 +185,8 @@ import {
   listMaleLoginActivity,
 } from "../controllers/maleLoginActivity.controller.js";
 
+import { listMaleEngagement } from "../controllers/maleEngagement.controller.js";
+
 import {
   getStarFriendsAdmin,
   searchStarFriendsAdminUsers,
@@ -1163,6 +1165,12 @@ router.get(
   "/male-last-login",
   requirePageAccess("male-last-login"),
   listMaleLoginActivity
+);
+
+router.get(
+  "/male-engagement",
+  requirePageAccess("male-engagement"),
+  listMaleEngagement
 );
 
 router.get(

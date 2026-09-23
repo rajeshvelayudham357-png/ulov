@@ -12,6 +12,7 @@ import {
 } from "../constants/quickConnect.js";
 import { normalizeCallTypeForDb } from "../constants/callTypes.js";
 import { CallHistory, User } from "../models/index.js";
+import { recordCallAttemptedFromNewCallHistory } from "./engagementRecord.service.js";
 import { generateAgoraToken, getAgoraAppId } from "./agora.service.js";
 import { areUsersBlocked } from "./block.service.js";
 import {
@@ -874,6 +875,8 @@ export const startNextQuickConnectAttempt = async ({
         coinsSpent: 0,
         status: "ringing",
       });
+
+      recordCallAttemptedFromNewCallHistory(callHistory);
 
       callHistoryId = callHistory.id;
 

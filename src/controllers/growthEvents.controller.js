@@ -1,21 +1,30 @@
 import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { trackGrowthEvent } from "../services/growthEvents.service.js";
 import { extractGrowthAttribution } from "../utils/growthAttribution.util.js";
+import { resolveAuthenticatedUserIdFromRequest } from "../utils/growthEventAuth.util.js";
 
 const PUBLIC_EVENTS = new Set([
   GROWTH_EVENT_NAMES.AD_IMPRESSION,
   GROWTH_EVENT_NAMES.STORE_VISIT,
   GROWTH_EVENT_NAMES.APP_INSTALL,
-  GROWTH_EVENT_NAMES.APP_OPEN,
-  GROWTH_EVENT_NAMES.SESSION_STARTED,
 ]);
 
-const AUTHENTICATED_EVENTS = new Set([
+const BODY_USER_EVENTS = new Set([
   GROWTH_EVENT_NAMES.CREATOR_PROFILE_VIEWED,
   GROWTH_EVENT_NAMES.REGISTRATION_STARTED,
 ]);
 
-const PUBLIC_ALLOWED_EVENTS = new Set([...PUBLIC_EVENTS, ...AUTHENTICATED_EVENTS]);
+/** Requires valid Bearer JWT; userId is taken from the token. */
+const TOKEN_REQUIRED_EVENTS = new Set([
+  GROWTH_EVENT_NAMES.APP_OPEN,
+  GROWTH_EVENT_NAMES.SESSION_STARTED,
+]);
+
+const PUBLIC_ALLOWED_EVENTS = new Set([
+  ...PUBLIC_EVENTS,
+  ...BODY_USER_EVENTS,
+  ...TOKEN_REQUIRED_EVENTS,
+]);
 
 const MAX_PUBLIC_BODY_BYTES = 16_384;
 
@@ -47,9 +56,26 @@ export const trackPublicGrowthEvent = async (req, res) => {
     }
 
     const attribution = extractGrowthAttribution(req);
-    const userId = resolveUserId(req);
+    let userId = resolveUserId(req);
 
-    if (AUTHENTICATED_EVENTS.has(eventName) && !userId) {
+    if (TOKEN_REQUIRED_EVENTS.has(eventName)) {
+      const authUserId = resolveAuthenticatedUserIdFromRequest(req);
+      if (!authUserId) {
+        return res.status(401).json({
+          message: "Authentication required",
+        });
+      }
+
+      if (userId && userId !== authUserId) {
+        return res.status(403).json({
+          message: "userId does not match authenticated user",
+        });
+      }
+
+      userId = authUserId;
+    }
+
+    if (BODY_USER_EVENTS.has(eventName) && !userId) {
       return res.status(400).json({
         message: "userId is required for this event",
       });
@@ -57,7 +83,8 @@ export const trackPublicGrowthEvent = async (req, res) => {
 
     if (
       !PUBLIC_EVENTS.has(eventName) &&
-      !AUTHENTICATED_EVENTS.has(eventName) &&
+      !BODY_USER_EVENTS.has(eventName) &&
+      !TOKEN_REQUIRED_EVENTS.has(eventName) &&
       !userId &&
       !attribution.anonymousId
     ) {

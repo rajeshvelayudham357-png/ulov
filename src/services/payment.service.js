@@ -36,6 +36,8 @@ import {
   refundPhonePePayment as executePhonePeRefund,
 } from "./phonepe.service.js";
 import { trackGrowthEventAsync } from "./growthEvents.service.js";
+import { recordEngagementAsync } from "./engagementRecord.service.js";
+import { ENGAGEMENT_EVENT_TYPES } from "../constants/engagementEventTypes.js";
 
 const PAID_STATUSES = new Set(["PAID", "SUCCESS", "CAPTURED"]);
 const PAID_STATUS_LIST = [...PAID_STATUSES];
@@ -439,6 +441,12 @@ export const creditWalletForPayment = async (
     if (!result.alreadyPaid) {
       emitPaymentGrowthEvents(result.paymentOrder, {
         isFirstPayment: result.isFirstPayment,
+      });
+
+      recordEngagementAsync({
+        userId: result.paymentOrder.userId,
+        eventType: ENGAGEMENT_EVENT_TYPES.RECHARGE_COMPLETED,
+        occurredAt: new Date(),
       });
 
       try {

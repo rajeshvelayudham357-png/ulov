@@ -11,6 +11,10 @@ import {
 } from "../constants/growthEventDefinitions.js";
 import { ensureGrowthEventSchema } from "./growthEventSchema.service.js";
 import {
+  mapGrowthEventToEngagement,
+  recordEngagementAsync,
+} from "./engagementRecord.service.js";
+import {
   linkAnonymousAttributionToUser,
   upsertAttributionTouch,
 } from "./userAttribution.service.js";
@@ -94,6 +98,12 @@ const buildIdempotencyKey = ({ eventName, userId, creatorId, anonymousId, metada
   }
   if (eventName === "CHAT_STARTED" && metadata?.senderId && metadata?.receiverId) {
     return `chat_started:${metadata.senderId}:${metadata.receiverId}`;
+  }
+  if (eventName === "APP_OPEN" && userId && metadata?.processLaunchId) {
+    return `app_open:${userId}:${metadata.processLaunchId}`;
+  }
+  if (eventName === "SESSION_STARTED" && userId && metadata?.sessionKey) {
+    return `session_started:${userId}:${metadata.sessionKey}`;
   }
 
   return null;
@@ -221,6 +231,15 @@ export const trackGrowthEvent = async (payload = {}) => {
        )`,
       { replacements, type: QueryTypes.INSERT }
     );
+
+    const engagementEventType = mapGrowthEventToEngagement(eventName);
+    if (engagementEventType && userId) {
+      recordEngagementAsync({
+        userId,
+        eventType: engagementEventType,
+        occurredAt: replacements.createdAt,
+      });
+    }
 
     return { tracked: true, eventId: result };
   } catch (error) {

@@ -11,6 +11,9 @@ normalizeCallTypeForDb
 import {
 calculateCallBilling
 } from "./callRate.service.js";
+import {
+  recordCallCompletedFromHistory,
+} from "./engagementRecord.service.js";
 
 export const ACTIVE_CALL_STATUSES = [
 "live",
@@ -258,6 +261,8 @@ TERMINAL_CALL_STATUSES.includes(history.status)
  receiverId
  );
 
+ recordCallCompletedFromHistory(history);
+
  return {
   history,
   earning,
@@ -291,6 +296,8 @@ await upsertCallEarning(
 history.id,
 receiverId
 );
+
+recordCallCompletedFromHistory(history);
 
 return {
  history,

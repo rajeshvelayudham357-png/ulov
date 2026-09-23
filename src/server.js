@@ -77,6 +77,7 @@ import { CALL_MODES, ATTEMPT_STATUS } from "./constants/quickConnect.js";
 import { startQuickConnectWatchdog } from "./services/quickConnectWatchdog.service.js";
 import { startFemaleOnlineScheduler } from "./services/femaleOnlineScheduler.service.js";
 import { startBattleExpireWatchdog } from "./services/battleExpireWatchdog.service.js";
+import { recordCallAttemptedFromNewCallHistory } from "./services/engagementRecord.service.js";
 
 
 
@@ -324,7 +325,8 @@ return activeCall;
 
 }
 
-return CallHistory.create({
+const createdCall =
+await CallHistory.create({
 callerId:data.callerId,
 receiverId:data.receiverId,
 type:data.type || "video",
@@ -332,6 +334,10 @@ duration:0,
 coinsSpent:0,
 status
 });
+
+recordCallAttemptedFromNewCallHistory(createdCall);
+
+return createdCall;
 
 };
 

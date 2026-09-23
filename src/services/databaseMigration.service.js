@@ -165,6 +165,10 @@ export const runDatabaseMigrations = async () => {
     "./growthEventSchema.service.js"
   );
   await ensureGrowthEventSchema();
+  const { ensureUserEngagementStatsSchema } = await import(
+    "./userEngagementSchema.service.js"
+  );
+  await ensureUserEngagementStatsSchema();
   const { ensureQuickConnectSchema } = await import(
     "./quickConnectSchema.service.js"
   );

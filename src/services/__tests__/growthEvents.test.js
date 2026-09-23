@@ -141,4 +141,5 @@ test("public endpoint allowlist excludes server-side business events", () => {
   assert.equal(publicAllowed.has("PROFILE_COMPLETED"), false);
   assert.equal(publicAllowed.has("CHAT_STARTED"), false);
   assert.equal(publicAllowed.has("APP_OPEN"), true);
+  assert.equal(publicAllowed.has("SESSION_STARTED"), true);
 });

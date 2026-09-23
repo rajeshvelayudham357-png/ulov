@@ -4,6 +4,9 @@ import {
 areUsersBlocked
 } from "../services/block.service.js";
 import {
+  recordCallAttemptedFromNewCallHistory,
+} from "../services/engagementRecord.service.js";
+import {
 findActiveCallByPair,
 getChannelNameForCall,
 isReceiverBusyWithOther,
@@ -220,6 +223,8 @@ duration:0,
 coinsSpent:0,
 status:"live"
 });
+
+recordCallAttemptedFromNewCallHistory(liveCall);
 
 }
 

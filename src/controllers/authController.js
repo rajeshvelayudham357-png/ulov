@@ -27,6 +27,10 @@ verifyPinHash,
 } from "../services/pinAuth.service.js";
 import { GROWTH_EVENT_NAMES } from "../constants/growthEventDefinitions.js";
 import { trackGrowthEventAsync } from "../services/growthEvents.service.js";
+import {
+  recordEngagementAsync,
+} from "../services/engagementRecord.service.js";
+import { ENGAGEMENT_EVENT_TYPES } from "../constants/engagementEventTypes.js";
 import { extractGrowthAttribution } from "../utils/growthAttribution.util.js";
 import {
 assertDeviceAllowedForRegistration,
@@ -64,6 +68,12 @@ const completePhoneAuth = async (res, user) => {
   await user.update({
     lastLoginAt: now,
     lastSeen: now,
+  });
+
+  recordEngagementAsync({
+    userId: user.id,
+    eventType: ENGAGEMENT_EVENT_TYPES.AUTH_LOGIN,
+    occurredAt: now,
   });
 
   const token = issueAuthToken(user);
@@ -981,6 +991,12 @@ message: error.message,
   await user.update({
     lastLoginAt: now,
     lastSeen: now,
+  });
+
+  recordEngagementAsync({
+    userId: user.id,
+    eventType: ENGAGEMENT_EVENT_TYPES.AUTH_LOGIN,
+    occurredAt: now,
   });
 
   if (created) {
