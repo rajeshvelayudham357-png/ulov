@@ -208,6 +208,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"users", label:"Users", path:"/users" },
 { key:"suspicious-users", label:"Suspicious Users", path:"/suspicious-users" },
 { key:"online-activity", label:"Online Activity", path:"/online-activity" },
+{ key:"active-users", label:"Active Users Now", path:"/active-users" },
 { key:"female-online", label:"Female Online Control", path:"/female-online" },
 { key:"male-users", label:"Male Users", path:"/male-users" },
 { key:"male-wallet-coins", label:"Male Wallet Coins", path:"/male-wallet-coins" },
@@ -256,6 +257,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 
 const ADMIN_PAGE_ACCESS_ALIASES = {
 "analytics-growth":["analytics"],
+"active-users":["online-activity","users"],
 "male-wallet-coins":["male-users"],
 "female-user-levels":["user-levels"],
 "call-history-male":["calls"],

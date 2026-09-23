@@ -62,6 +62,7 @@ recordFemaleOnlineSessionEnd
 import { setSocketInstance as setAppSettingsSocketInstance } from "./services/appSettings.service.js";
 import { setSocketInstance as setGoogleBillingSocketInstance } from "./services/googleBilling.service.js";
 import { setFemaleOfflineSocketInstance } from "./services/femaleOffline.service.js";
+import { initSocketPresence } from "./services/socketPresence.service.js";
 import {
   setQuickConnectRuntime,
   resolveQuickConnectContext,
@@ -175,6 +176,8 @@ initNotificationPush(
 io,
 onlineUsers
 );
+
+initSocketPresence(onlineUsers);
 
 setFemaleOfflineSocketInstance(
 io,

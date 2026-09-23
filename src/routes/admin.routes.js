@@ -205,6 +205,10 @@ getUserOnlineActivity
 } from "../controllers/onlineActivity.controller.js";
 
 import {
+  listActiveUsersNow,
+} from "../controllers/activeUsersAdmin.controller.js";
+
+import {
 adminGetTicket,
 adminListTickets,
 adminSendMessage,
@@ -622,6 +626,12 @@ router.get(
 "/online-activity",
 requirePageAccess("online-activity"),
 getUserOnlineActivity
+);
+
+router.get(
+  "/active-users",
+  requirePageAccess("active-users"),
+  listActiveUsersNow
 );
 
 
