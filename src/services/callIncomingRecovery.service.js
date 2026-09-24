@@ -9,6 +9,26 @@ import {
 
 export const PENDING_INCOMING_CALL_STATUSES = ["live", "ringing"];
 
+/** Align with female ring timeout + buffer; stale rows must not replay on app open. */
+export const MAX_PENDING_INCOMING_AGE_MS = 120_000;
+
+export const isIncomingCallWithinDeliveryWindow = (call) => {
+  if (!call) {
+    return false;
+  }
+
+  const createdAt =
+    call.createdAt instanceof Date
+      ? call.createdAt.getTime()
+      : new Date(call.createdAt).getTime();
+
+  if (!Number.isFinite(createdAt)) {
+    return false;
+  }
+
+  return Date.now() - createdAt <= MAX_PENDING_INCOMING_AGE_MS;
+};
+
 export const findPendingIncomingCallForReceiver = async (receiverId) => {
   const normalizedReceiverId = Number(receiverId);
 
@@ -16,11 +36,16 @@ export const findPendingIncomingCallForReceiver = async (receiverId) => {
     return null;
   }
 
+  const minCreatedAt = new Date(Date.now() - MAX_PENDING_INCOMING_AGE_MS);
+
   return CallHistory.findOne({
     where: {
       receiverId: normalizedReceiverId,
       status: {
         [Op.in]: PENDING_INCOMING_CALL_STATUSES,
+      },
+      createdAt: {
+        [Op.gte]: minCreatedAt,
       },
     },
     order: [["createdAt", "DESC"]],

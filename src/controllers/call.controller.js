@@ -29,6 +29,7 @@ cancelQuickConnectSession,
 } from "../services/quickConnect.service.js";
 import {
 getPendingIncomingCallForReceiver,
+isIncomingCallWithinDeliveryWindow,
 } from "../services/callIncomingRecovery.service.js";
 
 export const createVideoCall =
@@ -403,9 +404,13 @@ export const getIncomingCallStatus = async (req, res) => {
 
     const status = String(row.status || "");
 
+    const withinWindow = isIncomingCallWithinDeliveryWindow(row);
+
     return res.json({
-      active: ACTIVE_CALL_STATUSES.includes(status),
-      status,
+      active:
+        withinWindow &&
+        ACTIVE_CALL_STATUSES.includes(status),
+      status: withinWindow ? status : "expired",
       callId: row.id,
     });
   } catch (error) {

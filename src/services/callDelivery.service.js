@@ -1,6 +1,7 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
 import { notifyIncomingCall } from "./notificationPush.service.js";
+import { traceCallDelivery } from "../utils/callDeliveryTrace.util.js";
 
 let tableReady = false;
 
@@ -127,17 +128,6 @@ export const routeIncomingCallToCreator = async ({
     };
   }
 
-  await logCallDeliveryEvent({
-    callId: callId || `pending_${callerId}_${creatorId}_${Date.now()}`,
-    callerId,
-    creatorId,
-    event: "CALL_ROUTING_STARTED",
-    metadata: {
-      creatorOnlineInDb: Boolean(creatorOnlineInDb),
-      hasCallId: Boolean(callId),
-    },
-  });
-
   const payload = {
     ...data,
     callId,
@@ -145,92 +135,121 @@ export const routeIncomingCallToCreator = async ({
   };
 
   const receiverSocket = onlineUsers?.get(String(creatorId));
-  let socketDelivered = false;
+  const socketFound = Boolean(receiverSocket);
 
-  await logCallDeliveryEvent({
-    callId: callId || `pending_${callerId}_${creatorId}`,
-    callerId,
-    creatorId,
-    event: "SOCKET_ATTEMPTED",
-    metadata: {
-      socketConnected: Boolean(receiverSocket),
-    },
+  traceCallDelivery({
+    stage: "RECEIVER_SOCKET_LOOKUP",
+    callId,
+    receiverId: String(creatorId),
+    socketFound,
+    socketId: socketFound ? String(receiverSocket) : null,
   });
 
+  let socketDelivered = false;
+
   if (receiverSocket) {
+    traceCallDelivery({
+      stage: "SOCKET_EMIT_START",
+      callId,
+      receiverId: String(creatorId),
+      socketId: String(receiverSocket),
+    });
+
     io.to(receiverSocket).emit("incoming-call", payload);
     socketDelivered = true;
 
-    await logCallDeliveryEvent({
-      callId: callId || `pending_${callerId}_${creatorId}`,
-      callerId,
-      creatorId,
-      event: "SOCKET_DELIVERED",
-      metadata: {
-        socketConnected: true,
-      },
+    traceCallDelivery({
+      stage: "SOCKET_EMIT_COMPLETE",
+      callId,
+      receiverId: String(creatorId),
+      socketId: String(receiverSocket),
     });
   } else {
+    traceCallDelivery({
+      stage: "SOCKET_SKIPPED_NO_CONNECTION",
+      callId,
+      receiverId: String(creatorId),
+    });
+  }
+
+  const deliveryCallId =
+    callId || `pending_${callerId}_${creatorId}_${Date.now()}`;
+
+  void (async () => {
+    await logCallDeliveryEvent({
+      callId: deliveryCallId,
+      callerId,
+      creatorId,
+      event: "CALL_ROUTING_STARTED",
+      metadata: {
+        creatorOnlineInDb: Boolean(creatorOnlineInDb),
+        hasCallId: Boolean(callId),
+        socketDelivered,
+      },
+    });
+
     await logCallDeliveryEvent({
       callId: callId || `pending_${callerId}_${creatorId}`,
       callerId,
       creatorId,
-      event: "SOCKET_SKIPPED_NO_CONNECTION",
+      event: socketDelivered ? "SOCKET_DELIVERED" : "SOCKET_SKIPPED_NO_CONNECTION",
+      metadata: {
+        socketConnected: Boolean(receiverSocket),
+      },
     });
-  }
 
-  await logCallDeliveryEvent({
-    callId: callId || `pending_${callerId}_${creatorId}`,
-    callerId,
-    creatorId,
-    event: "PUSH_ATTEMPTED",
-    metadata: {
-      socketDelivered,
-    },
+    await logCallDeliveryEvent({
+      callId: callId || `pending_${callerId}_${creatorId}`,
+      callerId,
+      creatorId,
+      event: "PUSH_ATTEMPTED",
+      metadata: {
+        socketDelivered,
+      },
+    });
+
+    try {
+      const pushResult = await notifyIncomingCall({
+        ...payload,
+        creatorOnlineInDb,
+      });
+
+      const pushSent = Boolean(pushResult?.notified);
+      const pushReason = pushResult?.reason || null;
+
+      await logCallDeliveryEvent({
+        callId: callId || `pending_${callerId}_${creatorId}`,
+        callerId,
+        creatorId,
+        event: pushSent ? "PUSH_SENT" : "PUSH_SKIPPED",
+        metadata: {
+          pushReason,
+          expoSent: Number(pushResult?.expoSent ?? 0),
+          fcmSent: Number(pushResult?.fcmSent ?? 0),
+          socketDelivered,
+        },
+      });
+    } catch (error) {
+      await logCallDeliveryEvent({
+        callId: callId || `pending_${callerId}_${creatorId}`,
+        callerId,
+        creatorId,
+        event: "PUSH_FAILED",
+        metadata: {
+          message: String(error?.message || "push_failed"),
+          socketDelivered,
+        },
+      });
+    }
+  })().catch((error) => {
+    console.log("[CALL_DELIVERY_ASYNC_ERROR]", error?.message || error);
   });
-
-  let pushSent = false;
-  let pushReason = null;
-
-  try {
-    const pushResult = await notifyIncomingCall({
-      ...payload,
-      creatorOnlineInDb,
-    });
-
-    pushSent = Boolean(pushResult?.notified);
-    pushReason = pushResult?.reason || null;
-
-    await logCallDeliveryEvent({
-      callId: callId || `pending_${callerId}_${creatorId}`,
-      callerId,
-      creatorId,
-      event: pushSent ? "PUSH_SENT" : "PUSH_SKIPPED",
-      metadata: {
-        pushReason,
-        expoSent: Number(pushResult?.expoSent ?? 0),
-        fcmSent: Number(pushResult?.fcmSent ?? 0),
-        socketDelivered,
-      },
-    });
-  } catch (error) {
-    await logCallDeliveryEvent({
-      callId: callId || `pending_${callerId}_${creatorId}`,
-      callerId,
-      creatorId,
-      event: "PUSH_FAILED",
-      metadata: {
-        message: String(error?.message || "push_failed"),
-        socketDelivered,
-      },
-    });
-  }
 
   return {
     routed: true,
     socketDelivered,
-    pushSent,
-    pushReason,
+    pushSent: false,
+    pushReason: socketDelivered ? "socket_primary" : null,
   };
 };
 

@@ -78,6 +78,8 @@ import { startQuickConnectWatchdog } from "./services/quickConnectWatchdog.servi
 import { startFemaleOnlineScheduler } from "./services/femaleOnlineScheduler.service.js";
 import { startBattleExpireWatchdog } from "./services/battleExpireWatchdog.service.js";
 import { recordCallAttemptedFromNewCallHistory } from "./services/engagementRecord.service.js";
+import { evaluateCallAcceptRequest } from "./services/callAccept.service.js";
+import { traceCallDelivery } from "./utils/callDeliveryTrace.util.js";
 
 
 
@@ -525,6 +527,20 @@ data?.callerId;
 const receiverId =
 data?.receiverId;
 
+const traceCallId =
+data?.callId ?
+String(data.callId)
+:
+null;
+
+traceCallDelivery({
+stage:"CALL_USER_RECEIVED",
+callId:traceCallId,
+callSessionId:traceCallId,
+senderId:callerId != null ? String(callerId) : null,
+receiverId:receiverId != null ? String(receiverId) : null,
+});
+
 if(
 !callerId ||
 !receiverId
@@ -540,10 +556,26 @@ attributes:["id","online","gender"]
 }
 );
 
+const receiverOnline =
+Boolean(receiverUser?.online);
+
+traceCallDelivery({
+stage:"RECEIVER_ONLINE_CHECK",
+callId:traceCallId,
+receiverId:String(receiverId),
+receiverOnline,
+});
+
 if(
 !receiverUser ||
-!Boolean(receiverUser.online)
+!receiverOnline
 ){
+traceCallDelivery({
+stage:"RECEIVER_OFFLINE",
+callId:traceCallId,
+receiverId:String(receiverId),
+});
+
 const callerSocket =
 onlineUsers.get(
 String(callerId)
@@ -568,6 +600,13 @@ receiverId,
 callerId
 );
 
+traceCallDelivery({
+stage:"RECEIVER_BUSY_CHECK",
+callId:traceCallId,
+receiverId:String(receiverId),
+busy:Boolean(receiverBusy),
+});
+
 if(receiverBusy){
 
 const callerSocket =
@@ -589,10 +628,33 @@ return;
 
 }
 
+traceCallDelivery({
+stage:"LIVE_CALL_UPSERT_START",
+callId:traceCallId,
+receiverId:String(receiverId),
+});
+
+try{
 await upsertLiveCall(
 data,
 "live"
 );
+}catch(upsertError){
+traceCallDelivery({
+stage:"LIVE_CALL_UPSERT_ERROR",
+callId:traceCallId,
+receiverId:String(receiverId),
+errorName:upsertError?.name || "Error",
+errorMessage:String(upsertError?.message || upsertError),
+});
+throw upsertError;
+}
+
+traceCallDelivery({
+stage:"LIVE_CALL_UPSERT_SUCCESS",
+callId:traceCallId,
+receiverId:String(receiverId),
+});
 
 const receiverSocket =
 onlineUsers.get(
@@ -651,8 +713,6 @@ socket.on(
 "accept-call",
 async(data, ack)=>{
 
-
-
 console.log(
 "CALL ACCEPTED",
 data
@@ -665,72 +725,42 @@ typeof ack === "function"
 :
 null;
 
-await logCreatorCallDeliveryEvent(
-data,
-"ACCEPTED"
-);
-
 try{
 
-const callerId =
-data?.callerId;
-
-const receiverId =
-data?.receiverId;
-
-const quickConnectContext =
-await resolveQuickConnectContext({
-callId:data?.callId,
-attemptId:data?.attemptId,
-sessionId:data?.sessionId,
-});
+const decision =
+await evaluateCallAcceptRequest(data);
 
 if(
-quickConnectContext.mode === CALL_MODES.QUICK_CONNECT &&
-quickConnectContext.attempt
+!decision.accepted
 ){
-const acceptResult =
-await tryAcceptQuickConnectAttempt({
-attemptId:quickConnectContext.attempt.id,
-callerId,
-receiverId,
-});
 
 if(respondAccept){
-respondAccept(
-buildQuickConnectAcceptAck(acceptResult)
-);
-}
-
-if(!acceptResult.accepted){
-console.log(
-"QUICK CONNECT ACCEPT BLOCKED",
-acceptResult.reason
-);
-return;
-}
-}else if(respondAccept){
-respondAccept({
-accepted:true,
-mode:CALL_MODES.DIRECT,
-});
+respondAccept(decision);
 }
 
 if(
-callerId &&
-receiverId
+decision.reason === "busy" &&
+data?.callerId
 ){
-
-const otherCall =
-await findActiveCallForReceiver(
-receiverId,
-callerId
+const callerSocket =
+onlineUsers.get(
+String(data.callerId)
 );
 
-if(otherCall){
- return;
+if(callerSocket){
+io.to(callerSocket).emit(
+"call-rejected",
+data
+);
+}
 }
 
+console.log(
+"CALL ACCEPT BLOCKED",
+decision.reason || "rejected"
+);
+
+return;
 }
 
 await upsertLiveCall(
@@ -738,26 +768,14 @@ data,
 "accepted"
 );
 
-}catch(error){
-
-console.log(
-"LIVE CALL ACCEPT ERROR",
-error.message
+await logCreatorCallDeliveryEvent(
+data,
+"ACCEPTED"
 );
 
 if(respondAccept){
-respondAccept({
-accepted:false,
-reason:"unavailable",
-mode:data?.mode || CALL_MODES.DIRECT,
-});
+respondAccept(decision);
 }
-
-return;
-}
-
-
-
 
 const callerSocket =
 onlineUsers.get(
@@ -766,15 +784,9 @@ data.callerId
 )
 );
 
-
-
-
 if(
 callerSocket
 ){
-
-
-
 io.to(
 callerSocket
 )
@@ -782,9 +794,6 @@ callerSocket
 "call-accepted",
 data
 );
-
-
-
 }
 
 const receiverSocket =
@@ -804,6 +813,23 @@ receiverSocket
 "call-accepted",
 data
 );
+}
+
+}catch(error){
+
+console.log(
+"LIVE CALL ACCEPT ERROR",
+error.message
+);
+
+if(respondAccept){
+respondAccept({
+accepted:false,
+reason:"unavailable",
+mode:data?.mode || CALL_MODES.DIRECT,
+});
+}
+
 }
 
 

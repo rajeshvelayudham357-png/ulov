@@ -33,14 +33,17 @@ const CREATOR_ATTRIBUTES = [
   "purchasedProfileFrames",
 ];
 
-const serializeLeaderboardCreator = (creator) => {
+const serializeLeaderboardCreator = (creator, femaleStoreEnabled = false) => {
   const data = creator?.toJSON ? creator.toJSON() : creator;
   const visible = resolveVisibleProfileFrame(data);
+  const showProfileFrame = Boolean(femaleStoreEnabled);
 
   return {
     ...data,
-    profileFrameId: visible.profileFrameId,
-    profileFrameExpiresAt: visible.profileFrameExpiresAt,
+    profileFrameId: showProfileFrame ? visible.profileFrameId : null,
+    profileFrameExpiresAt: showProfileFrame
+      ? visible.profileFrameExpiresAt
+      : null,
   };
 };
 
@@ -186,6 +189,9 @@ topLimit:15
 const settings =
 await getAppSettings();
 
+const femaleStoreEnabled =
+Boolean(settings.femaleStoreEnabled);
+
 const topLimit =
 Math.min(
 100,
@@ -265,7 +271,7 @@ new Map(
 rankedCreators.map(
 (creator)=>[
 creator.id,
-serializeLeaderboardCreator(creator)
+serializeLeaderboardCreator(creator, femaleStoreEnabled)
 ]
 )
 );
@@ -409,7 +415,7 @@ return buildLeaderboardEntry(
 userId,
 totalGold:stats.totalGold,
 totalCalls:stats.totalCalls,
-creator:serializeLeaderboardCreator(creator),
+creator:serializeLeaderboardCreator(creator, femaleStoreEnabled),
 isOnlineExtra:true,
 rank:rankByUserId.get(userId) ?? null
 },
