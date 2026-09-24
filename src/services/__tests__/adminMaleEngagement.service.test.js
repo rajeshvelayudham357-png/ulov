@@ -63,3 +63,26 @@ test("getMaleEngagementDashboard rejects INVALID status before querying", async 
     }
   );
 });
+
+test("summary stays global when list filters are applied", async () => {
+  const { getMaleEngagementDashboard } = await import(
+    "../adminMaleEngagement.service.js"
+  );
+
+  const unfiltered = await getMaleEngagementDashboard({ page: 1, limit: 5 });
+  const active30 = await getMaleEngagementDashboard({
+    page: 1,
+    limit: 5,
+    status: "active_30d",
+  });
+  const atRisk = await getMaleEngagementDashboard({
+    page: 1,
+    limit: 5,
+    status: "AT_RISK_8_14_DAYS",
+  });
+
+  assert.deepEqual(active30.summary, unfiltered.summary);
+  assert.deepEqual(atRisk.summary, unfiltered.summary);
+  assert.ok(active30.pagination.total <= unfiltered.pagination.total);
+  assert.ok(atRisk.pagination.total <= unfiltered.pagination.total);
+});

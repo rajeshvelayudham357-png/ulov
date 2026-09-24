@@ -281,6 +281,7 @@ export const getMaleEngagementDashboard = async ({
     offset,
   };
 
+  const globalSummaryReplacements = { todayIstDate };
   const summarySql = `
     SELECT
       COUNT(*) AS totalMales,
@@ -291,14 +292,17 @@ export const getMaleEngagementDashboard = async ({
       SUM(CASE WHEN ${bucketExpr} = '${ENGAGEMENT_BUCKETS.DORMANT_60_PLUS_DAYS}' THEN 1 ELSE 0 END) AS dormant60PlusDays,
       SUM(CASE WHEN ${bucketExpr} = '${ENGAGEMENT_BUCKETS.NEVER_ACTIVE}' THEN 1 ELSE 0 END) AS neverActive
     ${BASE_FROM}
-    WHERE ${whereSql}`;
+    WHERE ${MALE_USERS_WHERE}`;
 
   const [countRow, summaryRow, rows, reactivation] = await Promise.all([
     sequelize.query(
       `SELECT COUNT(*) AS total ${BASE_FROM} WHERE ${whereSql}`,
       { replacements, type: QueryTypes.SELECT }
     ),
-    sequelize.query(summarySql, { replacements, type: QueryTypes.SELECT }),
+    sequelize.query(summarySql, {
+      replacements: globalSummaryReplacements,
+      type: QueryTypes.SELECT,
+    }),
     sequelize.query(
       `SELECT ${selectList}
        ${BASE_FROM}
