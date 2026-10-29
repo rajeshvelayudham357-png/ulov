@@ -10,6 +10,7 @@ import {
   cashfreeWebhook,
   createCashfreePaymentOrder,
   createGatewayPaymentOrder,
+  recordPaymentOutcome,
   getCashfreeCheckoutHtml,
   getPaymentConfig,
   getPaymentPackages,
@@ -43,6 +44,12 @@ router.post(
   "/create-order",
   authMiddleware,
   createGatewayPaymentOrder
+);
+
+router.post(
+  "/outcome",
+  authMiddleware,
+  recordPaymentOutcome
 );
 
 router.get(

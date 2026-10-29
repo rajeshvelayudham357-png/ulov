@@ -27,6 +27,13 @@ devicePushToken:{
  allowNull:true
 },
 
+// Version 1 bundles the long ringtone and creates Android calls-v4.
+incomingCallNotificationVersion:{
+ type:DataTypes.INTEGER,
+ allowNull:false,
+ defaultValue:0
+},
+
 expoPushToken:{
  type:DataTypes.STRING,
  allowNull:true

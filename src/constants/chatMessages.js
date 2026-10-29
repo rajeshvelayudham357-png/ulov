@@ -1,3 +1,5 @@
+export const CHAT_TYPED_MESSAGE_COST = 5;
+
 export const MALE_MESSAGE_KEYS = [
   "hi",
   "good_morning",

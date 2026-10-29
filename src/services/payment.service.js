@@ -1014,6 +1014,183 @@ export const handlePhonePeWebhook = async (payload, xVerifyHeader) => {
   return syncPaymentOrderFromPhonePe(merchantTransactionId);
 };
 
+const PAID_OUTCOME_STATUSES = new Set([
+  "PAID",
+  "SUCCESS",
+  "CAPTURED",
+  "CREDITED",
+]);
+
+export const classifyRechargeOutcome = (status) => {
+  const value = String(status || "").toUpperCase();
+
+  if (PAID_OUTCOME_STATUSES.has(value)) {
+    return "added";
+  }
+
+  if (value === "CANCELLED") {
+    return "cancelled";
+  }
+
+  if (FAILED_STATUSES.has(value) || value === "FAILED") {
+    return "failed";
+  }
+
+  return "incomplete";
+};
+
+const RECHARGE_OUTCOMES = new Set([
+  "added",
+  "cancelled",
+  "failed",
+  "incomplete",
+]);
+
+const outcomeStatusWhere = (outcome) => {
+  const value = String(outcome || "").toLowerCase();
+
+  if (!RECHARGE_OUTCOMES.has(value)) {
+    return null;
+  }
+
+  const statusColumn = sequelize.fn(
+    "UPPER",
+    sequelize.col("status")
+  );
+  const paid = [...PAID_OUTCOME_STATUSES];
+  const failed = [...FAILED_STATUSES].filter(
+    (status) => status !== "CANCELLED"
+  );
+
+  if (value === "added") {
+    return sequelize.where(statusColumn, { [Op.in]: paid });
+  }
+
+  if (value === "cancelled") {
+    return sequelize.where(statusColumn, "CANCELLED");
+  }
+
+  if (value === "failed") {
+    return sequelize.where(statusColumn, { [Op.in]: failed });
+  }
+
+  return sequelize.where(statusColumn, {
+    [Op.notIn]: [...paid, "CANCELLED", ...failed],
+  });
+};
+
+export const listUserRechargeHistory = async ({
+  userId,
+  limit,
+  offset,
+  outcome = null,
+}) => {
+  await ensurePaymentOrderColumns();
+
+  const statusWhere = outcomeStatusWhere(outcome);
+  const where = statusWhere
+    ? { userId, [Op.and]: [statusWhere] }
+    : { userId };
+
+  const { rows, count } = await PaymentOrder.findAndCountAll({
+    where,
+    order: [["createdAt", "DESC"]],
+    limit,
+    offset,
+    attributes: [
+      "id",
+      "orderId",
+      "coins",
+      "amount",
+      "status",
+      "failureReason",
+      "createdAt",
+      "gateway",
+    ],
+  });
+
+  return {
+    recharges: rows.map((row) => {
+      const item = row.toJSON();
+      const orderId = String(item.orderId || "");
+
+      return {
+        id: item.id,
+        orderId: orderId.startsWith("local_") ? "" : orderId,
+        coins: Number(item.coins) || 0,
+        amount: Number(item.amount) || 0,
+        status: item.status,
+        outcome: classifyRechargeOutcome(item.status),
+        failureReason: item.failureReason || "",
+        createdAt: item.createdAt,
+      };
+    }),
+    total: count,
+  };
+};
+
+export const recordPaymentAttemptOutcome = async ({
+  userId,
+  orderId = null,
+  packageId = null,
+  status,
+  failureReason = null,
+  gateway = null,
+}) => {
+  await ensurePaymentOrderColumns();
+
+  const nextStatus = String(status || "").toUpperCase();
+
+  if (nextStatus !== "CANCELLED" && nextStatus !== "FAILED") {
+    throw new Error("status must be CANCELLED or FAILED");
+  }
+
+  const reason = failureReason
+    ? String(failureReason).slice(0, 500)
+    : null;
+
+  if (orderId) {
+    const order = await PaymentOrder.findOne({
+      where: {
+        orderId: String(orderId),
+        userId,
+      },
+    });
+
+    if (!order) {
+      return null;
+    }
+
+    if (PAID_OUTCOME_STATUSES.has(String(order.status || "").toUpperCase())) {
+      return order;
+    }
+
+    order.status = nextStatus;
+
+    if (reason) {
+      order.failureReason = reason;
+    }
+
+    await order.save();
+    return order;
+  }
+
+  const goldPackage = packageId
+    ? resolveGoldPackageById(Number(packageId))
+    : null;
+
+  return PaymentOrder.create({
+    orderId: `local_${nextStatus.toLowerCase()}_${userId}_${Date.now()}`,
+    userId,
+    packageId: goldPackage?.id || packageId || null,
+    coins: Number(goldPackage?.coins) || 0,
+    amount: Number(goldPackage?.price) || 0,
+    gateway: gateway || "cashfree",
+    status: nextStatus,
+    failureReason: reason,
+  });
+};
+
 export const refundPhonePePayment = async ({ orderId, amount }) => {
   await ensurePaymentOrderColumns();
   const paymentOrder = await PaymentOrder.findOne({ where: { orderId } });

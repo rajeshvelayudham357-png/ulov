@@ -22,6 +22,7 @@ userId,
 platform,
 devicePushToken,
 expoPushToken,
+incomingCallNotificationVersion,
 gender
 }=req.body;
 
@@ -75,7 +76,9 @@ await DeviceToken.upsert({
 userId:normalizedUserId,
 platform:normalizedPlatform,
 devicePushToken:nextDevicePushToken,
-expoPushToken:nextExpoPushToken
+expoPushToken:nextExpoPushToken,
+// Missing capability means an older app (including a reinstall/downgrade).
+incomingCallNotificationVersion: incomingCallNotificationVersion === 1 ? 1 : 0
 });
 
 console.log(

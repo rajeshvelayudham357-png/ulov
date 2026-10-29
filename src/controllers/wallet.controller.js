@@ -3,6 +3,7 @@ import {
     WalletTransaction
    }
    from "../models/index.js";
+import { listUserRechargeHistory } from "../services/payment.service.js";
 import {
 Op
 } from "sequelize";
@@ -501,6 +502,80 @@ wallet
 });
 
 
+
+
+}catch(error){
+
+
+return res.status(500).json({
+
+message:error.message
+
+});
+
+
+}
+
+
+};
+
+const RECHARGE_PAGE_SIZE = 20;
+
+export const getRechargeHistory =
+async(req,res)=>{
+
+
+try{
+
+await ensureWalletTransactionSchema();
+
+const userId =
+Number(req.params.userId);
+
+const limit =
+Math.min(
+50,
+Math.max(
+1,
+Number(req.query.limit) || RECHARGE_PAGE_SIZE
+)
+);
+
+const offset =
+Math.max(
+0,
+Number(req.query.offset) || 0
+);
+
+if(!Number.isFinite(userId) || userId <= 0){
+return res.status(400).json({
+message:"Valid user id is required"
+});
+}
+
+const outcome =
+String(req.query.outcome || "").toLowerCase();
+
+const history =
+await listUserRechargeHistory({
+userId,
+limit,
+offset,
+outcome:
+["added","cancelled","failed","incomplete"].includes(outcome)
+? outcome
+: null
+});
+
+return res.json({
+
+recharges:history.recharges,
+limit,
+offset,
+total:history.total,
+hasMore:offset + history.recharges.length < history.total
+
+});
 
 
 }catch(error){

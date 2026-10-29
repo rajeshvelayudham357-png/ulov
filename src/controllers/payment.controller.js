@@ -1,6 +1,7 @@
 import {
   createPaymentOrder,
   getPaymentOrderForUser,
+  recordPaymentAttemptOutcome,
   handleCashfreeWebhook,
   handleRazorpayWebhook,
   handlePayUWebhook,
@@ -103,6 +104,51 @@ export const getPaymentPackages = async (_req, res) => {
   } catch (error) {
     return res.status(500).json({
       message: error.message || "Failed to load gold packages",
+    });
+  }
+};
+
+export const recordPaymentOutcome = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
+    }
+
+    const status = String(req.body?.status || "").toUpperCase();
+
+    if (status !== "CANCELLED" && status !== "FAILED") {
+      return res.status(400).json({
+        message: "status must be CANCELLED or FAILED",
+      });
+    }
+
+    const order = await recordPaymentAttemptOutcome({
+      userId,
+      orderId: req.body?.orderId || null,
+      packageId: req.body?.packageId || null,
+      status,
+      failureReason: req.body?.failureReason || null,
+      gateway: req.body?.gateway || null,
+    });
+
+    if (req.body?.orderId && !order) {
+      return res.status(404).json({
+        message: "Payment order not found",
+      });
+    }
+
+    return res.json({
+      recorded: true,
+      status: order?.status || status,
+      orderId: order?.orderId || null,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || "Unable to record payment outcome",
     });
   }
 };
@@ -713,8 +759,19 @@ export const getRazorpayCheckoutHtml = async (req, res) => {
 
         const rzp = new Razorpay(options);
         rzp.on("payment.failed", function (response) {
-          document.getElementById("error").textContent =
+          const description =
             response?.error?.description || "Payment failed";
+          document.getElementById("error").textContent = description;
+
+          const payload = {
+            type: "razorpay_failed",
+            orderId: orderId,
+            description: description
+          };
+
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+          }
         });
         rzp.open();
       }

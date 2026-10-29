@@ -8,7 +8,8 @@ getWallet,
 rechargeWallet,
 
 spendWallet,
-getWalletTransactions
+getWalletTransactions,
+getRechargeHistory
 
 }
 from "../controllers/wallet.controller.js";
@@ -17,6 +18,13 @@ from "../controllers/wallet.controller.js";
 
 const router =
 express.Router();
+
+
+
+router.get(
+"/recharges/:userId",
+getRechargeHistory
+);
 
 
 

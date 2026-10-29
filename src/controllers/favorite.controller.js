@@ -11,6 +11,7 @@ filterBlockedUsers,
 getBlockedPeerIds
 } from "../services/block.service.js";
 import { attachCreatorCallRates } from "../services/callRate.service.js";
+import { getLastSeenAtMap } from "../services/userPresence.service.js";
    
    
    
@@ -364,6 +365,81 @@ if(
    const {
     userId
    }=req.params;
+
+   const paged =
+   req.query.limit !== undefined ||
+   req.query.offset !== undefined;
+
+   if (paged) {
+   const limit =
+   Math.min(
+   50,
+   Math.max(1, Number(req.query.limit) || 20)
+   );
+
+   const offset =
+   Math.max(0, Number(req.query.offset) || 0);
+
+   const blockedIds =
+   [...await getBlockedPeerIds(userId)];
+
+   const include = [
+   {
+   model: User,
+   as: "profile",
+   required: true,
+   ...(blockedIds.length
+   ? { where: { id: { [Op.notIn]: blockedIds } } }
+   : {})
+   }
+   ];
+
+   const { rows, count } =
+   await Favorite.findAndCountAll({
+   where: { userId },
+   include,
+   order: [["createdAt", "DESC"]],
+   limit,
+   offset,
+   distinct: true
+   });
+
+   const profilesWithRates = await attachCreatorCallRates(
+   rows.map((item) => item.profile)
+   );
+
+   const profileRateById = new Map(
+   profilesWithRates.map((profile) => [Number(profile.id), profile])
+   );
+
+   const lastSeenById = await getLastSeenAtMap(
+   rows.map((item) => item.profile)
+   );
+
+   const favoritesWithRates =
+   rows.map((item) => {
+   const profile =
+   profileRateById.get(Number(item.profile.id)) ??
+   item.profile.toJSON?.() ??
+   item.profile;
+
+   return {
+   ...item.toJSON(),
+   profile: {
+   ...profile,
+   lastSeenAt: lastSeenById.get(Number(item.profile.id)) ?? null
+   }
+   };
+   });
+
+   return res.json({
+   favorites: favoritesWithRates,
+   limit,
+   offset,
+   total: count,
+   hasMore: offset + favoritesWithRates.length < count
+   });
+   }
    
    
    
@@ -403,6 +479,10 @@ if(
    profilesWithRates.map((profile) => [Number(profile.id), profile])
    );
 
+   const lastSeenById = await getLastSeenAtMap(
+   visibleFavorites.map((item) => item.profile)
+   );
+
    const favoritesWithRates =
    visibleFavorites.map((item) => {
    const profile =
@@ -412,7 +492,10 @@ if(
 
    return {
    ...item.toJSON(),
-   profile,
+   profile: {
+   ...profile,
+   lastSeenAt: lastSeenById.get(Number(item.profile.id)) ?? null
+   },
    };
    });
    

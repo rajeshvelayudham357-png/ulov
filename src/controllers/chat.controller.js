@@ -1,13 +1,19 @@
 import { Op } from "sequelize";
 
 import {
+CHAT_TYPED_MESSAGE_COST,
 getMessageText,
 isAllowedMessageKey
 } from "../constants/chatMessages.js";
+import { sequelize } from "../config/database.js";
+import { maskChatMessage } from "../utils/chatMessageFilter.util.js";
+import { getLastSeenAt } from "../services/userPresence.service.js";
 import {
 ChatMessage,
 Favorite,
-User
+User,
+Wallet,
+WalletTransaction
 } from "../models/index.js";
 import {
 emitChatMessage
@@ -175,18 +181,40 @@ async(req,res)=>{
 try{
 
 const {
-senderId,
 receiverId,
 messageKey
 }=req.body;
 
+const senderId =
+Number(req.user?.id);
+
+if(!senderId){
+return res.status(401).json({
+message:"Unauthorized"
+});
+}
+
+if(
+req.body?.senderId !== undefined &&
+Number(req.body.senderId) !== senderId
+){
+return res.status(403).json({
+message:"You can only send messages as yourself"
+});
+}
+
+const typedText =
+String(req.body?.messageText || "")
+.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+.trim()
+.slice(0, 255);
+
 if(
 !senderId ||
-!receiverId ||
-!messageKey
+!receiverId
 ){
 return res.status(400).json({
-message:"senderId, receiverId and messageKey are required"
+message:"senderId and receiverId are required"
 });
 }
 
@@ -216,7 +244,22 @@ message:"Chat is not available with this user"
 });
 }
 
+const senderIsFemale =
+String(sender.gender || "").toLowerCase() === "female";
+
+const useTypedMessage =
+!senderIsFemale &&
+typedText.length > 0 &&
+!messageKey;
+
+if(!useTypedMessage && !messageKey){
+return res.status(400).json({
+message:"senderId, receiverId and messageKey are required"
+});
+}
+
 if(
+!useTypedMessage &&
 !isAllowedMessageKey(
 sender.gender,
 messageKey
@@ -239,15 +282,95 @@ message:"Chat is only available with favourite users"
 });
 }
 
-const message =
-await ChatMessage.create({
+const storedKey =
+useTypedMessage ? "custom" : messageKey;
+
+const filtered =
+useTypedMessage
+? maskChatMessage(typedText)
+: null;
+
+const messageFields = {
 senderId:Number(senderId),
 receiverId:Number(receiverId),
-messageKey,
+messageKey:storedKey,
 messageText:
-getMessageText(messageKey),
+useTypedMessage
+? filtered.text
+: getMessageText(messageKey),
 read:false
+};
+
+let message;
+let walletBalance = null;
+
+if(useTypedMessage){
+const receiver =
+await User.findByPk(
+receiverId,
+{
+attributes:["id","username","name","nickname"]
+}
+);
+
+const transaction =
+await sequelize.transaction();
+
+try{
+const wallet =
+await Wallet.findOne({
+where:{ userId:Number(senderId) },
+transaction,
+lock:transaction.LOCK.UPDATE
 });
+
+const balance =
+Number(wallet?.balance || 0);
+
+if(!wallet || balance < CHAT_TYPED_MESSAGE_COST){
+await transaction.rollback();
+
+return res.status(402).json({
+code:"INSUFFICIENT_COINS",
+message:`You need ${CHAT_TYPED_MESSAGE_COST} coins to send a typed message`,
+required:CHAT_TYPED_MESSAGE_COST,
+balance
+});
+}
+
+wallet.balance =
+balance - CHAT_TYPED_MESSAGE_COST;
+
+await wallet.save({ transaction });
+
+message =
+await ChatMessage.create(
+messageFields,
+{ transaction }
+);
+
+await WalletTransaction.create(
+{
+userId:Number(senderId),
+type:"debit",
+amount:CHAT_TYPED_MESSAGE_COST,
+description:`Chat message → ${receiver ? getDisplayName(receiver) : "User"}`
+},
+{ transaction }
+);
+
+await transaction.commit();
+
+walletBalance =
+Number(wallet.balance);
+}catch(error){
+await transaction.rollback();
+throw error;
+}
+}else{
+message =
+await ChatMessage.create(messageFields);
+}
 
 const payload =
 formatMessage(message);
@@ -282,13 +405,17 @@ trackGrowthEventAsync({
   metadata: {
     senderId: Number(senderId),
     receiverId: Number(receiverId),
-    messageKey,
+    messageKey: storedKey,
   },
 });
 
 return res.status(201).json({
 success:true,
-message:payload
+message:payload,
+coinsCharged:useTypedMessage ? CHAT_TYPED_MESSAGE_COST : 0,
+masked:Boolean(filtered?.masked),
+maskReasons:filtered?.reasons ?? [],
+...(walletBalance !== null ? { wallet:{ balance:walletBalance } } : {})
 });
 
 }catch(error){
@@ -297,6 +424,62 @@ console.log(
 "SEND CHAT ERROR",
 error
 );
+
+return res.status(500).json({
+message:error.message
+});
+
+}
+
+};
+
+export const getPeerPresence =
+async(req,res)=>{
+
+try{
+
+const viewerId =
+Number(req.user?.id);
+
+const peerId =
+Number(req.params.peerId);
+
+if(!viewerId || !Number.isFinite(peerId) || peerId <= 0){
+return res.status(400).json({
+message:"Valid peer id is required"
+});
+}
+
+if(await areUsersBlocked(viewerId, peerId)){
+return res.status(403).json({
+message:"Chat is not available with this user"
+});
+}
+
+const peer =
+await User.findByPk(
+peerId,
+{
+attributes:["id","gender","online","lastSeen"]
+}
+);
+
+if(!peer){
+return res.status(404).json({
+message:"User not found"
+});
+}
+
+const lastSeenAt =
+await getLastSeenAt(peer);
+
+return res.json({
+userId:peerId,
+online:Boolean(peer.online),
+lastSeenAt
+});
+
+}catch(error){
 
 return res.status(500).json({
 message:error.message

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { incomingCallPushPayloadForDevice } from "./incomingCallPushProfile.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -163,11 +164,11 @@ const ALERT_COOLDOWN_MS =
 const NOTIFICATION_CHANNEL_ID =
 "dating-app-alerts";
 
-const INCOMING_CALL_CHANNEL_ID =
-"dating-app-calls-v2";
-
-const INCOMING_CALL_SOUND =
-"incoming_call";
+// Safe defaults for old clients; sendPushToUser selects the registered
+// device's native channel and sound for incoming calls.
+const INCOMING_CALL_CHANNEL_ID = "dating-app-calls-v2";
+const INCOMING_CALL_SOUND = "incoming_call";
+const INCOMING_CALL_IOS_SOUND = "incoming_call.wav";
 
 const DEFAULT_OUTSIDE_APP_TTL_SECONDS =
 86400;
@@ -179,6 +180,7 @@ body,
 data = {},
 ttlSeconds = DEFAULT_OUTSIDE_APP_TTL_SECONDS,
 sound = "default",
+iosSound = null,
 androidChannelId = NOTIFICATION_CHANNEL_ID
 })=>{
 const cleanTitle =
@@ -211,6 +213,7 @@ return {
 title:cleanTitle,
 body:cleanBody,
 sound,
+iosSound,
 androidChannelId,
 ttlSeconds,
 data:{
@@ -385,7 +388,7 @@ const messages =
 validTokens.map(
 token=>({
 to:token,
-sound:payload.sound ?? "default",
+sound:payload.iosSound ?? payload.sound ?? "default",
 title:payload.title,
 body:payload.body,
 data:payload.data ?? {},
@@ -492,7 +495,7 @@ alert:{
 title:payload.title,
 body:payload.body
 },
-sound:payload.sound ?? "default",
+sound:payload.iosSound ?? payload.sound ?? "default",
 badge:1,
 "content-available":1
 }
@@ -725,48 +728,27 @@ fcmSent:0
 };
 }
 
-const expoTokens =
-tokens
-.map(
-row=>row.expoPushToken
-)
-.filter(Boolean);
-
-const fcmTokens =
-tokens
-.map(
-row=>row.devicePushToken
-)
-.filter(Boolean);
-
-const expoResult =
-await sendExpoPush(
-expoTokens,
-payload
-);
-
-const fcmResult =
-await sendFcmPush(
-fcmTokens,
-payload
-);
-
-console.log(
-"PUSH TO USER",
-{
-userId,
-expoTokens:expoTokens.length,
-fcmTokens:fcmTokens.length,
-expoSent:expoResult.sent,
-fcmSent:fcmResult.sent,
-title:payload.title
+// Route each registered device separately so its native resources match.
+// Expo is a fallback for that device only, avoiding duplicate alerts when
+// another device's FCM delivery fails.
+let expoSent = 0;
+let fcmSent = 0;
+for (const device of tokens) {
+  const devicePayload = incomingCallPushPayloadForDevice(payload, device);
+  const nativeToken = String(device.devicePushToken || "").trim();
+  const fcmResult = await sendFcmPush(
+    isLikelyFcmToken(nativeToken) ? [nativeToken] : [],
+    devicePayload
+  );
+  fcmSent += fcmResult.sent;
+  if (!fcmResult.sent && device.expoPushToken) {
+    const expoResult = await sendExpoPush([device.expoPushToken], devicePayload);
+    expoSent += expoResult.sent;
+  }
 }
-);
 
-return {
-expoSent:expoResult.sent,
-fcmSent:fcmResult.sent
-};
+console.log("PUSH TO USER", { userId, expoSent, fcmSent, title: payload.title });
+return { expoSent, fcmSent };
 }catch(error){
 console.log(
 "PUSH TO USER ERROR",
@@ -1891,6 +1873,7 @@ screen:"/female/incoming-call"
 },
 ttlSeconds:60,
 sound:INCOMING_CALL_SOUND,
+iosSound:INCOMING_CALL_IOS_SOUND,
 androidChannelId:INCOMING_CALL_CHANNEL_ID
 });
 
