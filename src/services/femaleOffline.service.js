@@ -60,7 +60,9 @@ export const forceFemaleOffline = async (userId, { closeCalls = true } = {}) => 
   });
 
   if (closeCalls) {
-    await closeActiveCallsForUser(normalizedUserId, "completed");
+    await closeActiveCallsForUser(normalizedUserId, "completed", {
+      endReason: "admin_forced_offline",
+    });
   }
 
   emitFemaleOffline(normalizedUserId);

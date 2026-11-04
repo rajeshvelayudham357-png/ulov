@@ -124,7 +124,10 @@ test("[5] Feature flag OFF prevents Quick Connect", async () => {
 
     const res = createMockRes();
     await createVideoCall(
-      { body: { callerId: IDS.MALE, type: "voice", mode: "quick_connect" } },
+      {
+        body: { callerId: IDS.MALE, type: "voice", mode: "quick_connect" },
+        user: { id: IDS.MALE },
+      },
       res
     );
     assert.equal(res.statusCode, 403);

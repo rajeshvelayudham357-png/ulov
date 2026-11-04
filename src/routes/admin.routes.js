@@ -35,6 +35,10 @@ import {
 
     updateGstSettingsConfig,
 
+    getWithdrawSettingsConfig,
+
+    updateWithdrawSettingsConfig,
+
     getPaymentSettingsConfig,
 
     updatePaymentSettingsConfig,
@@ -135,6 +139,12 @@ approveKyc,
 rejectKyc
     
     } from "../controllers/admin.controller.js";
+
+import {
+getReferralSettingsAdmin,
+listReferralsAdmin,
+updateReferralSettingsAdmin,
+} from "../controllers/referral.controller.js";
 
 
 import {
@@ -271,6 +281,9 @@ import {
 import {
   getDailyPayout,
 } from "../controllers/dailyPayout.controller.js";
+import {
+  getCallBillingReconciliationReport,
+} from "../controllers/callBillingReconciliation.controller.js";
 import {
   getMaleWalletCoins,
 } from "../controllers/maleWalletCoins.controller.js";
@@ -420,6 +433,41 @@ router.patch(
 "/gst-settings",
 requirePageAccess("gst-master"),
 updateGstSettingsConfig
+);
+
+
+router.get(
+"/withdraw-settings",
+requirePageAccess("withdrawal-settings"),
+getWithdrawSettingsConfig
+);
+
+
+router.get(
+"/referral-settings",
+requirePageAccess("referral-program"),
+getReferralSettingsAdmin
+);
+
+
+router.patch(
+"/referral-settings",
+requirePageAccess("referral-program"),
+updateReferralSettingsAdmin
+);
+
+
+router.get(
+"/referrals",
+requirePageAccess("referral-program"),
+listReferralsAdmin
+);
+
+
+router.patch(
+"/withdraw-settings",
+requirePageAccess("withdrawal-settings"),
+updateWithdrawSettingsConfig
 );
 
 
@@ -1258,6 +1306,13 @@ router.get(
   "/payouts/daily",
   requirePageAccess("daily-payouts"),
   getDailyPayout
+);
+
+// Read-only: recorded call cost vs collected coins vs creator earnings.
+router.get(
+  "/billing/reconciliation",
+  requirePageAccess(["suspicious-users", "daily-payouts"]),
+  getCallBillingReconciliationReport
 );
 
 export default router;

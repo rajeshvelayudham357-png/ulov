@@ -154,27 +154,9 @@ test("QC cancellation before connection keeps coinsSpent = 0", async () => {
   });
 });
 
-test("QC connected call bills exactly once via existing endCall path", async () => {
+test("legacy /api/call/end is disabled and does not touch the wallet", async () => {
   await upsertTestUser({ id: IDS.MALE, gender: "Male", online: true });
-  await upsertTestUser({
-    id: IDS.CREATOR_A,
-    gender: "Female",
-    online: true,
-    acceptAutoRoutedCalls: true,
-  });
   await upsertTestWallet(IDS.MALE, 10_000);
-
-  const walletBefore = await Wallet.findOne({ where: { userId: IDS.MALE } });
-  const startBalance = Number(walletBefore.balance);
-
-  const history = await CallHistory.create({
-    callerId: IDS.MALE,
-    receiverId: IDS.CREATOR_A,
-    type: "voice",
-    duration: 0,
-    coinsSpent: 0,
-    status: "accepted",
-  });
 
   const res = createMockRes();
   await endCall(
@@ -189,22 +171,32 @@ test("QC connected call bills exactly once via existing endCall path", async () 
     res
   );
 
-  assert.equal(res.statusCode, 200);
-  assert.equal(res.body.success, true);
-  assert.ok(res.body.maleCost > 0);
-  assert.equal(res.body.alreadyCompleted, false);
+  assert.equal(res.statusCode, 410);
+  const wallet = await Wallet.findOne({ where: { userId: IDS.MALE } });
+  assert.equal(Number(wallet.balance), 10_000);
+});
 
-  const updatedHistory = await CallHistory.findByPk(history.id);
-  assert.equal(Number(updatedHistory.coinsSpent), res.body.maleCost);
-  assert.equal(updatedHistory.status, "completed");
+test("QC connected call settles exactly once and never debits on settlement", async () => {
+  await upsertTestUser({ id: IDS.MALE, gender: "Male", online: true });
+  await upsertTestUser({
+    id: IDS.CREATOR_A,
+    gender: "Female",
+    online: true,
+    acceptAutoRoutedCalls: true,
+  });
+  await upsertTestWallet(IDS.MALE, 10_000);
 
-  const walletAfterFirst = await Wallet.findOne({ where: { userId: IDS.MALE } });
-  assert.equal(
-    Number(walletAfterFirst.balance),
-    startBalance - res.body.maleCost
-  );
+  const history = await CallHistory.create({
+    callerId: IDS.MALE,
+    receiverId: IDS.CREATOR_A,
+    type: "voice",
+    duration: 0,
+    coinsSpent: 0,
+    status: "accepted",
+    acceptedAt: new Date(Date.now() - 120_000),
+  });
 
-  const secondBilling = await completeCallRecord({
+  const first = await completeCallRecord({
     callerId: IDS.MALE,
     receiverId: IDS.CREATOR_A,
     type: "voice",
@@ -212,10 +204,25 @@ test("QC connected call bills exactly once via existing endCall path", async () 
     callHistoryId: history.id,
   });
 
-  assert.equal(secondBilling.alreadyCompleted, true);
+  assert.equal(first.alreadyCompleted, false);
+  assert.ok(first.billing.maleCost > 0);
 
-  const walletAfterSecond = await Wallet.findOne({ where: { userId: IDS.MALE } });
-  assert.equal(Number(walletAfterSecond.balance), Number(walletAfterFirst.balance));
+  const updatedHistory = await CallHistory.findByPk(history.id);
+  assert.equal(Number(updatedHistory.coinsSpent), first.billing.maleCost);
+  assert.equal(updatedHistory.status, "completed");
+
+  const second = await completeCallRecord({
+    callerId: IDS.MALE,
+    receiverId: IDS.CREATOR_A,
+    type: "voice",
+    duration: 120,
+    callHistoryId: history.id,
+  });
+
+  assert.equal(second.alreadyCompleted, true);
+
+  const wallet = await Wallet.findOne({ where: { userId: IDS.MALE } });
+  assert.equal(Number(wallet.balance), 10_000);
 
   await CallHistory.destroy({ where: { id: history.id } });
 });

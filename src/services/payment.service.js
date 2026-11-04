@@ -449,6 +449,27 @@ export const creditWalletForPayment = async (
         occurredAt: new Date(),
       });
 
+      // Admin-entered credits are not customer payments, so they never
+      // qualify a referral.
+      if (String(result.paymentOrder.gateway || "").toLowerCase() !== "admin") {
+        const { rewardReferralAfterPayment } = await import("./referral.service.js");
+        const referralReward = await rewardReferralAfterPayment({
+          userId: result.paymentOrder.userId,
+          paymentOrderId: result.paymentOrder.orderId,
+          amount: result.paymentOrder.amount,
+        });
+
+        if (referralReward) {
+          const latestWallet = await Wallet.findOne({
+            where: { userId: result.paymentOrder.userId },
+          });
+
+          if (latestWallet) {
+            result.wallet = latestWallet;
+          }
+        }
+      }
+
       try {
         const { completeMaleScratchRewardsForPurchase } = await import(
           "./maleScratchReward.service.js"

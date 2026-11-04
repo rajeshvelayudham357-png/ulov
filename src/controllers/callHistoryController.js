@@ -11,7 +11,8 @@ import {
 getBlockedPeerIds
 } from "../services/block.service.js";
 import {
-completeCallRecord
+completeCallRecord,
+findActiveCallByPair
 } from "../services/callState.service.js";
    
    
@@ -21,89 +22,111 @@ completeCallRecord
    
    export const saveCallHistory =
    async(req,res)=>{
-   
-   
+
    try{
-   
-   
-   const {
-   
+
+   const userId =
+   Number(req.user?.id);
+
+   if(!userId){
+   return res.status(401).json({
+   message:"Unauthorized"
+   });
+   }
+
+   const requestedCallId =
+   Number(
+   req.body?.callHistoryId ??
+   req.body?.callId
+   );
+
+   let call = null;
+
+   if(
+   Number.isFinite(requestedCallId) &&
+   requestedCallId > 0
+   ){
+   call =
+   await CallHistory.findByPk(requestedCallId);
+   }else if(
+   req.body?.callerId &&
+   req.body?.receiverId
+   ){
+   // Older clients may omit the id; only the requester's own call can be found.
+   const callerId = Number(req.body.callerId);
+   const receiverId = Number(req.body.receiverId);
+
+   if(
+   callerId === userId ||
+   receiverId === userId
+   ){
+   call =
+   await findActiveCallByPair(
    callerId,
-   
-   receiverId,
-   
-   type,
-   
-   duration,
-   
-   coinsSpent,
-   
-   callHistoryId,
-   
-   callId
-   
-   }=req.body;
-   
-   
-   
-   
-   
+   receiverId
+   );
+   }
+   }
+
+   if(!call){
+   return res.status(404).json({
+   message:"Call not found"
+   });
+   }
+
+   if(
+   Number(call.callerId) !== userId &&
+   Number(call.receiverId) !== userId
+   ){
+   return res.status(403).json({
+   message:"This call does not belong to you"
+   });
+   }
+
+   // Client-supplied durations, costs and earnings are not used for billing;
+   // the duration is passed only as a capped fallback for calls accepted
+   // before the server recorded acceptedAt.
    const {
    history,
    earning,
    alreadyCompleted
    }=
    await completeCallRecord({
-   callerId,
-   receiverId,
-   type,
-   duration,
-   coinsSpent,
-   callHistoryId:
-   callHistoryId ??
-   callId
+   callerId:call.callerId,
+   receiverId:call.receiverId,
+   type:call.type,
+   duration:req.body?.duration,
+   callHistoryId:call.id,
+   endReason:
+   Number(call.callerId) === userId
+   ?
+   "caller_ended"
+   :
+   "receiver_ended"
    });
-   
-   
-   
-   
-   return res.json({
-   
-   
-   success:true,
-   
-   
-   alreadyCompleted,
-   
-   
-   callHistoryId:history.id,
-   
-   
-   history,
-   
-   
-   earning
-   
-   
+
+   if(!history){
+   return res.status(404).json({
+   message:"Call not found"
    });
-   
-   
-   
-   
-   
-   }catch(error){
-   
-   
-   return res.status(500).json({
-   
-   message:error.message
-   
-   });
-   
-   
    }
-   
-   
+
+   return res.json({
+   success:true,
+   alreadyCompleted,
+   callHistoryId:history.id,
+   history,
+   earning
+   });
+
+   }catch(error){
+
+   return res.status(500).json({
+   message:error.message
+   });
+
+   }
+
    };
    
    

@@ -148,6 +148,10 @@ export const runDatabaseMigrations = async () => {
   await ensureWithdrawsTable();
   await safeModelSync(Wallet, "Wallet");
   await safeModelSync(CallHistory, "CallHistory");
+  const { ensureCallBillingSchema } = await import(
+    "./callBillingSchema.service.js"
+  );
+  await ensureCallBillingSchema({ force: true });
   await safeModelSync(PaymentOrder, "PaymentOrder");
   await safeModelSync(Broadcast, "Broadcast");
   await safeModelSync(BroadcastSchedule, "BroadcastSchedule");

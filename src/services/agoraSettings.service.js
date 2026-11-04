@@ -1,23 +1,19 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "../config/database.js";
 
-const LEGACY_DEFAULTS = {
-  appId: "bfe5c7d54d67451a9a13437bd3f4143b",
-  appCertificate: "bcdf531feb854154930eef5232d08a42",
-  tokenExpirySeconds: 3600,
-};
+const DEFAULT_TOKEN_EXPIRY_SECONDS = 3600;
 
-const DEFAULT_SETTINGS = {
-  appId:
-    String(process.env.AGORA_APP_ID || "").trim() || LEGACY_DEFAULTS.appId,
-  appCertificate:
-    String(process.env.AGORA_APP_CERTIFICATE || "").trim() ||
-    LEGACY_DEFAULTS.appCertificate,
+// Credentials come only from the admin_agora_settings row or the environment.
+// There is deliberately no hard-coded fallback.
+const getEnvSettings = () => ({
+  appId: String(process.env.AGORA_APP_ID || "").trim(),
+  appCertificate: String(process.env.AGORA_APP_CERTIFICATE || "").trim(),
   tokenExpirySeconds:
-    Number(process.env.TOKEN_EXPIRY) || LEGACY_DEFAULTS.tokenExpirySeconds,
-};
+    Number(process.env.TOKEN_EXPIRY) || DEFAULT_TOKEN_EXPIRY_SECONDS,
+});
 
 let tableReady = false;
+let missingCredentialsWarned = false;
 
 const maskSecret = (value) => {
   const text = String(value || "");
@@ -63,7 +59,7 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
 (id, appId, appCertificate, tokenExpirySeconds)
 VALUES (1, :appId, :appCertificate, :tokenExpirySeconds)`,
     {
-      replacements: DEFAULT_SETTINGS,
+      replacements: getEnvSettings(),
     }
   );
 
@@ -85,23 +81,24 @@ const readRow = async () => {
 
 export const getAgoraSettings = async () => {
   const row = await readRow();
+  const env = getEnvSettings();
 
-  const appId =
-    normalizeAppId(row.appId) ||
-    normalizeAppId(process.env.AGORA_APP_ID) ||
-    LEGACY_DEFAULTS.appId;
+  const appId = normalizeAppId(row.appId) || env.appId;
 
   const appCertificate =
-    String(row.appCertificate || "").trim() ||
-    String(process.env.AGORA_APP_CERTIFICATE || "").trim() ||
-    LEGACY_DEFAULTS.appCertificate;
+    String(row.appCertificate || "").trim() || env.appCertificate;
 
   const tokenExpirySeconds = normalizeTokenExpiry(
-    row.tokenExpirySeconds ??
-      process.env.TOKEN_EXPIRY ??
-      LEGACY_DEFAULTS.tokenExpirySeconds,
-    LEGACY_DEFAULTS.tokenExpirySeconds
+    row.tokenExpirySeconds ?? env.tokenExpirySeconds,
+    DEFAULT_TOKEN_EXPIRY_SECONDS
   );
+
+  if ((!appId || !appCertificate) && !missingCredentialsWarned) {
+    missingCredentialsWarned = true;
+    console.warn(
+      "AGORA CREDENTIALS MISSING: set AGORA_APP_ID / AGORA_APP_CERTIFICATE or configure them in admin settings"
+    );
+  }
 
   return {
     appId,

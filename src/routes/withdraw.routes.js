@@ -2,6 +2,7 @@ import express from "express";
 
 import {
 requestWithdraw,
+getWithdrawAvailabilityStatus,
 getWithdrawSummary,
 withdrawHistory
 }
@@ -17,6 +18,12 @@ router.post(
 requestWithdraw
 );
 
+// Must stay above "/:userId".
+router.get(
+"/availability",
+getWithdrawAvailabilityStatus
+);
+
 router.get(
 "/summary/:userId",
 getWithdrawSummary
@@ -28,5 +35,3 @@ withdrawHistory
 );  
 
 export default router;
-
-

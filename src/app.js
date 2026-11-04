@@ -21,6 +21,8 @@ from "./routes/male.routes.js";
 
 import withdrawRoutes
 from "./routes/withdraw.routes.js";
+import referralRoutes
+from "./routes/referral.routes.js";
 
 import kycRoutes
 from "./routes/kyc.routes.js";
@@ -166,6 +168,11 @@ app.use(
           app.use(
             "/api/withdraw",
             withdrawRoutes
+            );
+
+          app.use(
+            "/api/referrals",
+            referralRoutes
             );
 
             app.use(

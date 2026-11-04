@@ -111,6 +111,11 @@ updateGstSettings,
 splitInclusiveGst,
 } from "../services/gstSettings.service.js";
 import {
+getWithdrawAvailability,
+getWithdrawSettings,
+updateWithdrawSettings,
+} from "../services/withdrawSettings.service.js";
+import {
   IST_DATE_SQL,
   addIstDays,
   getIstMonthStartUtc,
@@ -238,6 +243,8 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"male-scratch-claims", label:"Male Scratch Claims", path:"/male-scratch-claims" },
 { key:"support", label:"Support", path:"/support" },
 { key:"withdraw", label:"Withdraw", path:"/withdraw" },
+{ key:"withdrawal-settings", label:"Withdrawal Settings", path:"/withdrawal-settings" },
+{ key:"referral-program", label:"Referral Program", path:"/referral-program" },
 { key:"gst-master", label:"GST Master", path:"/gst-master" },
 { key:"payment-settings", label:"Payment Settings", path:"/payment-settings" },
 { key:"auth-settings", label:"Auth Settings", path:"/auth-settings" },
@@ -267,6 +274,8 @@ revenue:["recharge-revenue"],
 "daily-revenue":["recharge-revenue"],
 "expected-payouts":["payouts"],
 "daily-payouts":["payouts"],
+"withdrawal-settings":["payouts"],
+"referral-program":["payouts"],
 "scheduled-broadcast":["broadcast"],
 "female-scratch-claims":["female-scratch-reward"],
 "male-scratch-claims":["male-scratch-reward"],
@@ -1483,6 +1492,69 @@ req.body.gstPercent
 return res.json({
 message:"GST settings updated",
 settings
+});
+
+}catch(error){
+
+return res
+.status(400)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const getWithdrawSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await getWithdrawSettings();
+
+return res.json({
+settings,
+availability:
+await getWithdrawAvailability({ settings })
+});
+
+}catch(error){
+
+return res
+.status(500)
+.json({
+message:error.message
+});
+
+}
+
+};
+
+
+export const updateWithdrawSettingsConfig =
+async(
+req,
+res
+)=>{
+
+try{
+
+const settings =
+await updateWithdrawSettings(
+req.body || {}
+);
+
+return res.json({
+message:"Withdrawal settings updated",
+settings,
+availability:
+await getWithdrawAvailability({ settings })
 });
 
 }catch(error){

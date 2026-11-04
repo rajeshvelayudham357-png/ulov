@@ -56,6 +56,21 @@ cleanupStaleActiveCalls,
 closeActiveCallsForUser,
 completeCallRecord
 } from "./services/callState.service.js";
+import { markCallAccepted } from "./services/callSettlement.service.js";
+import { handleParticipantDisconnect } from "./services/callDisconnect.service.js";
+import {
+getCallBillingEngine,
+initCallBillingEngine
+} from "./services/callBillingEngine.service.js";
+import { PENDING_INCOMING_CALL_STATUSES } from "./services/callIncomingRecovery.service.js";
+import { Op } from "sequelize";
+import {
+authorizeCallEvent,
+createSocketAuthMiddleware,
+getSocketActorId,
+isSocketAuthenticated,
+resolveRegisterUserId
+} from "./services/socketAuth.service.js";
 import {
 recordFemaleOnlineSessionEnd
 } from "./services/femaleOnlineTime.service.js";
@@ -129,6 +144,37 @@ server,
 const onlineUsers =
 new Map();
 
+io.use(
+createSocketAuthMiddleware()
+);
+
+// Logs and drops call events whose sender is not the expected participant.
+const denyUnauthorizedCallEvent =
+async(socket, eventName, data, role)=>{
+const decision =
+await authorizeCallEvent({
+socket,
+data,
+role
+});
+
+if(!decision.allowed){
+console.log(
+"SOCKET CALL EVENT DENIED",
+{
+event:eventName,
+reason:decision.reason,
+socketUser:decision.actorId,
+callerId:data?.callerId ?? null,
+receiverId:data?.receiverId ?? null,
+callId:data?.callId ?? null
+}
+);
+}
+
+return !decision.allowed;
+};
+
 const logCreatorCallDeliveryEvent =
 async(data,event)=>{
 try{
@@ -181,6 +227,11 @@ onlineUsers
 );
 
 initSocketPresence(onlineUsers);
+
+initCallBillingEngine({
+io,
+onlineUsers
+});
 
 setFemaleOfflineSocketInstance(
 io,
@@ -409,11 +460,27 @@ socket.on(
 
 
 const userId =
-String(
-data.userId
+resolveRegisterUserId(
+socket,
+data?.userId
 );
 
+if(!userId){
+return;
+}
 
+if(
+isSocketAuthenticated(socket) &&
+data?.userId != null &&
+String(data.userId) !== userId
+){
+console.log(
+"SOCKET REGISTER MISMATCH IGNORED",
+{ socketUser:userId, claimed:String(data.userId) }
+);
+}
+
+socket.data.registeredUserId = userId;
 
 onlineUsers.set(
 userId,
@@ -518,6 +585,17 @@ console.log(
 "CALL REQUEST:",
 data
 );
+
+if(
+await denyUnauthorizedCallEvent(
+socket,
+"call-user",
+data,
+"caller"
+)
+){
+return;
+}
 
 try{
 
@@ -725,6 +803,24 @@ typeof ack === "function"
 :
 null;
 
+if(
+await denyUnauthorizedCallEvent(
+socket,
+"accept-call",
+data,
+"receiver"
+)
+){
+if(respondAccept){
+respondAccept({
+accepted:false,
+reason:"forbidden",
+mode:data?.mode || CALL_MODES.DIRECT,
+});
+}
+return;
+}
+
 try{
 
 const decision =
@@ -755,6 +851,51 @@ data
 }
 }
 
+if(
+decision.reason === "insufficient_balance" &&
+decision.mode !== CALL_MODES.QUICK_CONNECT &&
+data?.callerId &&
+data?.receiverId
+){
+const unaffordableCall =
+await findActiveCallByPair(
+data.callerId,
+data.receiverId
+);
+
+if(unaffordableCall){
+await CallHistory.update(
+{
+status:"cancelled",
+endReason:"insufficient_balance"
+},
+{
+where:{
+id:unaffordableCall.id,
+status:{
+[Op.in]:PENDING_INCOMING_CALL_STATUSES
+}
+}
+}
+);
+}
+
+const callerSocket =
+onlineUsers.get(
+String(data.callerId)
+);
+
+if(callerSocket){
+io.to(callerSocket).emit(
+"call-rejected",
+{
+...data,
+reason:"insufficient_balance"
+}
+);
+}
+}
+
 console.log(
 "CALL ACCEPT BLOCKED",
 decision.reason || "rejected"
@@ -763,10 +904,18 @@ decision.reason || "rejected"
 return;
 }
 
+const acceptedCall =
 await upsertLiveCall(
 data,
 "accepted"
 );
+
+if(acceptedCall){
+await markCallAccepted(acceptedCall.id);
+}
+
+// Server-billed calls take their first interval at accept.
+void getCallBillingEngine()?.refresh();
 
 await logCreatorCallDeliveryEvent(
 data,
@@ -861,6 +1010,17 @@ console.log(
 data
 );
 
+if(
+await denyUnauthorizedCallEvent(
+socket,
+"reject-call",
+data,
+"receiver"
+)
+){
+return;
+}
+
 await logCreatorCallDeliveryEvent(
 data,
 "REJECTED"
@@ -953,6 +1113,17 @@ console.log(
 data
 );
 
+if(
+await denyUnauthorizedCallEvent(
+socket,
+"cancel-call",
+data,
+"caller"
+)
+){
+return;
+}
+
 try{
 
 if(data?.sessionId){
@@ -1023,6 +1194,12 @@ if(!toUserId){
 return;
 }
 
+getCallBillingEngine()?.recordFaceStatus({
+creatorId:getSocketActorId(socket) ?? data?.fromUserId,
+callerId:toUserId,
+faceDetected:Boolean(data?.faceDetected)
+});
+
 const targetSocket =
 onlineUsers.get(
 String(toUserId)
@@ -1037,7 +1214,12 @@ targetSocket
 ).emit(
 "call-face-status",
 {
- fromUserId:data?.fromUserId,
+ fromUserId:
+ isSocketAuthenticated(socket)
+ ?
+ getSocketActorId(socket)
+ :
+ data?.fromUserId,
  toUserId,
  callSessionId:data?.callSessionId,
  faceDetected:Boolean(
@@ -1046,6 +1228,24 @@ targetSocket
 }
 );
 
+});
+
+
+
+
+// =====================
+// CALL HEARTBEAT
+// Server-billed calls end when a participant stops sending these.
+// =====================
+
+
+socket.on(
+"call-heartbeat",
+(data)=>{
+getCallBillingEngine()?.recordHeartbeat({
+callId:data?.callId,
+userId:getSocketActorId(socket)
+});
 });
 
 
@@ -1068,6 +1268,12 @@ if(!toUserId){
 return;
 }
 
+getCallBillingEngine()?.recordFaceRestrict({
+callerId:getSocketActorId(socket) ?? data?.fromUserId,
+creatorId:toUserId,
+restrictEnabled:Boolean(data?.restrictEnabled)
+});
+
 const targetSocket =
 onlineUsers.get(
 String(toUserId)
@@ -1082,7 +1288,12 @@ targetSocket
 ).emit(
 "call-face-restrict",
 {
- fromUserId:data?.fromUserId,
+ fromUserId:
+ isSocketAuthenticated(socket)
+ ?
+ getSocketActorId(socket)
+ :
+ data?.fromUserId,
  toUserId,
  callSessionId:data?.callSessionId,
  restrictEnabled:Boolean(
@@ -1111,6 +1322,17 @@ console.log(
 "MISSED CALL",
 data
 );
+
+if(
+await denyUnauthorizedCallEvent(
+socket,
+"missed-call",
+data,
+"participant"
+)
+){
+return;
+}
 
 await logCreatorCallDeliveryEvent(
 data,
@@ -1220,21 +1442,42 @@ if(
 return;
 }
 
+if(
+await denyUnauthorizedCallEvent(
+socket,
+"end-call",
+data,
+"participant"
+)
+){
+return;
+}
+
 const duration =
 Math.max(
 0,
 Number(data?.duration ?? 0)
 );
 
+const connectedCall =
+await findActiveCallByPair(
+callerId,
+receiverId
+);
+
+// Settlement uses the server's accepted/ended times and collected coins;
+// the socket's duration is only a capped fallback for older calls.
 if(
-duration > 0
+duration > 0 ||
+connectedCall?.acceptedAt
 ){
 await completeCallRecord({
 callerId,
 receiverId,
 type:data?.type,
 duration,
-callHistoryId:data?.callHistoryId ?? data?.callId
+callHistoryId:data?.callHistoryId ?? data?.callId,
+endReason:"socket_end"
 });
 return;
 }
@@ -1431,10 +1674,16 @@ await recordFemaleOnlineSessionEnd(
 removedUser
 );
 
-await closeActiveCallsForUser(
+handleParticipantDisconnect({
+userId:removedUser,
+onlineUsers
+}).catch((error)=>{
+console.log(
+"DISCONNECT CALL CLEANUP ERROR",
 removedUser,
-"completed"
+error.message
 );
+});
 
 console.log(
 "FEMALE SOCKET DISCONNECTED - STAYING ONLINE:",
@@ -1445,10 +1694,16 @@ await user.update({
 online:false
 });
 
-await closeActiveCallsForUser(
+handleParticipantDisconnect({
+userId:removedUser,
+onlineUsers
+}).catch((error)=>{
+console.log(
+"DISCONNECT CALL CLEANUP ERROR",
 removedUser,
-"completed"
+error.message
 );
+});
 
 io.emit(
 "user-status-changed",

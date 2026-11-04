@@ -1,10 +1,16 @@
 import { Op } from "sequelize";
 
+import { sequelize } from "../config/database.js";
 import {
 CallHistory,
 Earning,
 User
 } from "../models/index.js";
+import {
+computeSettlementEarnings,
+resolveRecordedDuration
+} from "../utils/callSettlement.util.js";
+import { getCollectedCallCoins } from "./callSettlement.service.js";
 import {
 normalizeCallTypeForDb
 } from "../constants/callTypes.js";
@@ -98,213 +104,319 @@ return Boolean(busyCall);
 
 };
 
+const emptyBilling = () => ({
+ minutes:0,
+ maleCost:0,
+ recordedCost:0,
+ collectedCoins:0,
+ earnableCoins:0,
+ femaleEarn:0,
+ femaleAmount:0,
+ femaleEarningPercentage:0
+});
+
+const findCallForCompletion =
+async({
+callHistoryId,
+callerId,
+receiverId,
+transaction
+})=>{
+ const lock = transaction.LOCK.UPDATE;
+ let history = null;
+
+ if(callHistoryId){
+  history =
+  await CallHistory.findByPk(
+  callHistoryId,
+  { transaction, lock }
+  );
+
+  // A client-supplied call id only counts when it belongs to the same pair.
+  if(
+   history &&
+   callerId &&
+   receiverId &&
+   (
+    Number(history.callerId) !== Number(callerId) ||
+    Number(history.receiverId) !== Number(receiverId)
+   )
+  ){
+   history = null;
+  }
+ }
+
+ if(!history && callerId && receiverId){
+  const active =
+  await findActiveCallByPair(
+  callerId,
+  receiverId
+  );
+
+  if(active){
+   history =
+   await CallHistory.findByPk(
+   active.id,
+   { transaction, lock }
+   );
+  }
+ }
+
+ return history;
+};
+
+const raiseCallEarning =
+async({
+callId,
+femaleUserId,
+settlement,
+minutes,
+transaction
+})=>{
+ if(
+  settlement.femaleEarn <= 0 &&
+  settlement.femaleAmount <= 0
+ ){
+  return Earning.findOne({
+   where:{ callId },
+   transaction
+  });
+ }
+
+ const existing =
+ await Earning.findOne({
+  where:{ callId },
+  transaction,
+  lock:transaction.LOCK.UPDATE
+ });
+
+ if(!existing){
+  return Earning.create(
+  {
+   userId:femaleUserId,
+   callId,
+   coins:settlement.femaleEarn,
+   amount:settlement.femaleAmount,
+   duration:minutes,
+   status:"pending"
+  },
+  { transaction }
+  );
+ }
+
+ // Only pending earnings can still change; paid (or otherwise processed)
+ // rows are part of a payout and are never touched.
+ if(String(existing.status || "pending") !== "pending"){
+  return existing;
+ }
+
+ // Earnings only ever rise toward the collected-coin cap; existing rows,
+ // including ones written before Phase 1, are never reduced here.
+ const nextCoins =
+ Math.max(Number(existing.coins || 0), settlement.femaleEarn);
+
+ const nextAmount =
+ Math.max(Number(existing.amount || 0), settlement.femaleAmount);
+
+ if(
+  nextCoins !== Number(existing.coins || 0) ||
+  nextAmount !== Number(existing.amount || 0)
+ ){
+  await existing.update(
+  {
+   coins:nextCoins,
+   amount:nextAmount,
+   duration:Math.max(Number(existing.duration || 0), Number(minutes || 0))
+  },
+  { transaction }
+  );
+ }
+
+ return existing;
+};
+
+/**
+ * Settles a call: records the server-derived duration and cost, and credits the
+ * creator only from coins actually collected for this call (capped at the
+ * cost). Concurrent calls for the same row are serialised by a row lock.
+ *
+ * Client-supplied durations are ignored once the server has seen the call
+ * accepted; for older calls they are capped by wall-clock time.
+ */
 export const completeCallRecord =
 async({
 callerId,
 receiverId,
 type,
 duration,
-callHistoryId
+callHistoryId,
+endReason = null,
+endedAt = null
 })=>{
 
-const normalizedType =
-normalizeCallTypeForDb(type);
+let firstSettlement = false;
 
-let history =
-null;
-
-if(callHistoryId){
- history =
- await CallHistory.findByPk(callHistoryId);
-}
-
-if(!history){
- history =
- await findActiveCallByPair(
- callerId,
- receiverId
- );
-}
-
-const normalizedDuration =
-Math.max(
-0,
-Number(duration ?? 0),
-Number(history?.duration ?? 0)
-);
-
-const billing =
-await calculateCallBilling({
-duration:normalizedDuration,
-type:normalizedType || history?.type,
-receiverId,
-callerId
-});
-
-const upsertCallEarning =
-async(
-callId,
-femaleUserId
-)=>{
- if(
- !callId ||
- billing.femaleEarn <= 0
- ){
-  return null;
- }
-
- const [
- earning,
- created
- ]=
- await Earning.findOrCreate({
-
- where:{
-  callId
- },
-
- defaults:{
-  userId:femaleUserId,
-  coins:billing.femaleEarn,
-  amount:billing.femaleAmount,
-  duration:billing.minutes,
-  status:"pending"
- }
-
+const result =
+await sequelize.transaction(async(transaction)=>{
+ const history =
+ await findCallForCompletion({
+  callHistoryId,
+  callerId,
+  receiverId,
+  transaction
  });
 
- if(!created){
-  const existingCoins =
-  Number(earning.coins || 0);
-
-  const existingAmount =
-  Number(earning.amount || 0);
-
-  const nextCoins =
-  Math.max(
-  existingCoins,
-  billing.femaleEarn
-  );
-
-  const nextAmount =
-  Math.max(
-  existingAmount,
-  billing.femaleAmount
-  );
-
-  if(
-  nextCoins !== existingCoins ||
-  nextAmount !== existingAmount ||
-  Number(earning.duration || 0) !==
-  Number(billing.minutes || 0)
-  ){
-   await earning.update({
-   coins:nextCoins,
-   amount:nextAmount,
-   duration:billing.minutes
-   });
-  }
- }
-
- return earning;
-};
-
-if(
-history &&
-TERMINAL_CALL_STATUSES.includes(history.status)
-){
- const existingEarning =
- await Earning.findOne({
-  where:{
-   callId:history.id
-  }
- });
-
- const storedCoinsSpent =
- Number(history.coinsSpent || 0);
-
- const shouldRefresh =
- billing.maleCost > storedCoinsSpent ||
- (
-  billing.femaleEarn > 0 &&
-  (
-   !existingEarning ||
-   billing.femaleEarn >
-   Number(existingEarning.coins || 0) ||
-   billing.femaleAmount >
-   Number(existingEarning.amount || 0)
-  )
- );
-
- if(!shouldRefresh){
+ if(!history){
   return {
-   history,
-   earning:existingEarning,
-   billing,
-   alreadyCompleted:true
+   history:null,
+   earning:null,
+   billing:emptyBilling(),
+   alreadyCompleted:true,
+   notFound:true
   };
  }
 
- await history.update({
- type:normalizedType || history.type,
- duration:normalizedDuration,
- coinsSpent:Math.max(
-  storedCoinsSpent,
-  billing.maleCost
- ),
- status:"completed"
+ const wasTerminal =
+ TERMINAL_CALL_STATUSES.includes(history.status);
+
+ const wasSettled =
+ Boolean(history.settledAt);
+
+ // Completed before Phase 1 with a cost already recorded: leave untouched.
+ if(
+  !wasSettled &&
+  wasTerminal &&
+  Number(history.coinsSpent || 0) > 0
+ ){
+  const existingEarning =
+  await Earning.findOne({
+   where:{ callId:history.id },
+   transaction
+  });
+
+  return {
+   history,
+   earning:existingEarning,
+   billing:{
+    ...emptyBilling(),
+    minutes:Math.ceil(Number(history.duration || 0) / 60),
+    maleCost:Number(history.coinsSpent || 0),
+    recordedCost:Number(history.coinsSpent || 0),
+    femaleEarn:Number(existingEarning?.coins || 0),
+    femaleAmount:Number(existingEarning?.amount || 0)
+   },
+   alreadyCompleted:true,
+   legacy:true
+  };
+ }
+
+ const now = new Date();
+ const callType =
+ normalizeCallTypeForDb(history.type || type);
+
+ const recordedDuration =
+ wasSettled
+ ?
+ Math.max(0, Number(history.duration || 0))
+ :
+ resolveRecordedDuration({
+  acceptedAt:history.acceptedAt,
+  endedAt:history.endedAt ?? endedAt ?? now,
+  createdAt:history.createdAt,
+  clientDuration:duration,
+  storedDuration:history.duration,
+  now:now.getTime()
  });
 
- const earning =
- await upsertCallEarning(
- history.id,
- receiverId
- );
+ const billing =
+ await calculateCallBilling({
+  duration:recordedDuration,
+  type:callType,
+  receiverId:history.receiverId,
+  callerId:history.callerId
+ });
 
- recordCallCompletedFromHistory(history);
+ const collectedCoins =
+ await getCollectedCallCoins({
+  callId:history.id,
+  callerId:history.callerId,
+  transaction
+ });
+
+ // Server-billed calls were charged interval by interval on the server's own
+ // schedule (including face-gate pauses), so that total is the call's cost.
+ const recordedCost =
+ wasSettled
+ ?
+ Number(history.coinsSpent || 0)
+ :
+ history.billingMode === "server"
+ ?
+ Math.min(collectedCoins, billing.maleCost)
+ :
+ billing.maleCost;
+
+ const settlement =
+ computeSettlementEarnings({
+  collectedCoins,
+  recordedCost,
+  coinValue:billing.coinValue,
+  creatorPercentage:billing.femaleEarningPercentage
+ });
+
+ const updates = {
+  collectedCoins
+ };
+
+ if(!wasSettled){
+  firstSettlement = true;
+  updates.duration = recordedDuration;
+  updates.coinsSpent = recordedCost;
+  updates.endedAt = history.endedAt ?? endedAt ?? now;
+  updates.settledAt = now;
+  updates.endReason = history.endReason ?? endReason;
+
+  if(
+   recordedDuration > 0 ||
+   collectedCoins > 0 ||
+   !wasTerminal
+  ){
+   updates.status = "completed";
+  }
+ }
+
+ await history.update(updates, { transaction });
+
+ const earning =
+ await raiseCallEarning({
+  callId:history.id,
+  femaleUserId:history.receiverId,
+  settlement,
+  minutes:billing.minutes,
+  transaction
+ });
 
  return {
   history,
   earning,
-  billing,
-  alreadyCompleted:false,
-  refreshed:true
+  billing:{
+   ...billing,
+   maleCost:recordedCost,
+   recordedCost,
+   collectedCoins,
+   earnableCoins:settlement.earnableCoins,
+   femaleEarn:settlement.femaleEarn,
+   femaleAmount:settlement.femaleAmount
+  },
+  alreadyCompleted:wasSettled
  };
+});
+
+if(firstSettlement && result.history){
+ recordCallCompletedFromHistory(result.history);
 }
 
-if(history){
- await history.update({
- type:normalizedType || history.type,
- duration:normalizedDuration,
- coinsSpent:billing.maleCost,
- status:"completed"
- });
-}else{
- history =
- await CallHistory.create({
- callerId,
- receiverId,
- type:normalizedType,
- duration:normalizedDuration,
- coinsSpent:billing.maleCost,
- status:"completed"
- });
-}
-
-const earning =
-await upsertCallEarning(
-history.id,
-receiverId
-);
-
-recordCallCompletedFromHistory(history);
-
-return {
- history,
- earning,
- billing,
- alreadyCompleted:false
-};
+return result;
 
 };
 
@@ -520,7 +632,8 @@ callerId:call.callerId,
 receiverId:call.receiverId,
 type:call.type,
 duration:elapsedSeconds,
-callHistoryId:call.id
+callHistoryId:call.id,
+endReason:"stale_cleanup"
 });
 }catch(error){
 console.log(
@@ -589,7 +702,8 @@ callerId:row.callerId,
 receiverId:row.receiverId,
 type:row.type,
 duration:elapsedSeconds,
-callHistoryId:row.id
+callHistoryId:row.id,
+endReason:"ghost_cleanup"
 });
 }catch(error){
 console.log(
@@ -601,10 +715,32 @@ error.message
 }
 };
 
+const CONNECTED_CALL_STATUSES = [
+"accepted",
+"ongoing",
+"in_progress"
+];
+
+const isConnectedCall =
+(call)=>
+Boolean(call.acceptedAt) ||
+CONNECTED_CALL_STATUSES.includes(call.status);
+
+/**
+ * Ends a user's active calls. Calls that were never answered get
+ * `terminalStatus`; answered calls are settled through completeCallRecord so
+ * the creator is paid from collected coins exactly once.
+ */
 export const closeActiveCallsForUser =
 async(
 userId,
-terminalStatus = "cancelled"
+terminalStatus = "cancelled",
+{
+endedAt = null,
+endReason = "participant_disconnected",
+acceptedOnly = false,
+unacceptedOnly = false
+} = {}
 )=>{
 const userIdNum =
 Number(userId);
@@ -612,27 +748,77 @@ Number(userId);
 if(
 !Number.isFinite(userIdNum)
 ){
-return;
+return { settled:0, closed:0 };
 }
 
-await CallHistory.update(
-{
-status:terminalStatus
-},
-{
+const calls =
+await CallHistory.findAll({
 where:{
 [Op.or]:[
-{
-callerId:userIdNum
-},
-{
-receiverId:userIdNum
-}
+{ callerId:userIdNum },
+{ receiverId:userIdNum }
 ],
 status:{
 [Op.in]:ACTIVE_CALL_STATUSES
 }
+},
+attributes:[
+"id",
+"callerId",
+"receiverId",
+"type",
+"status",
+"acceptedAt"
+]
+});
+
+let settled = 0;
+let closed = 0;
+
+for(const call of calls){
+if(isConnectedCall(call)){
+if(unacceptedOnly){
+continue;
+}
+
+try{
+await completeCallRecord({
+callerId:call.callerId,
+receiverId:call.receiverId,
+type:call.type,
+callHistoryId:call.id,
+endedAt,
+endReason
+});
+settled += 1;
+}catch(error){
+console.log(
+"CLOSE CALL SETTLEMENT ERROR",
+call.id,
+error.message
+);
+}
+
+continue;
+}
+
+if(acceptedOnly){
+continue;
+}
+
+const [updated] =
+await CallHistory.update(
+{ status:terminalStatus },
+{
+where:{
+id:call.id,
+status:{ [Op.in]:ACTIVE_CALL_STATUSES }
 }
 }
 );
+
+closed += Number(updated || 0);
+}
+
+return { settled, closed };
 };

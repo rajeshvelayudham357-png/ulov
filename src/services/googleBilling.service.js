@@ -261,6 +261,13 @@ export const verifyAndCreditGooglePlayPurchase = async ({ productId, purchaseTok
       console.log("MALE SCRATCH REWARD COMPLETE ERROR", error.message);
     }
 
+    const { rewardReferralAfterPayment } = await import("./referral.service.js");
+    await rewardReferralAfterPayment({
+      userId,
+      paymentOrderId: order.orderId,
+      amount: amountToCharge,
+    });
+
     const latestWallet = await Wallet.findOne({ where: { userId } });
     const latestBalance = Number(latestWallet?.balance ?? wallet.balance);
 

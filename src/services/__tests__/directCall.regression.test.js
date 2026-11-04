@@ -16,11 +16,14 @@ import {
   createMockRes,
   seedEligibleCreators,
   upsertTestUser,
+  upsertTestWallet,
 } from "./helpers/qcTestHarness.js";
 
 test.before(async () => {
   await cleanupAllHarnessData();
   await seedEligibleCreators();
+  // Call create now requires the caller to afford the first billing interval.
+  await upsertTestWallet(IDS.MALE, 10_000);
 });
 
 test.after(async () => {
@@ -28,9 +31,13 @@ test.after(async () => {
   await sequelize.close();
 });
 
+// The route requires a JWT; the authenticated caller is what authMiddleware sets.
 const directCreate = async (body) => {
   const res = createMockRes();
-  await createVideoCall({ body }, res);
+  await createVideoCall(
+    { body, user: { id: body.callerId ?? IDS.MALE } },
+    res
+  );
   return res;
 };
 

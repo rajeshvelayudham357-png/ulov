@@ -1,17 +1,20 @@
 import { Op } from "sequelize";
 
 import { Earning, Withdraw } from "../models/index.js";
+import { assertWithdrawAvailableNow } from "./withdrawSettings.service.js";
+import { getReferralEarningsTotal } from "./referral.service.js";
 
 const toAmount = (value) => Number(value || 0);
 
 export const MIN_FEMALE_WITHDRAW_AMOUNT = 200;
 
 export const getTotalEarnedAmount = async (userId) => {
-  const total = await Earning.sum("amount", {
-    where: { userId },
-  });
+  const [callEarnings, referralEarnings] = await Promise.all([
+    Earning.sum("amount", { where: { userId } }),
+    getReferralEarningsTotal(userId),
+  ]);
 
-  return toAmount(total);
+  return toAmount(callEarnings) + toAmount(referralEarnings);
 };
 
 export const getApprovedWithdrawAmount = async (userId) => {
@@ -56,20 +59,28 @@ export const getFemaleWithdrawSummary = async (userId) => {
   };
 };
 
+const badRequest = (message) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+};
+
 export const assertWithdrawRequestAllowed = async ({
   userId,
   amount,
 }) => {
+  await assertWithdrawAvailableNow();
+
   const requestAmount = toAmount(amount);
 
   if (requestAmount < MIN_FEMALE_WITHDRAW_AMOUNT) {
-    throw new Error(`Minimum withdraw ₹${MIN_FEMALE_WITHDRAW_AMOUNT}`);
+    throw badRequest(`Minimum withdraw ₹${MIN_FEMALE_WITHDRAW_AMOUNT}`);
   }
 
   const summary = await getFemaleWithdrawSummary(userId);
 
   if (requestAmount > summary.availableBalance) {
-    throw new Error(
+    throw badRequest(
       `Insufficient balance. Available ₹${summary.availableBalance}`
     );
   }

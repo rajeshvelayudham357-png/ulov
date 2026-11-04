@@ -7,6 +7,7 @@ import {
   reportCallDeliveryEvent,
 } from "../controllers/call.controller.js";
 import authMiddleware from "../middleware/authMiddleware.js";
+import callCreateAuth from "../middleware/callCreateAuth.js";
 import {
     endCall
     }
@@ -17,7 +18,7 @@ sendCallGift
 } from "../controllers/callGift.controller.js";
 const router = express.Router();
 
-router.post("/create", createVideoCall);
+router.post("/create", callCreateAuth, createVideoCall);
 router.post("/quick-connect/cancel", authMiddleware, cancelQuickConnect);
 router.post(
   "/delivery-event",

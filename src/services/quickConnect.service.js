@@ -12,6 +12,17 @@ import {
 } from "../constants/quickConnect.js";
 import { normalizeCallTypeForDb } from "../constants/callTypes.js";
 import { CallHistory, User } from "../models/index.js";
+import {
+  assertCanAffordInitialCallCharge,
+  getCallRatePerMinute,
+  InsufficientCallBalanceError,
+  markCallAccepted,
+} from "./callSettlement.service.js";
+import { ensureCallBillingSchema } from "./callBillingSchema.service.js";
+import {
+  CALL_BILLING_MODES,
+  resolveBillingModeForNewCall,
+} from "./callBillingEngine.service.js";
 import { recordCallAttemptedFromNewCallHistory } from "./engagementRecord.service.js";
 import { generateAgoraToken, getAgoraAppId } from "./agora.service.js";
 import { areUsersBlocked } from "./block.service.js";
@@ -54,6 +65,22 @@ const getInsertId = (queryResult) => {
   }
 
   return Number(first);
+};
+
+// Failed ring attempts keep their row but do not bump session.attemptCount,
+// so the next number must also account for rows already written.
+export const getNextAttemptNumber = async (sessionId, attemptCount) => {
+  const [row] = await sequelize.query(
+    `SELECT COALESCE(MAX(attemptNumber), 0) AS maxNumber
+     FROM ${QC_TABLES.ATTEMPTS}
+     WHERE sessionId = :sessionId`,
+    {
+      replacements: { sessionId: Number(sessionId) },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  return Math.max(Number(attemptCount) || 0, Number(row?.maxNumber) || 0) + 1;
 };
 
 const mapAcceptFailureReason = (reason) => {
@@ -675,8 +702,10 @@ export const createQuickConnectSession = async ({
   type,
   callerName = null,
   callerAvatar = null,
+  billingCapability = null,
 }) => {
   await ensureQuickConnectSchema();
+  await ensureCallBillingSchema();
 
   const settings = await getQuickConnectSettings();
 
@@ -695,14 +724,26 @@ export const createQuickConnectSession = async ({
     throw error;
   }
 
+  // The creator is not known yet, so the global rate sets the first interval.
+  await assertCanAffordInitialCallCharge({
+    callerId: callerIdNum,
+    type: normalizedType,
+  });
+
   const deadlineAt = new Date(
     Date.now() + settings.maxRoutingSeconds * 1000
   );
 
+  // Every attempt in the session inherits this, so a reroute never switches
+  // who charges the caller.
+  const billingMode = resolveBillingModeForNewCall({
+    capability: billingCapability,
+  });
+
   const sessionResult = await sequelize.query(
     `INSERT INTO ${QC_TABLES.SESSIONS}
-     (callerId, callType, mode, status, maxAttempts, attemptCount, startedAt, deadlineAt)
-     VALUES (:callerId, :callType, :mode, :status, :maxAttempts, 0, NOW(), :deadlineAt)`,
+     (callerId, callType, mode, status, maxAttempts, attemptCount, startedAt, deadlineAt, billingMode)
+     VALUES (:callerId, :callType, :mode, :status, :maxAttempts, 0, NOW(), :deadlineAt, :billingMode)`,
     {
       replacements: {
         callerId: callerIdNum,
@@ -711,6 +752,7 @@ export const createQuickConnectSession = async ({
         status: SESSION_STATUS.ROUTING,
         maxAttempts: settings.maxAttempts,
         deadlineAt,
+        billingMode,
       },
     }
   );
@@ -753,7 +795,7 @@ export const createQuickConnectSession = async ({
     throw error;
   }
 
-  return attemptResult;
+  return { ...attemptResult, billingMode };
 };
 
 export const startNextQuickConnectAttempt = async ({
@@ -825,28 +867,42 @@ export const startNextQuickConnectAttempt = async ({
       continue;
     }
 
-    const attemptNumber = Number(session.attemptCount) + 1;
+    const attemptNumber = await getNextAttemptNumber(
+      sessionId,
+      session.attemptCount
+    );
     const ringStartedAt = new Date();
     const ringExpiresAt = new Date(
       ringStartedAt.getTime() + settings.ringTimeoutSeconds * 1000
     );
 
-    const attemptResult = await sequelize.query(
-      `INSERT INTO ${QC_TABLES.ATTEMPTS}
-       (sessionId, receiverId, attemptNumber, status, ringStartedAt, ringExpiresAt, failureReason)
-       VALUES (:sessionId, :receiverId, :attemptNumber, :status, :ringStartedAt, :ringExpiresAt, :failureReason)`,
-      {
-        replacements: {
-          sessionId: Number(sessionId),
-          receiverId: creatorId,
-          attemptNumber,
-          status: ATTEMPT_STATUS.CREATED,
-          ringStartedAt,
-          ringExpiresAt,
-          failureReason,
-        },
+    let attemptResult;
+
+    try {
+      attemptResult = await sequelize.query(
+        `INSERT INTO ${QC_TABLES.ATTEMPTS}
+         (sessionId, receiverId, attemptNumber, status, ringStartedAt, ringExpiresAt, failureReason)
+         VALUES (:sessionId, :receiverId, :attemptNumber, :status, :ringStartedAt, :ringExpiresAt, :failureReason)`,
+        {
+          replacements: {
+            sessionId: Number(sessionId),
+            receiverId: creatorId,
+            attemptNumber,
+            status: ATTEMPT_STATUS.CREATED,
+            ringStartedAt,
+            ringExpiresAt,
+            failureReason,
+          },
+        }
+      );
+    } catch (error) {
+      // A concurrent router took this number; recompute and try again.
+      if (error?.name === "SequelizeUniqueConstraintError") {
+        continue;
       }
-    );
+
+      throw error;
+    }
 
     const attemptId = getInsertId(attemptResult);
     let callHistoryId = null;
@@ -867,6 +923,9 @@ export const startNextQuickConnectAttempt = async ({
     }
 
     try {
+      const billedByServer =
+        session.billingMode && session.billingMode !== CALL_BILLING_MODES.CLIENT;
+
       const callHistory = await CallHistory.create({
         callerId: session.callerId,
         receiverId: creatorId,
@@ -874,6 +933,16 @@ export const startNextQuickConnectAttempt = async ({
         duration: 0,
         coinsSpent: 0,
         status: "ringing",
+        billingMode: session.billingMode || CALL_BILLING_MODES.CLIENT,
+        ...(billedByServer
+          ? {
+              billingRatePerMinute: await getCallRatePerMinute({
+                type: session.callType,
+                receiverId: creatorId,
+              }),
+              billableSeconds: 0,
+            }
+          : {}),
       });
 
       recordCallAttemptedFromNewCallHistory(callHistory);
@@ -1199,6 +1268,42 @@ export const tryAcceptQuickConnectAttempt = async ({
     };
   }
 
+  const [ringState] = await sequelize.query(
+    `SELECT ringExpiresAt > NOW(3) AS stillRinging
+     FROM ${QC_TABLES.ATTEMPTS}
+     WHERE id = :attemptId`,
+    {
+      replacements: { attemptId: Number(attemptId) },
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  if (!Number(ringState?.stillRinging)) {
+    return { accepted: false, reason: "expired" };
+  }
+
+  // Session creation only checked the default rate; the routed creator may
+  // charge more, so re-check against this creator's actual rate.
+  try {
+    await assertCanAffordInitialCallCharge({
+      callerId: session.callerId,
+      receiverId: attempt.receiverId,
+      type: session.callType,
+    });
+  } catch (error) {
+    if (!(error instanceof InsufficientCallBalanceError)) {
+      throw error;
+    }
+
+    await handleQuickConnectAttemptFailure({
+      attemptId: attempt.id,
+      terminalStatus: ATTEMPT_STATUS.FAILED,
+      failureReason: "insufficient_balance",
+    });
+
+    return { accepted: false, reason: "insufficient_balance" };
+  }
+
   const [, acceptMeta] = await sequelize.query(
     `UPDATE ${QC_TABLES.ATTEMPTS}
      SET status = :acceptedStatus,
@@ -1242,6 +1347,7 @@ export const tryAcceptQuickConnectAttempt = async ({
       { status: "accepted" },
       { where: { id: attempt.callHistoryId } }
     );
+    await markCallAccepted(attempt.callHistoryId);
   }
 
   await releaseCreatorReservation({
@@ -1475,35 +1581,45 @@ export const processExpiredQuickConnectAttempts = async () => {
     }
   );
 
+  // One failing session must not abort the rest of the batch.
   for (const attempt of expiredAttempts) {
-    const updated = await transitionAttemptStatus({
-      attemptId: attempt.id,
-      fromStatus: ATTEMPT_STATUS.RINGING,
-      toStatus: ATTEMPT_STATUS.MISSED,
-      failureReason: "timeout",
-    });
+    try {
+      const updated = await transitionAttemptStatus({
+        attemptId: attempt.id,
+        fromStatus: ATTEMPT_STATUS.RINGING,
+        toStatus: ATTEMPT_STATUS.MISSED,
+        failureReason: "timeout",
+      });
 
-    if (!updated) {
-      continue;
+      if (!updated) {
+        continue;
+      }
+
+      const session = await fetchSessionById(attempt.sessionId);
+
+      await logQuickConnectEvent("call_timeout", {
+        sessionId: attempt.sessionId,
+        attemptId: attempt.id,
+        callId: attempt.callHistoryId,
+        callerId: session?.callerId,
+        receiverId: attempt.receiverId,
+        deliveryEvent: "MISSED",
+      });
+
+      await finalizeFailedAttempt({
+        attempt,
+        session,
+        terminalStatus: ATTEMPT_STATUS.MISSED,
+        failureReason: "timeout",
+      });
+    } catch (error) {
+      console.log(
+        "[QUICK_CONNECT_EXPIRY_ERROR]",
+        attempt.sessionId,
+        attempt.id,
+        error.message
+      );
     }
-
-    const session = await fetchSessionById(attempt.sessionId);
-
-    await logQuickConnectEvent("call_timeout", {
-      sessionId: attempt.sessionId,
-      attemptId: attempt.id,
-      callId: attempt.callHistoryId,
-      callerId: session?.callerId,
-      receiverId: attempt.receiverId,
-      deliveryEvent: "MISSED",
-    });
-
-    await finalizeFailedAttempt({
-      attempt,
-      session,
-      terminalStatus: ATTEMPT_STATUS.MISSED,
-      failureReason: "timeout",
-    });
   }
 
   const expiredSessions = await sequelize.query(

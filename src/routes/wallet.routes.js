@@ -13,6 +13,7 @@ getRechargeHistory
 
 }
 from "../controllers/wallet.controller.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 
 
@@ -44,6 +45,7 @@ rechargeWallet
 
 router.post(
 "/spend",
+authMiddleware,
 spendWallet
 );
 

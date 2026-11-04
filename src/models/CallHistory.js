@@ -47,6 +47,47 @@ coinsSpent:{
 status:{
  type:DataTypes.STRING,
  defaultValue:"completed"
+},
+
+// Server-side timestamps and settlement state (Phase 1 billing fixes).
+acceptedAt:{
+ type:DataTypes.DATE,
+ allowNull:true
+},
+
+endedAt:{
+ type:DataTypes.DATE,
+ allowNull:true
+},
+
+settledAt:{
+ type:DataTypes.DATE,
+ allowNull:true
+},
+
+collectedCoins:{
+ type:DataTypes.INTEGER,
+ allowNull:true
+},
+
+endReason:{
+ type:DataTypes.STRING(40),
+ allowNull:true
+},
+
+billingMode:{
+ type:DataTypes.STRING(16),
+ allowNull:true
+},
+
+billingRatePerMinute:{
+ type:DataTypes.DECIMAL(10,2),
+ allowNull:true
+},
+
+billableSeconds:{
+ type:DataTypes.INTEGER,
+ allowNull:true
 }
 
 

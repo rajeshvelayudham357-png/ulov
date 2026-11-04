@@ -4,6 +4,7 @@ import {
   formatWithdrawRecord,
   getFemaleWithdrawSummary,
 } from "../services/withdraw.service.js";
+import { getWithdrawAvailability } from "../services/withdrawSettings.service.js";
 
 export const requestWithdraw = async (req, res) => {
   try {
@@ -103,19 +104,35 @@ export const requestWithdraw = async (req, res) => {
     });
   } catch (error) {
     const message = error?.message || "Unable to submit withdraw request";
-    const status = message.includes("Insufficient") ? 400 : 500;
+    const status =
+      error?.statusCode || (message.includes("Insufficient") ? 400 : 500);
 
     return res.status(status).json({
       message,
+      ...(error?.code ? { code: error.code } : {}),
+      ...(error?.availability ? { availability: error.availability } : {}),
+    });
+  }
+};
+
+export const getWithdrawAvailabilityStatus = async (req, res) => {
+  try {
+    return res.json(await getWithdrawAvailability());
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message,
     });
   }
 };
 
 export const getWithdrawSummary = async (req, res) => {
   try {
-    const summary = await getFemaleWithdrawSummary(req.params.userId);
+    const [summary, availability] = await Promise.all([
+      getFemaleWithdrawSummary(req.params.userId),
+      getWithdrawAvailability(),
+    ]);
 
-    return res.json(summary);
+    return res.json({ ...summary, availability });
   } catch (error) {
     return res.status(500).json({
       message: error.message,
@@ -125,7 +142,7 @@ export const getWithdrawSummary = async (req, res) => {
 
 export const withdrawHistory = async (req, res) => {
   try {
-    const [history, summary] = await Promise.all([
+    const [history, summary, availability] = await Promise.all([
       Withdraw.findAll({
         where: {
           userId: req.params.userId,
@@ -133,11 +150,13 @@ export const withdrawHistory = async (req, res) => {
         order: [["createdAt", "DESC"]],
       }),
       getFemaleWithdrawSummary(req.params.userId),
+      getWithdrawAvailability(),
     ]);
 
     return res.json({
       history: history.map(formatWithdrawRecord),
       summary,
+      availability,
     });
   } catch (error) {
     return res.status(500).json({

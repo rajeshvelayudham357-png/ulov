@@ -1,5 +1,7 @@
 import { generateAgoraToken, getAgoraAppId } from "../services/agora.service.js";
 import { recordClientCallDeliveryEvent } from "../services/callDelivery.service.js";
+import { assertCanAffordInitialCallCharge } from "../services/callSettlement.service.js";
+import { getNewCallBillingFields } from "../services/callBillingEngine.service.js";
 import {
 areUsersBlocked
 } from "../services/block.service.js";
@@ -41,12 +43,30 @@ try{
 
 const {
 receiverId,
-callerId,
 type,
 mode: rawMode,
 callerName,
 callerAvatar,
 }=req.body;
+
+// The caller is always the logged-in user; a different id in the body is refused.
+const callerId =
+Number(req.user?.id);
+
+if(!callerId){
+return res.status(401).json({
+message:"Unauthorized"
+});
+}
+
+if(
+req.body?.callerId !== undefined &&
+Number(req.body.callerId) !== callerId
+){
+return res.status(403).json({
+message:"You can only start calls as yourself"
+});
+}
 
 const mode = normalizeCallMode(rawMode);
 
@@ -57,17 +77,12 @@ if (mode === CALL_MODES.QUICK_CONNECT) {
     });
   }
 
-  if (!callerId) {
-    return res.status(400).json({
-      message: "callerId required",
-    });
-  }
-
   const quickConnectResult = await createQuickConnectSession({
     callerId,
     type,
     callerName: callerName ?? null,
     callerAvatar: callerAvatar ?? null,
+    billingCapability: req.body?.billingCapability ?? null,
   });
 
   return res.json(quickConnectResult);
@@ -187,6 +202,12 @@ message:"This user is not accepting video calls"
 
 
 
+await assertCanAffordInitialCallCharge({
+callerId,
+type:normalizedType,
+receiverId
+});
+
 const callerUid =
 Number(callerId);
 
@@ -195,6 +216,13 @@ const receiverUid =
 Number(receiverId);
 
 
+
+const billingFields =
+await getNewCallBillingFields({
+capability:req.body?.billingCapability,
+type:normalizedType,
+receiverId
+});
 
 let liveCall =
 await findActiveCallByPair(
@@ -210,7 +238,8 @@ await liveCall.update({
 type:normalizedType,
 duration:0,
 coinsSpent:0,
-status:"live"
+status:"live",
+...billingFields
 });
 
 }else{
@@ -222,7 +251,8 @@ receiverId,
 type:normalizedType,
 duration:0,
 coinsSpent:0,
-status:"live"
+status:"live",
+...billingFields
 });
 
 recordCallAttemptedFromNewCallHistory(liveCall);
@@ -272,6 +302,10 @@ channelName,
 callId:
 liveCall.id,
 
+// "server": the server charges this call and the app must not.
+billingMode:
+billingFields.billingMode,
+
 
 caller:{
 uid:callerUid,
@@ -294,7 +328,11 @@ token:receiverToken
 
 
 res.status(error.statusCode || 500).json({
-message:error.message
+message:error.message,
+...(error.code ? { code:error.code } : {}),
+...(error.required !== undefined
+? { required:error.required, balance:error.balance }
+: {})
 });
 
 

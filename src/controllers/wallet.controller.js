@@ -1,8 +1,21 @@
 import {
+    CallHistory,
     Wallet,
     WalletTransaction
    }
    from "../models/index.js";
+import {
+  ACTIVE_CALL_STATUSES,
+  completeCallRecord,
+} from "../services/callState.service.js";
+import {
+  CALL_CHARGE_DESCRIPTION,
+  CALL_CHARGE_REFERENCE_TYPE,
+  getCallRatePerMinute,
+  getCollectedCallCoins,
+  getMaxIntervalCharge,
+} from "../services/callSettlement.service.js";
+import { computeMaleCallCost } from "../utils/callRate.util.js";
 import { listUserRechargeHistory } from "../services/payment.service.js";
 import {
 Op
@@ -236,287 +249,241 @@ return result;
    
    
    
-   // RECHARGE GOLD
-   
-   
-   export const rechargeWallet =
-   async(req,res)=>{
-   
-   
-   try{
-   
-   
-   const {
-    userId,
-    amount
-   }=req.body;
-   
-   
-   
-   let wallet =
-   await Wallet.findOne({
-   
-   where:{
-    userId
-   }
-   
-   });
-   
-   
-   
-   // create wallet if missing
-   if(!wallet){
-   
-   
-   wallet =
-   await Wallet.create({
-   
-   userId,
-   
-   balance:0
-   
-   });
-   
-   
-   }
-   
-   
-   
-   wallet.balance =
-   Number(wallet.balance)
-   +
-   Number(amount);
-   
-   
-   
-   await wallet.save();
-   
-   
-   
-   
-   await WalletTransaction.create({
-   
-   userId,
-   
-   type:"credit",
-   
-   amount,
-   
-   description:"Gold Recharge"
-   
-   });
-   
-   
-   
-   
-   return res.json({
-   
-   wallet
-   
-   });
-   
-   
-   
-   
-   }catch(error){
-   
-   
-   return res.status(500).json({
-   
-   message:error.message
-   
-   });
-   
-   
-   }
-   
-   
-   };
-   
-   
-   
-   
-   
-   
-   // SPEND GOLD
-   
-   
-   export const spendWallet =
-async(req,res)=>{
-
-
-try{
-
-await ensureWalletTransactionSchema();
-
-const {
- userId,
- amount,
- callSessionId,
- callId,
- referenceId
-}=req.body;
-
-
-
-const wallet =
-await Wallet.findOne({
-
-where:{
- userId
-}
-
-});
-
-
-
-
-if(!wallet){
-
-
-return res.status(400).json({
-
-message:"Wallet not found"
-
-});
-
-
-}
-
-
-
-const spendAmount =
-Number(amount);
-
-if(
-!Number.isFinite(spendAmount) ||
-spendAmount <= 0
-){
-
-return res.status(400).json({
-
-message:"Invalid amount"
-
-});
-
-}
-
-const callReferenceId =
-Number(
-referenceId ??
-callSessionId ??
-callId
-);
-
-const hasCallReference =
-Number.isFinite(callReferenceId) &&
-callReferenceId > 0;
-
-
-
-const [
-updatedCount
-]=
-await Wallet.update(
-{
-balance:sequelize.literal(
-`balance - ${spendAmount}`
-)
-},
-{
-where:{
- userId,
- balance:{
-  [Op.gte]:spendAmount
- }
-}
-});
-
-
-
-
-if(!updatedCount){
-
-
-return res.status(400).json({
-
-message:"Low balance"
-
-});
-
-
-}
-
-
-
-
-await wallet.reload();
-
-if(hasCallReference){
- const existing =
- await WalletTransaction.findOne({
-  where:{
-   userId,
-   type:"debit",
-   description:"Call charge",
-   referenceType:"call",
-   referenceId:callReferenceId
-  },
-  order:[
-   ["createdAt","DESC"]
-  ]
- });
-
- if(existing){
-  await existing.update({
-   amount:
-   Number(existing.amount || 0) +
-   spendAmount
+// Disabled: coins may only be credited by verified payments
+// (payment.service / googleBilling.service) or admin credit tools.
+export const rechargeWallet = async (_req, res) =>
+  res.status(410).json({
+    code: "ENDPOINT_DISABLED",
+    message:
+      "Coins can only be added through a verified payment or by an administrator.",
   });
- }else{
-  await WalletTransaction.create({
-   userId,
-   type:"debit",
-   amount:spendAmount,
-   description:"Call charge",
-   referenceId:callReferenceId,
-   referenceType:"call"
-  });
- }
-}else{
- await WalletTransaction.create({
-  userId,
-  type:"debit",
-  amount:spendAmount,
-  description:"Call charge"
- });
-}
 
+// A charge that arrives just after the other side ended the call is still
+// accepted so the last paid interval is not lost.
+const LATE_CALL_CHARGE_WINDOW_MS = 2 * 60 * 1000;
 
+const isChargeableCall = (call) => {
+  if (ACTIVE_CALL_STATUSES.includes(call.status)) {
+    return true;
+  }
 
+  if (call.status !== "completed") {
+    return false;
+  }
 
-return res.json({
+  const endedTime = new Date(call.endedAt ?? call.updatedAt).getTime();
+  return (
+    Number.isFinite(endedTime) &&
+    Date.now() - endedTime <= LATE_CALL_CHARGE_WINDOW_MS
+  );
+};
 
-wallet
+// The app pays each interval at its start; this covers that plus clock skew.
+const CALL_CHARGE_AHEAD_SECONDS = 30;
 
-});
+class CallChargeCapError extends Error {}
 
+/**
+ * Most coins a call may have collected by now: the cost of the server's own
+ * accepted-to-now (or accepted-to-ended) span. Stops catch-up charges from
+ * billing time after the call ended or beyond real elapsed time. Calls without
+ * a server accept time are not capped.
+ */
+const getCallChargeCap = async (call) => {
+  if (!call.acceptedAt) {
+    return null;
+  }
 
+  const endTime = call.endedAt ? new Date(call.endedAt).getTime() : Date.now();
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((endTime - new Date(call.acceptedAt).getTime()) / 1000)
+  );
 
+  return computeMaleCallCost({
+    durationSeconds: elapsedSeconds + CALL_CHARGE_AHEAD_SECONDS,
+    type: call.type,
+    ratePerMinute: await getCallRatePerMinute({
+      type: call.type,
+      receiverId: call.receiverId,
+    }),
+  }).maleCost;
+};
 
-}catch(error){
+export const spendWallet = async (req, res) => {
+  try {
+    await ensureWalletTransactionSchema();
 
+    const userId = Number(req.user?.id);
 
-return res.status(500).json({
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
 
-message:error.message
+    if (
+      req.body?.userId !== undefined &&
+      Number(req.body.userId) !== userId
+    ) {
+      return res.status(403).json({
+        message: "You can only spend coins from your own wallet",
+      });
+    }
 
-});
+    const spendAmount = Number(req.body?.amount);
 
+    if (!Number.isInteger(spendAmount) || spendAmount <= 0) {
+      return res.status(400).json({ message: "Invalid amount" });
+    }
 
-}
+    const callReferenceId = Number(
+      req.body?.referenceId ?? req.body?.callSessionId ?? req.body?.callId
+    );
+    const hasCallReference =
+      Number.isFinite(callReferenceId) && callReferenceId > 0;
 
+    let call = null;
 
+    if (hasCallReference) {
+      call = await CallHistory.findByPk(callReferenceId);
+
+      if (!call) {
+        return res.status(404).json({ message: "Call not found" });
+      }
+
+      if (Number(call.callerId) !== userId) {
+        return res.status(403).json({
+          message: "This call does not belong to you",
+        });
+      }
+
+      // The server charges this call itself; a phone charge would double-bill.
+      if (call.billingMode === "server") {
+        const wallet = await Wallet.findOne({ where: { userId } });
+        return res.json({ wallet, serverBilled: true });
+      }
+
+      if (!isChargeableCall(call)) {
+        return res.status(409).json({ message: "Call is not active" });
+      }
+    }
+
+    const maxCharge = await getMaxIntervalCharge({
+      receiverId: call ? call.receiverId : null,
+    });
+
+    if (spendAmount > maxCharge) {
+      return res.status(400).json({
+        message: "Amount exceeds a single call billing interval",
+      });
+    }
+
+    const chargeCap = call ? await getCallChargeCap(call) : null;
+
+    const debited = await sequelize.transaction(async (transaction) => {
+      // The conditional update takes the wallet row lock, so concurrent
+      // charges for the same user are applied one after another.
+      const [updatedCount] = await Wallet.update(
+        { balance: sequelize.literal(`balance - ${spendAmount}`) },
+        {
+          where: { userId, balance: { [Op.gte]: spendAmount } },
+          transaction,
+        }
+      );
+
+      if (!updatedCount) {
+        return false;
+      }
+
+      if (call && chargeCap !== null) {
+        const collected = await getCollectedCallCoins({
+          callId: call.id,
+          callerId: userId,
+          transaction,
+        });
+
+        if (collected + spendAmount > chargeCap) {
+          throw new CallChargeCapError();
+        }
+      }
+
+      if (call) {
+        const existing = await WalletTransaction.findOne({
+          where: {
+            userId,
+            type: "debit",
+            description: CALL_CHARGE_DESCRIPTION,
+            referenceType: CALL_CHARGE_REFERENCE_TYPE,
+            referenceId: call.id,
+          },
+          order: [["createdAt", "DESC"]],
+          transaction,
+        });
+
+        if (existing) {
+          await existing.update(
+            { amount: Number(existing.amount || 0) + spendAmount },
+            { transaction }
+          );
+        } else {
+          await WalletTransaction.create(
+            {
+              userId,
+              type: "debit",
+              amount: spendAmount,
+              description: CALL_CHARGE_DESCRIPTION,
+              referenceId: call.id,
+              referenceType: CALL_CHARGE_REFERENCE_TYPE,
+            },
+            { transaction }
+          );
+        }
+      } else {
+        await WalletTransaction.create(
+          {
+            userId,
+            type: "debit",
+            amount: spendAmount,
+            description: CALL_CHARGE_DESCRIPTION,
+          },
+          { transaction }
+        );
+      }
+
+      return true;
+    });
+
+    if (!debited) {
+      return res.status(400).json({ message: "Low balance" });
+    }
+
+    // A charge that lands after settlement raises the creator's earning,
+    // still capped at the call's recorded cost.
+    if (call?.settledAt || call?.status === "completed") {
+      try {
+        await completeCallRecord({
+          callerId: call.callerId,
+          receiverId: call.receiverId,
+          type: call.type,
+          callHistoryId: call.id,
+        });
+      } catch (settleError) {
+        console.log("LATE CALL CHARGE SETTLE ERROR", call.id, settleError.message);
+      }
+    }
+
+    const wallet = await Wallet.findOne({ where: { userId } });
+
+    return res.json({ wallet });
+  } catch (error) {
+    if (error instanceof CallChargeCapError) {
+      return res.status(409).json({
+        code: "CALL_ALREADY_PAID",
+        message: "This call time is already paid for",
+      });
+    }
+
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 const RECHARGE_PAGE_SIZE = 20;

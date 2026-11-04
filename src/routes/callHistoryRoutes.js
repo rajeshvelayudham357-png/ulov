@@ -12,6 +12,7 @@ getFemaleMissedCallSummary
 
 }
 from "../controllers/callHistoryController.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 
 
@@ -22,6 +23,7 @@ express.Router();
 
 router.post(
 "/end",
+authMiddleware,
 saveCallHistory
 );
 
