@@ -162,6 +162,7 @@ updateAgoraSettings,
 } from "../services/agoraSettings.service.js";
 import {
 createMasterFemaleTask,
+deleteMasterFemaleTask,
 getMasterFemaleTasks,
 updateMasterFemaleTask,
 listFemaleTaskClaims,
@@ -1840,6 +1841,40 @@ task
 
 const message =
 error?.message || "Unable to update task";
+
+return res
+.status(
+message.includes("not found")
+? 404
+: /required|negative|must be/.test(message)
+? 400
+: 500
+)
+.json({
+message
+});
+
+}
+
+};
+
+
+export const deleteMasterTask =
+async(
+req,
+res
+)=>{
+
+try{
+
+return res.json(
+await deleteMasterFemaleTask(req.params.id)
+);
+
+}catch(error){
+
+const message =
+error?.message || "Unable to delete task";
 
 return res
 .status(

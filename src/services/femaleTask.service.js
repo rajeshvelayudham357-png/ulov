@@ -84,6 +84,26 @@ updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAM
 )`
 );
 
+// Soft delete: the built-in tasks below are re-seeded with INSERT IGNORE on
+// every start, so a removed row would come back; past claims also keep
+// pointing at the task.
+const [deletedColumn] = await sequelize.query(
+`SELECT COLUMN_NAME FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'female_master_tasks'
+AND COLUMN_NAME = 'deletedAt'
+LIMIT 1`,
+{
+type:QueryTypes.SELECT
+}
+);
+
+if(!deletedColumn){
+await sequelize.query(
+"ALTER TABLE female_master_tasks ADD COLUMN deletedAt DATETIME NULL"
+);
+}
+
 for(
 let index = 0;
 index < FEMALE_TASK_DEFINITIONS.length;
@@ -191,16 +211,22 @@ recordFemaleOnlineHeartbeat
 
 export const getMasterFemaleTasks =
 async({
-includeInactive = false
+includeInactive = false,
+includeDeleted = false
 } = {})=>{
 
 await ensureMasterTasksTable();
+
+const conditions = [
+...(includeInactive ? [] : ["active = 1"]),
+...(includeDeleted ? [] : ["deletedAt IS NULL"])
+];
 
 const rows =
 await sequelize.query(
 `SELECT *
 FROM female_master_tasks
-${includeInactive ? "" : "WHERE active = 1"}
+${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
 ORDER BY sortOrder ASC, createdAt ASC`,
 {
 type:QueryTypes.SELECT
@@ -214,11 +240,15 @@ normalizeTask
 };
 
 export const getFemaleTaskDefinition =
-async(taskId)=>{
+async(
+taskId,
+{ includeDeleted = false } = {}
+)=>{
 
 const tasks =
 await getMasterFemaleTasks({
-includeInactive:true
+includeInactive:true,
+includeDeleted
 });
 
 return tasks.find(
@@ -241,8 +271,9 @@ baseId;
 let suffix =
 1;
 
+// Deleted tasks keep their id so claim history never points at a new task.
 while(
-await getFemaleTaskDefinition(id)
+await getFemaleTaskDefinition(id, { includeDeleted:true })
 ){
 
 suffix += 1;
@@ -287,6 +318,27 @@ if(!existing){
 throw new Error("Task not found");
 }
 
+if(
+task.title !== undefined &&
+!String(task.title || "").trim()
+){
+throw new Error("Task title is required");
+}
+
+if(
+task.rewardCoins !== undefined &&
+!(Number(task.rewardCoins) >= 0)
+){
+throw new Error("Reward coins cannot be negative");
+}
+
+if(
+task.cadence !== undefined &&
+!["daily","lifetime"].includes(task.cadence)
+){
+throw new Error("Cadence must be daily or lifetime");
+}
+
 const next = {
 title:task.title ?? existing.title,
 description:task.description ?? existing.description,
@@ -323,6 +375,36 @@ sortOrder:Number(next.sortOrder) || 0
 );
 
 return getFemaleTaskDefinition(taskId);
+
+};
+
+/**
+ * Removes a task from the admin list and the app. Rewards already claimed
+ * stay as they are, and Task Claims still shows the task's name.
+ */
+export const deleteMasterFemaleTask =
+async(taskId)=>{
+
+await ensureMasterTasksTable();
+
+const [, metadata] =
+await sequelize.query(
+`UPDATE female_master_tasks
+SET deletedAt = NOW(),
+active = 0,
+updatedAt = NOW()
+WHERE id = :taskId
+AND deletedAt IS NULL`,
+{
+replacements:{ taskId }
+}
+);
+
+if(!Number(metadata?.affectedRows ?? 0)){
+throw new Error("Task not found");
+}
+
+return { id:taskId, deleted:true };
 
 };
 
@@ -720,6 +802,7 @@ export const listFemaleTaskClaims = async ({
 
   const tasks = await getMasterFemaleTasks({
     includeInactive: true,
+    includeDeleted: true,
   });
 
   const uniqueUsers = new Set(mapped.map((row) => row.userId)).size;

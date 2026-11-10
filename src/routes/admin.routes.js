@@ -61,6 +61,8 @@ import {
 
     updateMasterTask,
 
+    deleteMasterTask,
+
     getTaskClaims,
 
     dashboard,
@@ -636,6 +638,13 @@ router.patch(
 "/master-tasks/:id",
 requirePageAccess("daily-tasks"),
 updateMasterTask
+);
+
+
+router.delete(
+"/master-tasks/:id",
+requirePageAccess("daily-tasks"),
+deleteMasterTask
 );
 
 router.get(
