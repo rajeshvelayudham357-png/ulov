@@ -414,6 +414,12 @@ await sequelize.transaction(async(transaction)=>{
 
 if(firstSettlement && result.history){
  recordCallCompletedFromHistory(result.history);
+ // Male daily-task streak touch (non-blocking; eligibility still recomputed on claim).
+ import("./maleTask.service.js")
+  .then(({ onMaleCallSettledForTasks }) =>
+   onMaleCallSettledForTasks(result.history)
+  )
+  .catch(() => {});
 }
 
 return result;

@@ -168,6 +168,13 @@ updateMasterFemaleTask,
 listFemaleTaskClaims,
 } from "../services/femaleTask.service.js";
 import {
+createMasterMaleTask,
+deleteMasterMaleTask,
+getMasterMaleTasks,
+updateMasterMaleTask,
+listMaleTaskClaims,
+} from "../services/maleTask.service.js";
+import {
 getMaleWalletCreditPackages,
 lookupMaleUserForWalletCredit,
 creditMaleUserWallet,
@@ -215,6 +222,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"suspicious-users", label:"Suspicious Users", path:"/suspicious-users" },
 { key:"online-activity", label:"Online Activity", path:"/online-activity" },
 { key:"active-users", label:"Active Users Now", path:"/active-users" },
+{ key:"female-details", label:"Female Details", path:"/female-details" },
 { key:"female-online", label:"Female Online Control", path:"/female-online" },
 { key:"male-users", label:"Male Users", path:"/male-users" },
 { key:"male-wallet-coins", label:"Male Wallet Coins", path:"/male-wallet-coins" },
@@ -261,6 +269,8 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"finished-battles", label:"Finished Battles", path:"/battles/finished" },
 { key:"daily-tasks", label:"Daily Tasks", path:"/daily-tasks" },
 { key:"task-claims", label:"Task Claims", path:"/task-claims" },
+{ key:"male-daily-tasks", label:"Male Daily Tasks", path:"/male-daily-tasks" },
+{ key:"male-task-claims", label:"Male Task Claims", path:"/male-task-claims" },
 { key:"account-deletion", label:"Account Deletion", path:"/account-deletion" }
 ];
 
@@ -280,6 +290,8 @@ revenue:["recharge-revenue"],
 "scheduled-broadcast":["broadcast"],
 "female-scratch-claims":["female-scratch-reward"],
 "male-scratch-claims":["male-scratch-reward"],
+"male-daily-tasks":["daily-tasks"],
+"male-task-claims":["task-claims"],
 "live-battles":["battles"],
 "finished-battles":["battles"]
 };
@@ -1932,6 +1944,74 @@ message:error.message
 };
 
 
+export const getMaleMasterTasks = async (req, res) => {
+  try {
+    const tasks = await getMasterMaleTasks({ includeInactive: true });
+    return res.json(tasks);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const createMaleMasterTask = async (req, res) => {
+  try {
+    const task = await createMasterMaleTask(req.body);
+    return res.status(201).json(task);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateMaleMasterTask = async (req, res) => {
+  try {
+    const task = await updateMasterMaleTask(req.params.id, req.body);
+    return res.json(task);
+  } catch (error) {
+    const message = error?.message || "Unable to update task";
+    return res
+      .status(
+        message.includes("not found")
+          ? 404
+          : /required|negative|must be/.test(message)
+            ? 400
+            : 500
+      )
+      .json({ message });
+  }
+};
+
+export const deleteMaleMasterTask = async (req, res) => {
+  try {
+    return res.json(await deleteMasterMaleTask(req.params.id));
+  } catch (error) {
+    const message = error?.message || "Unable to delete task";
+    return res
+      .status(message.includes("not found") ? 404 : 500)
+      .json({ message });
+  }
+};
+
+export const getMaleTaskClaimsAdmin = async (req, res) => {
+  try {
+    const date = String(req.query.date || "").trim();
+    const taskId = String(req.query.taskId || "").trim();
+    const cadence = String(req.query.cadence || "daily")
+      .trim()
+      .toLowerCase();
+    const search = String(req.query.search || "").trim();
+
+    const result = await listMaleTaskClaims({
+      date: date || undefined,
+      taskId: taskId || undefined,
+      cadence,
+      search,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 
 const ensureBlockedColumn =

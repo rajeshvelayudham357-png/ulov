@@ -35,6 +35,7 @@ import { ensureBroadcastSchema } from "./broadcastSchema.service.js";
 import { ensureUserOnlineLogSchema } from "./userOnlineLog.service.js";
 import { ensureFemaleScratchRewardSchema } from "./femaleScratchReward.service.js";
 import { ensureMaleScratchRewardSchema } from "./maleScratchReward.service.js";
+import { ensureMaleTaskSchema } from "./maleTask.service.js";
 
 const safeModelSync = async (model, label) => {
   try {
@@ -188,6 +189,8 @@ export const runDatabaseMigrations = async () => {
   await ensureMaleScratchRewardSchema();
   await safeModelSync(MaleScratchReward, "MaleScratchReward");
   await safeModelSync(MaleScratchRewardClaim, "MaleScratchRewardClaim");
+  await ensureMaleTaskSchema();
+  console.log("Male task schema ready");
   await safeModelSync(ChatMessage, "ChatMessage");
   await safeModelSync(CallRating, "CallRating");
   await safeModelSync(Block, "Block");

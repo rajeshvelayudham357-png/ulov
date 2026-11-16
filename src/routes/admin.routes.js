@@ -1,3 +1,4 @@
+import { listFemaleDetails, updateFemaleDetails } from "../controllers/femaleDetailsAdmin.controller.js";
 import express from "express";
 
 
@@ -64,6 +65,16 @@ import {
     deleteMasterTask,
 
     getTaskClaims,
+
+    getMaleMasterTasks,
+
+    createMaleMasterTask,
+
+    updateMaleMasterTask,
+
+    deleteMaleMasterTask,
+
+    getMaleTaskClaimsAdmin,
 
     dashboard,
     
@@ -653,6 +664,36 @@ requirePageAccess("task-claims"),
 getTaskClaims
 );
 
+router.get(
+"/male-master-tasks",
+requirePageAccess("male-daily-tasks"),
+getMaleMasterTasks
+);
+
+router.post(
+"/male-master-tasks",
+requirePageAccess("male-daily-tasks"),
+createMaleMasterTask
+);
+
+router.patch(
+"/male-master-tasks/:id",
+requirePageAccess("male-daily-tasks"),
+updateMaleMasterTask
+);
+
+router.delete(
+"/male-master-tasks/:id",
+requirePageAccess("male-daily-tasks"),
+deleteMaleMasterTask
+);
+
+router.get(
+"/male-task-claims",
+requirePageAccess("male-task-claims"),
+getMaleTaskClaimsAdmin
+);
+
 
 
 router.get(
@@ -1229,6 +1270,9 @@ router.get(
   requirePageAccess("male-engagement"),
   listMaleEngagement
 );
+
+router.get("/female-details", requirePageAccess("female-details"), listFemaleDetails);
+router.patch("/female-details/:id", requirePageAccess("female-details"), updateFemaleDetails);
 
 router.get(
   "/female-online",

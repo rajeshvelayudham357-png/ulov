@@ -2152,3 +2152,53 @@ export const notifyMaleScratchRewards = async ({
   };
 };
 
+/**
+ * Male daily-task reminder / completion / streak nudges.
+ * Respects users.notificationsEnabled via sendPushToUser + saveNotification.
+ */
+export const notifyMaleDailyTaskEvent = async ({
+  userId,
+  title,
+  body,
+  kind = "male_task",
+  taskId = null,
+  rewardCoins = null,
+  data = {},
+} = {}) => {
+  const numericUserId = Number(userId);
+  if (!Number.isFinite(numericUserId) || numericUserId <= 0) {
+    return { notified: false };
+  }
+
+  const cleanTitle = String(title || "").trim();
+  const cleanBody = String(body || "").trim();
+  if (!cleanTitle || !cleanBody) {
+    return { notified: false };
+  }
+
+  const payloadData = {
+    type: kind,
+    taskId: taskId != null ? String(taskId) : "",
+    rewardCoins: rewardCoins != null ? String(rewardCoins) : "",
+    ...data,
+  };
+
+  const pushPayload = buildOutsideAppPushPayload({
+    title: cleanTitle,
+    body: cleanBody,
+    data: payloadData,
+  });
+
+  const pushResult = await sendPushToUser(numericUserId, pushPayload);
+  await saveNotification(numericUserId, {
+    title: cleanTitle,
+    body: cleanBody,
+    data: payloadData,
+  });
+
+  return {
+    notified: true,
+    ...pushResult,
+  };
+};
+
