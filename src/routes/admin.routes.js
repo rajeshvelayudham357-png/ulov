@@ -52,6 +52,8 @@ import {
 
     updateGiftSettingsConfig,
 
+    getGiftReviewsAdmin,
+
     getCreatorCallRateConfig,
 
     updateCreatorCallRateConfig,
@@ -523,6 +525,13 @@ router.patch(
 "/gift-settings",
 requirePageAccess("gift-master"),
 updateGiftSettingsConfig
+);
+
+
+router.get(
+"/gift-reviews",
+requirePageAccess("gift-review"),
+getGiftReviewsAdmin
 );
 
 

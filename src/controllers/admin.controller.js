@@ -153,6 +153,9 @@ getGiftSettings,
 updateGiftSettings,
 } from "../services/giftSettings.service.js";
 import {
+  listAdminGiftReviews,
+} from "../services/callGift.service.js";
+import {
 getAdminPaymentSettingsView,
 updatePaymentSettings,
 } from "../services/paymentSettings.service.js";
@@ -262,6 +265,7 @@ const ADMIN_PAGE_PERMISSIONS = [
 { key:"regular-gold-packages", label:"Regular Gold Packages", path:"/regular-gold-packages" },
 { key:"user-levels", label:"User Levels (Male)", path:"/user-levels" },
 { key:"gift-master", label:"Gift Master", path:"/gift-master" },
+{ key:"gift-review", label:"Gift Review", path:"/gift-review" },
 { key:"spin-wheel", label:"Spin Wheel", path:"/spin-wheel" },
 { key:"voice-rooms", label:"Voice Rooms", path:"/voice-rooms" },
 { key:"battles", label:"Gift Battles Settings", path:"/battles" },
@@ -292,6 +296,7 @@ revenue:["recharge-revenue"],
 "male-scratch-claims":["male-scratch-reward"],
 "male-daily-tasks":["daily-tasks"],
 "male-task-claims":["task-claims"],
+"gift-review":["gift-master"],
 "live-battles":["battles"],
 "finished-battles":["battles"]
 };
@@ -1457,6 +1462,25 @@ message:error.message
 
 }
 
+};
+
+
+export const getGiftReviewsAdmin = async (req, res) => {
+  try {
+    const date = String(req.query.date || "").trim();
+    const giftId = String(req.query.giftId || "").trim();
+    const search = String(req.query.search || "").trim();
+
+    const result = await listAdminGiftReviews({
+      date: date || undefined,
+      giftId: giftId || undefined,
+      search,
+    });
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
 };
 
 

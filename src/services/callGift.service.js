@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 
 import {
   CALL_GIFTS,
@@ -17,6 +17,10 @@ import {
   WalletTransaction,
 } from "../models/index.js";
 import { areUsersBlocked, getBlockedPeerIds } from "./block.service.js";
+import {
+  istDateKeyToUtcRange,
+  toIstDateKey,
+} from "./adminRevenueTime.service.js";
 
 const getDisplayName = (user) => {
   const name = user?.name?.trim();
@@ -370,5 +374,163 @@ export const fetchFemaleReceivedGiftSummary = async ({
       totalGifts,
       totalCoinsEarned,
     },
+  };
+};
+
+const resolveGiftUserName = (row, prefix) =>
+  row[`${prefix}Nickname`] ||
+  (row[`${prefix}Name`] && row[`${prefix}Name`] !== "New User"
+    ? row[`${prefix}Name`]
+    : null) ||
+  row[`${prefix}Username`] ||
+  row[`${prefix}PublicUserId`] ||
+  row[`${prefix}Phone`] ||
+  `User ${row[`${prefix}Id`]}`;
+
+/**
+ * Admin gift review: male → female call gifts for a given IST day.
+ */
+export const listAdminGiftReviews = async ({
+  date,
+  search = "",
+  giftId = "",
+  limit = 500,
+} = {}) => {
+  const reviewDate = String(date || toIstDateKey(new Date())).trim();
+  const { start, end } = istDateKeyToUtcRange(reviewDate);
+  const safeLimit = Math.min(Math.max(Number(limit) || 500, 1), 1000);
+  const normalizedGiftId = String(giftId || "").trim();
+
+  const whereParts = [
+    "g.createdAt >= :startUtc",
+    "g.createdAt <= :endUtc",
+    "LOWER(TRIM(s.gender)) IN ('male', 'm')",
+    "LOWER(TRIM(r.gender)) IN ('female', 'f')",
+  ];
+  const replacements = {
+    startUtc: start,
+    endUtc: end,
+    limit: safeLimit,
+  };
+
+  if (normalizedGiftId) {
+    whereParts.push("g.giftId = :giftId");
+    replacements.giftId = normalizedGiftId;
+  }
+
+  const rows = await sequelize.query(
+    `SELECT
+       g.id,
+       g.senderId,
+       g.receiverId,
+       g.giftId,
+       g.giftTitle,
+       g.giftEmoji,
+       g.coinCost,
+       g.femaleCoins,
+       g.femaleAmount,
+       g.callSessionId,
+       g.createdAt,
+       s.name AS senderName,
+       s.nickname AS senderNickname,
+       s.username AS senderUsername,
+       s.phone AS senderPhone,
+       s.publicUserId AS senderPublicUserId,
+       r.name AS receiverName,
+       r.nickname AS receiverNickname,
+       r.username AS receiverUsername,
+       r.phone AS receiverPhone,
+       r.publicUserId AS receiverPublicUserId
+     FROM call_gift_records g
+     JOIN users s ON s.id = g.senderId
+     JOIN users r ON r.id = g.receiverId
+     WHERE ${whereParts.join(" AND ")}
+     ORDER BY g.createdAt DESC
+     LIMIT :limit`,
+    {
+      replacements,
+      type: QueryTypes.SELECT,
+    }
+  );
+
+  let mapped = rows.map((row) => ({
+    id: Number(row.id),
+    senderId: Number(row.senderId),
+    senderName: resolveGiftUserName(row, "sender"),
+    senderPhone: row.senderPhone || "—",
+    senderPublicUserId: row.senderPublicUserId || "",
+    receiverId: Number(row.receiverId),
+    receiverName: resolveGiftUserName(row, "receiver"),
+    receiverPhone: row.receiverPhone || "—",
+    receiverPublicUserId: row.receiverPublicUserId || "",
+    giftId: row.giftId,
+    giftTitle: row.giftTitle || row.giftId,
+    giftEmoji: row.giftEmoji || "🎁",
+    coinCost: Number(row.coinCost) || 0,
+    femaleCoins: Number(row.femaleCoins) || 0,
+    femaleAmount: Number(row.femaleAmount) || 0,
+    callSessionId: row.callSessionId ? Number(row.callSessionId) : null,
+    sentAt: row.createdAt,
+  }));
+
+  if (search) {
+    const query = String(search).toLowerCase();
+    const compact = query.replace(/[^a-z0-9]/g, "");
+
+    mapped = mapped.filter((row) => {
+      const values = [
+        row.senderName,
+        row.senderPhone,
+        row.senderPublicUserId,
+        row.receiverName,
+        row.receiverPhone,
+        row.receiverPublicUserId,
+        row.giftId,
+        row.giftTitle,
+        String(row.senderId),
+        String(row.receiverId),
+        row.callSessionId ? String(row.callSessionId) : "",
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+
+      return values.some((value) => {
+        const compactValue = value.replace(/[^a-z0-9]/g, "");
+        return (
+          value.includes(query) ||
+          (compact && compactValue.includes(compact))
+        );
+      });
+    });
+  }
+
+  const uniqueSenders = new Set(mapped.map((row) => row.senderId)).size;
+  const uniqueReceivers = new Set(mapped.map((row) => row.receiverId)).size;
+  const totalCoinsSpent = mapped.reduce(
+    (sum, row) => sum + Number(row.coinCost || 0),
+    0
+  );
+  const totalFemaleCoins = mapped.reduce(
+    (sum, row) => sum + Number(row.femaleCoins || 0),
+    0
+  );
+
+  return {
+    summary: {
+      totalGifts: mapped.length,
+      uniqueSenders,
+      uniqueReceivers,
+      totalCoinsSpent,
+      totalFemaleCoins,
+      reviewDate,
+      giftId: normalizedGiftId || null,
+    },
+    gifts: CALL_GIFTS.map((gift) => ({
+      id: gift.id,
+      title: gift.title,
+      emoji: gift.emoji,
+      coins: gift.coins,
+    })),
+    rows: mapped,
   };
 };
